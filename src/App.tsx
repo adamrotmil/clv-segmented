@@ -190,6 +190,25 @@ const scoreControlGroups = [
   { title: 'Psychology', ids: ['valence', 'arousal', 'stopping-power'] },
 ]
 
+function filterScalarsByQuery(scalars: AestheticScalar[], query: string) {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery) return scalars
+
+  return scalars.filter((scalar) =>
+    [
+      scalar.id,
+      scalar.label,
+      scalar.marker,
+      scalar.lowLabel,
+      scalar.highLabel,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+      .includes(normalizedQuery),
+  )
+}
+
 function scalarValue(scalars: AestheticScalar[], id: string) {
   return scalars.find((scalar) => scalar.id === id)?.value ?? 0
 }
@@ -1542,7 +1561,7 @@ function App() {
             <LeftInspector
               selectedAssetId={selectedAssetId}
               onSelectAsset={selectAsset}
-              scalars={draftScalars.slice(0, 4)}
+              scalars={draftScalars}
               committedScalars={scalars}
               onScalarChange={updateScalar}
               onSaveCurrentStyle={saveCurrentStyle}
@@ -1784,8 +1803,13 @@ function LeftInspector({
   const [showAllStyles, setShowAllStyles] = useState(false)
   const [intentOpen, setIntentOpen] = useState(true)
   const [suggestionVisible, setSuggestionVisible] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
   const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0]
   const committedScalarMap = new Map(committedScalars.map((scalar) => [scalar.id, scalar]))
+  const filteredScalars = useMemo(
+    () => filterScalarsByQuery(scalars, searchQuery),
+    [scalars, searchQuery],
+  )
 
   return (
     <aside className="left-panel">
@@ -1894,10 +1918,16 @@ function LeftInspector({
         </section>
       ) : null}
 
-      <div className="search-box">
+      <label className="search-box">
         <Search size={18} />
-        <span>Search...</span>
-      </div>
+        <input
+          aria-label="Search aesthetics"
+          type="search"
+          placeholder="Search..."
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+        />
+      </label>
 
       <section className="intent-section">
         <AccordionHeader
@@ -1908,15 +1938,19 @@ function LeftInspector({
           compact
         />
         {intentOpen ? (
-          <div id="intent-style-panel">
-            {scalars.map((scalar) => (
-              <ScalarSlider
-                key={scalar.id}
-                scalar={scalar}
-                committedValue={committedScalarMap.get(scalar.id)?.value}
-                onChange={(value) => onScalarChange(scalar.id, value)}
-              />
-            ))}
+          <div className="intent-slider-list" id="intent-style-panel">
+            {filteredScalars.length ? (
+              filteredScalars.map((scalar) => (
+                <ScalarSlider
+                  key={scalar.id}
+                  scalar={scalar}
+                  committedValue={committedScalarMap.get(scalar.id)?.value}
+                  onChange={(value) => onScalarChange(scalar.id, value)}
+                />
+              ))
+            ) : (
+              <p className="empty-search">No matching aesthetics</p>
+            )}
           </div>
         ) : null}
       </section>
@@ -3113,11 +3147,11 @@ function ScoreInsights({
   showRemix?: boolean
   showLabels?: boolean
 }) {
-  const plotScalars = scalars.slice(0, 12)
+  const plotScalars = scalars
   const points = plotScalars
     .map((scalar, index) => {
       const angle = (Math.PI * 2 * index) / plotScalars.length - Math.PI / 2
-      const radius = 18 + (scalar.value / 100) * 62
+      const radius = (scalar.value / 100) * 82
       return `${90 + Math.cos(angle) * radius},${90 + Math.sin(angle) * radius}`
     })
     .join(' ')
@@ -3149,16 +3183,20 @@ function ScoreInsights({
         </svg>
         {showLabels ? (
           <div className="radar-labels" aria-hidden="true">
-            <span style={{ left: '50%', top: '0%' }}>Staging</span>
-            <span style={{ left: '78%', top: '9%' }}>Abstraction</span>
-            <span style={{ left: '96%', top: '28%' }}>Novelty</span>
-            <span style={{ left: '96%', top: '53%' }}>Hardness</span>
-            <span style={{ left: '78%', top: '82%' }}>Key</span>
-            <span style={{ left: '48%', top: '96%' }}>Balance</span>
-            <span style={{ left: '13%', top: '82%' }}>Groundedness</span>
-            <span style={{ left: '0%', top: '54%' }}>Gaze</span>
-            <span style={{ left: '5%', top: '30%' }}>Arousal</span>
-            <span style={{ left: '18%', top: '10%' }}>Stopping Power</span>
+            {plotScalars.map((scalar, index) => {
+              const angle = (Math.PI * 2 * index) / plotScalars.length - Math.PI / 2
+              return (
+                <span
+                  key={scalar.id}
+                  style={{
+                    left: `${50 + Math.cos(angle) * 50}%`,
+                    top: `${50 + Math.sin(angle) * 50}%`,
+                  }}
+                >
+                  {scalar.label}
+                </span>
+              )
+            })}
           </div>
         ) : null}
       </div>
@@ -3213,7 +3251,12 @@ function HybridInsightsPanel({
 }) {
   const [intentOpen, setIntentOpen] = useState(true)
   const [suggestionVisible, setSuggestionVisible] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
   const committedScalarMap = new Map(committedScalars.map((scalar) => [scalar.id, scalar]))
+  const filteredEditScalars = useMemo(
+    () => filterScalarsByQuery(editScalars, searchQuery),
+    [editScalars, searchQuery],
+  )
 
   return (
     <aside className="hybrid-panel">
@@ -3244,10 +3287,16 @@ function HybridInsightsPanel({
           <p>Increase process materiality and reduce abstraction to create a more authentic look and feel.</p>
         </section>
       ) : null}
-      <div className="search-box hybrid-search">
+      <label className="search-box hybrid-search">
         <Search size={18} />
-        <span>Search...</span>
-      </div>
+        <input
+          aria-label="Search hybrid aesthetics"
+          type="search"
+          placeholder="Search..."
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+        />
+      </label>
       <section className="intent-section hybrid-sliders">
         <AccordionHeader
           id="hybrid-intent-style-panel"
@@ -3257,15 +3306,19 @@ function HybridInsightsPanel({
           compact
         />
         {intentOpen ? (
-          <div id="hybrid-intent-style-panel">
-            {editScalars.slice(0, 4).map((scalar) => (
-              <ScalarSlider
-                key={scalar.id}
-                scalar={scalar}
-                committedValue={committedScalarMap.get(scalar.id)?.value}
-                onChange={(value) => onScalarChange(scalar.id, value)}
-              />
-            ))}
+          <div className="intent-slider-list" id="hybrid-intent-style-panel">
+            {filteredEditScalars.length ? (
+              filteredEditScalars.map((scalar) => (
+                <ScalarSlider
+                  key={scalar.id}
+                  scalar={scalar}
+                  committedValue={committedScalarMap.get(scalar.id)?.value}
+                  onChange={(value) => onScalarChange(scalar.id, value)}
+                />
+              ))
+            ) : (
+              <p className="empty-search">No matching aesthetics</p>
+            )}
           </div>
         ) : null}
       </section>

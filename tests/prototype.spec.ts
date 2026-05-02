@@ -64,6 +64,40 @@ test('asset and version selectors update the active editor context', async ({ pa
   await expect(page.getByRole('button', { name: /v 1.0.0/ }).first()).toBeVisible()
 })
 
+test('aesthetic search filters the full star plot slider set', async ({ page }) => {
+  await page.goto('/')
+
+  const intentList = page.locator('#intent-style-panel')
+  await expect(intentList.locator('.scalar')).toHaveCount(16)
+  const scrollMetrics = await page.locator('.intent-slider-list').first().evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }))
+  expect(scrollMetrics.scrollHeight).toBeGreaterThan(scrollMetrics.clientHeight)
+
+  await page.getByLabel('Search aesthetics').fill('gaze')
+  await expect(intentList.locator('.scalar')).toHaveCount(1)
+  await expect(intentList).toContainText('Gaze')
+  await expect(intentList).not.toContainText('Staging')
+
+  await page.getByLabel('Search aesthetics').fill('stopping')
+  await expect(intentList.locator('.scalar')).toHaveCount(1)
+  await expect(intentList).toContainText('Stopping Power')
+
+  await page.getByLabel('Search aesthetics').fill('')
+  await page.getByRole('button', { name: 'Product placement' }).last().click()
+  await page.getByRole('button', { name: /Open score workspace/ }).click()
+  await page.getByRole('button', { name: 'Edit Image with AI' }).click()
+  await expect(page.locator('.radar-labels span')).toHaveCount(16)
+  await expect(page.locator('.radar-labels')).toContainText('Emotional Valence')
+  await expect(page.locator('.radar-labels')).toContainText('Stopping Power')
+  const hybridList = page.locator('#hybrid-intent-style-panel')
+  await expect(hybridList.locator('.scalar')).toHaveCount(16)
+  await page.getByLabel('Search hybrid aesthetics').fill('arousal')
+  await expect(hybridList.locator('.scalar')).toHaveCount(1)
+  await expect(hybridList).toContainText('Arousal')
+})
+
 test('editor chrome hover states do not move controls', async ({ page }) => {
   await page.goto('/')
 

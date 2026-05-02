@@ -185,6 +185,7 @@ button {
   background: #fff;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: rgba(19, 19, 22, 0.16) transparent;
 }
@@ -457,9 +458,56 @@ button {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
+.search-box:focus-within {
+  border-color: #c6c8d0;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 0 0 2px rgba(47, 107, 255, 0.08);
+}
+
+.search-box input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #23242b;
+  font: inherit;
+}
+
+.search-box input::placeholder {
+  color: #898b92;
+}
+
+.search-box input::-webkit-search-cancel-button {
+  opacity: 0.48;
+}
+
 .intent-section {
   margin-top: 14px;
   padding-top: 0;
+}
+
+.intent-slider-list {
+  max-height: min(410px, calc(100vh - 492px));
+  padding-right: 4px;
+  margin-right: -4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(19, 19, 22, 0.16) transparent;
+}
+
+.hybrid-sliders .intent-slider-list {
+  max-height: min(430px, calc(100vh - 382px));
+}
+
+.empty-search {
+  margin: 10px 0 0;
+  color: #8a8c94;
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .scalar {
@@ -1351,8 +1399,11 @@ button {
 
 .radar-labels span {
   position: absolute;
+  max-width: 82px;
+  line-height: 1.05;
+  text-align: center;
   transform: translate(-50%, -50%);
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .radar circle,
@@ -2096,10 +2147,10 @@ button {
 }
 
 .hybrid-panel .radar {
-  width: 232px;
-  height: 208px;
-  margin-top: -18px;
-  margin-bottom: -20px;
+  width: 196px;
+  height: 176px;
+  margin-top: -10px;
+  margin-bottom: -10px;
 }
 
 .hybrid-panel .radar-shell {
@@ -2108,8 +2159,12 @@ button {
 }
 
 .hybrid-panel .radar-labels {
-  inset: -6px -34px;
-  font-size: 13px;
+  inset: -8px -34px;
+  font-size: 9px;
+}
+
+.hybrid-panel .radar-labels span {
+  max-width: 64px;
 }
 
 .hybrid-signal {
