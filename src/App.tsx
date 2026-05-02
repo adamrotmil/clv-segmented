@@ -1621,6 +1621,7 @@ function HybridInsightsPanel({
         showRemix={false}
         showLabels
       />
+      <HybridSignal trace={trace} tasks={agentTasks} paused={agentPaused} pendingPhase={pendingPhase} />
       <section className="suggestion-card hybrid-suggestion">
         <div className="suggestion-head">
           <Sparkles size={18} />
@@ -1665,6 +1666,36 @@ function HybridInsightsPanel({
         compact
       />
     </aside>
+  )
+}
+
+function HybridSignal({
+  trace,
+  tasks,
+  paused,
+  pendingPhase,
+}: {
+  trace: ChangeTrace
+  tasks: AgentTask[]
+  paused: boolean
+  pendingPhase: PendingPhase
+}) {
+  const activeTask =
+    tasks.find((task) => task.status === 'running') ??
+    tasks.find((task) => task.kind === 'loop') ??
+    tasks[0]
+
+  return (
+    <section className="hybrid-signal" aria-label="Hybrid interaction insight">
+      <div>
+        <span>What changed</span>
+        <strong>{trace.what}</strong>
+      </div>
+      <p>{trace.why}</p>
+      <small>
+        {paused ? 'Paused' : pendingPhase === 'idle' ? 'Loop ready' : pendingPhase} · {activeTask.label}
+      </small>
+    </section>
   )
 }
 

@@ -1686,7 +1686,7 @@ button {
 }
 
 .hybrid-panel .score-insights {
-  margin-bottom: 32px;
+  margin-bottom: 12px;
   border: 0;
   box-shadow: none;
 }
@@ -1706,10 +1706,10 @@ button {
 }
 
 .hybrid-panel .radar {
-  width: 250px;
-  height: 230px;
+  width: 232px;
+  height: 208px;
   margin-top: -18px;
-  margin-bottom: -12px;
+  margin-bottom: -20px;
 }
 
 .hybrid-panel .radar-shell {
@@ -1720,6 +1720,63 @@ button {
 .hybrid-panel .radar-labels {
   inset: -6px -34px;
   font-size: 13px;
+}
+
+.hybrid-signal {
+  margin-bottom: 12px;
+  padding: 10px 11px;
+  border: 1px solid rgba(19, 19, 22, 0.12);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow-static);
+}
+
+.hybrid-signal div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 9px;
+}
+
+.hybrid-signal span {
+  color: #7a7a7c;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+}
+
+.hybrid-signal strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #131316;
+  font-size: 11px;
+  font-weight: 720;
+  line-height: 15px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hybrid-signal p {
+  display: -webkit-box;
+  margin: 5px 0 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: #3d3e45;
+  font-size: 11px;
+  font-weight: 430;
+  line-height: 15px;
+}
+
+.hybrid-signal small {
+  display: block;
+  margin-top: 6px;
+  color: #7a7a7c;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 14px;
+  text-transform: capitalize;
 }
 
 .hybrid-suggestion {
