@@ -13,6 +13,8 @@ export type ImageVariant = {
   score: number
   delta?: number
   filter?: string
+  ingredients?: string[]
+  sourceIds?: string[]
 }
 
 export type AestheticScalar = {

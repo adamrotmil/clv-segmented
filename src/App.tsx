@@ -1,23 +1,30 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, ReactNode } from 'react'
 import {
+  AlertTriangle,
   ArrowUp,
   Bell,
   Bot,
   Bookmark,
   Building2,
   ChartNoAxesColumn,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   CirclePlus,
+  GitBranch,
+  History,
   EyeOff,
   LogIn,
   MoreHorizontal,
+  Pause,
+  Play,
   Plus,
   RefreshCw,
   Search,
   Settings,
   Sparkles,
+  Undo2,
   X,
 } from 'lucide-react'
 import './App.css'
@@ -36,6 +43,49 @@ import type {
 } from './types'
 
 type EditorMode = 'edit' | 'score' | 'hybrid'
+type PendingPhase = 'idle' | 'analyzing' | 'applying' | 'remixing' | 'failed'
+type AgentStatus = 'queued' | 'running' | 'done' | 'paused' | 'failed'
+
+type ChangeTrace = {
+  id: string
+  control: string
+  what: string
+  why: string
+  before: string
+  after: string
+  scoreBefore: number
+  scoreAfter: number
+  segment: string
+  ingredients: string[]
+}
+
+type HistoryEntry = ChangeTrace & {
+  scalarsBefore: AestheticScalar[]
+  scalarsAfter: AestheticScalar[]
+  scoreScalarsBefore: AestheticScalar[]
+  scoreScalarsAfter: AestheticScalar[]
+  variantIdBefore: string
+  variantIdAfter: string
+}
+
+type SavedIdea = {
+  id: 'idea-a' | 'idea-b'
+  label: 'Variant A' | 'Variant B'
+  score: number
+  ingredients: string[]
+  scalars: AestheticScalar[]
+}
+
+type AgentTask = {
+  id: string
+  label: string
+  kind: 'agent' | 'sub-agent' | 'swarm' | 'loop'
+  status: AgentStatus
+  goal: string
+  input: string
+  output: string
+  test: string
+}
 
 const scoreScalarPreset: Record<string, Pick<AestheticScalar, 'value' | 'marker'>> = {
   staging: { value: 50, marker: 'Constructed' },
@@ -49,7 +99,117 @@ function applyScorePreset(scalars: AestheticScalar[]) {
   )
 }
 
+const initialTrace: ChangeTrace = {
+  id: 'seed',
+  control: 'Creative prompt',
+  what: 'Updated image is projected at ES 83%.',
+  why: 'The visible face and warmer direct-response copy increase emotional engagement.',
+  before: 'ES 74%',
+  after: 'ES 83%',
+  scoreBefore: 74,
+  scoreAfter: 83,
+  segment: 'Emotional engagement',
+  ingredients: ['Face visibility', 'CTA clarity', 'Warmer tone'],
+}
+
+const initialAgentTasks: AgentTask[] = [
+  {
+    id: 'vision',
+    label: 'Vision scan',
+    kind: 'agent',
+    status: 'done',
+    goal: 'Read the active creative and selected segment.',
+    input: 'Original + updated canvas',
+    output: 'Face, copy, CTA, product zones detected',
+    test: 'Segments visible',
+  },
+  {
+    id: 'segment',
+    label: 'Segment scorer',
+    kind: 'sub-agent',
+    status: 'done',
+    goal: 'Estimate local engagement deltas.',
+    input: 'SAM frames + scalar values',
+    output: 'Emotion +7, Resonance +3',
+    test: 'Score badges rendered',
+  },
+  {
+    id: 'prompt',
+    label: 'Prompt editor',
+    kind: 'loop',
+    status: 'queued',
+    goal: 'Translate slider changes into prompt constraints.',
+    input: 'Latest scalar trace',
+    output: 'Waiting for interaction',
+    test: 'No pending work',
+  },
+  {
+    id: 'variant',
+    label: 'Variant generator',
+    kind: 'swarm',
+    status: 'queued',
+    goal: 'Create remix candidates from saved ideas.',
+    input: 'Variant A + Variant B',
+    output: 'No remix yet',
+    test: 'Combine not run',
+  },
+]
+
+function scalarValue(scalars: AestheticScalar[], id: string) {
+  return scalars.find((scalar) => scalar.id === id)?.value ?? 0
+}
+
+function projectedDelta(scalars: AestheticScalar[]) {
+  const delta = Math.round(
+    (scalarValue(scalars, 'staging') - 78) / 8 +
+      (23 - scalarValue(scalars, 'abstraction')) / 6 +
+      (scalarValue(scalars, 'novelty') - 58) / 10 +
+      (scalarValue(scalars, 'materiality') - 50) / 12,
+  )
+  return Math.max(-8, Math.min(12, delta))
+}
+
+function projectedScore(scalars: AestheticScalar[]) {
+  return Math.max(68, Math.min(96, 83 + projectedDelta(scalars)))
+}
+
+function clampFilterValue(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
+}
+
+function imageFilterForScalars(scalars: AestheticScalar[]) {
+  const contrast = clampFilterValue(1 + (23 - scalarValue(scalars, 'abstraction')) / 260, 0.9, 1.13)
+  const saturation = clampFilterValue(1 + (scalarValue(scalars, 'novelty') - 58) / 220, 0.86, 1.22)
+  const brightness = clampFilterValue(1 + (scalarValue(scalars, 'staging') - 78) / 320, 0.94, 1.08)
+  const sepia = clampFilterValue((scalarValue(scalars, 'materiality') - 50) / 520, 0, 0.12)
+  return `contrast(${contrast.toFixed(2)}) saturate(${saturation.toFixed(2)}) brightness(${brightness.toFixed(2)}) sepia(${sepia.toFixed(2)})`
+}
+
+function scalarReason(scalar: AestheticScalar, value: number) {
+  if (scalar.id === 'staging') {
+    return value > scalar.value
+      ? 'More candid staging makes the face feel less constructed, so the emotional segment carries more of the score.'
+      : 'More constructed staging reduces spontaneity, so the projected engagement softens.'
+  }
+  if (scalar.id === 'abstraction') {
+    return value < scalar.value
+      ? 'Lower abstraction makes the image read more literally and helps the product and CTA resolve faster.'
+      : 'Higher abstraction makes the edit feel more stylized, which can weaken immediate conversion clarity.'
+  }
+  if (scalar.id === 'novelty') {
+    return value > scalar.value
+      ? 'Higher novelty increases stopping power, but the system keeps the CTA anchored so it still reads as shoppable.'
+      : 'Lower novelty makes the edit safer and more familiar, reducing the predicted scroll-stop lift.'
+  }
+  return `${scalar.label} moved, so the prompt weighting and projected image treatment were recomputed.`
+}
+
+function formatTraceValue(scalar: AestheticScalar, value: number) {
+  return `${scalar.label} ${Math.round(value)}`
+}
+
 function App() {
+  const workTimer = useRef<number | undefined>(undefined)
   const [selectedAssetId, setSelectedAssetId] = useState(assets[0].id)
   const [selectedVariantId, setSelectedVariantId] = useState('updated')
   const [selectedSegmentId, setSelectedSegmentId] = useState('')
@@ -60,55 +220,272 @@ function App() {
   const [variants, setVariants] = useState(initialVariants)
   const [messages, setMessages] = useState(initialMessages)
   const [chatValue, setChatValue] = useState('')
-  const [isGenerating, setIsGenerating] = useState(true)
+  const [pendingPhase, setPendingPhase] = useState<PendingPhase>('idle')
+  const [workError, setWorkError] = useState('')
   const [toast, setToast] = useState('')
   const [mode, setMode] = useState<EditorMode>('edit')
+  const [lastChange, setLastChange] = useState<ChangeTrace>(initialTrace)
+  const [history, setHistory] = useState<HistoryEntry[]>([])
+  const [savedIdeas, setSavedIdeas] = useState<SavedIdea[]>([])
+  const [agentTasks, setAgentTasks] = useState<AgentTask[]>(initialAgentTasks)
+  const [agentPaused, setAgentPaused] = useState(false)
 
   const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0]
   const selectedSegment = segments.find((segment) => segment.id === selectedSegmentId) ?? null
   const activeSegment = selectedSegment ?? segments[0]
-  const totalLift = useMemo(
+  const workingScore = projectedScore(scalars)
+  const workingVariants = useMemo(
     () =>
-      Math.max(
-        0,
-        Math.round(
-          (scalars.find((scalar) => scalar.id === 'staging')?.value ?? 0) / 20 +
-            (100 - (scalars.find((scalar) => scalar.id === 'abstraction')?.value ?? 0)) / 50 +
-            ((scalars.find((scalar) => scalar.id === 'novelty')?.value ?? 0) - 50) / 35,
-        ),
+      variants.map((variant) =>
+        variant.id === 'updated'
+          ? {
+              ...variant,
+              score: workingScore,
+              delta: Math.max(0, workingScore - 76),
+              filter: imageFilterForScalars(scalars),
+            }
+          : variant,
       ),
-    [scalars],
+    [scalars, variants, workingScore],
   )
 
   function updateScalar(id: string, value: number) {
-    setScalars((current) =>
-      current.map((scalar) => (scalar.id === id ? { ...scalar, value } : scalar)),
-    )
-    setIsGenerating(true)
+    applyScalarChange(id, value, 'edit')
   }
 
   function updateScoreScalar(id: string, value: number) {
-    setScoreScalars((current) =>
-      current.map((scalar) => (scalar.id === id ? { ...scalar, value } : scalar)),
+    applyScalarChange(id, value, 'score')
+  }
+
+  function applyScalarChange(id: string, value: number, target: 'edit' | 'score') {
+    const source = target === 'score' ? scoreScalars : scalars
+    const scalar = source.find((item) => item.id === id)
+    if (!scalar || scalar.value === value) return
+    const beforeScalars = scalars
+    const beforeScoreScalars = scoreScalars
+    const beforeScore = projectedScore(scalars)
+    const nextSource = source.map((item) => (item.id === id ? { ...item, value } : item))
+    const nextScalars = target === 'score' ? scalars : nextSource
+    const nextScoreScalars = target === 'score' ? nextSource : scoreScalars
+    const scoreAfter = projectedScore(nextScalars)
+    const trace: ChangeTrace = {
+      id: `${id}-${Date.now()}`,
+      control: scalar.label,
+      what: `${scalar.label} moved from ${Math.round(scalar.value)} to ${Math.round(value)}.`,
+      why: scalarReason(scalar, value),
+      before: formatTraceValue(scalar, scalar.value),
+      after: formatTraceValue(scalar, value),
+      scoreBefore: beforeScore,
+      scoreAfter,
+      segment: activeSegment.label,
+      ingredients: [
+        `${scalar.label} ${value > scalar.value ? '+' : ''}${Math.round(value - scalar.value)}`,
+        `${activeSegment.label} ${activeSegment.delta >= 0 ? '+' : ''}${activeSegment.delta}%`,
+        `Projected ES ${scoreAfter}%`,
+      ],
+    }
+    const entry: HistoryEntry = {
+      ...trace,
+      scalarsBefore: beforeScalars,
+      scalarsAfter: nextScalars,
+      scoreScalarsBefore: beforeScoreScalars,
+      scoreScalarsAfter: nextScoreScalars,
+      variantIdBefore: selectedVariantId,
+      variantIdAfter: selectedVariantId,
+    }
+    if (target === 'score') {
+      setScoreScalars(nextScoreScalars)
+    } else {
+      setScalars(nextScalars)
+    }
+    setLastChange(trace)
+    setHistory((current) => [entry, ...current].slice(0, 6))
+    startWork('analyzing', trace)
+  }
+
+  function startWork(phase: Exclude<PendingPhase, 'idle' | 'failed'>, trace: ChangeTrace) {
+    window.clearTimeout(workTimer.current)
+    setWorkError('')
+    setPendingPhase(phase)
+    setAgentTasks((current) =>
+      current.map((task) => {
+        if (agentPaused) return { ...task, status: 'paused', test: 'Loop paused' }
+        if (task.id === 'prompt') {
+          return {
+            ...task,
+            status: 'running',
+            input: trace.what,
+            output: 'Recomputing prompt weights',
+            test: 'Pending shimmer visible',
+          }
+        }
+        if (task.id === 'segment') {
+          return {
+            ...task,
+            status: 'running',
+            input: trace.segment,
+            output: `Projected ES ${trace.scoreBefore}% → ${trace.scoreAfter}%`,
+            test: 'Score trace updated',
+          }
+        }
+        return task
+      }),
+    )
+    workTimer.current = window.setTimeout(() => {
+      setPendingPhase('idle')
+      setAgentTasks((current) =>
+        current.map((task) =>
+          task.status === 'running'
+            ? {
+                ...task,
+                status: 'done',
+                output: task.id === 'prompt' ? 'Prompt patch ready' : task.output,
+                test: 'Passed',
+              }
+            : task,
+        ),
+      )
+    }, 760)
+  }
+
+  function failWork() {
+    window.clearTimeout(workTimer.current)
+    setPendingPhase('failed')
+    setWorkError('Critic pass could not reconcile product placement with CTA clarity.')
+    setAgentTasks((current) =>
+      current.map((task) =>
+        task.id === 'variant'
+          ? { ...task, status: 'failed', output: 'Needs clearer product crop', test: 'Failed' }
+          : task,
+      ),
     )
   }
 
   function remixImage() {
+    combineIdeas()
+  }
+
+  function saveIdea(slot: 'idea-a' | 'idea-b') {
+    const label = slot === 'idea-a' ? 'Variant A' : 'Variant B'
+    const idea: SavedIdea = {
+      id: slot,
+      label,
+      score: workingScore,
+      ingredients: lastChange.ingredients,
+      scalars,
+    }
+    setSavedIdeas((current) => [idea, ...current.filter((item) => item.id !== slot)])
+    setToast(`${label} saved`)
+    window.setTimeout(() => setToast(''), 1600)
+  }
+
+  function combineIdeas() {
+    const ideaA = savedIdeas.find((idea) => idea.id === 'idea-a')
+    const ideaB = savedIdeas.find((idea) => idea.id === 'idea-b')
+    const sources = [ideaA, ideaB].filter(Boolean) as SavedIdea[]
+    const ingredients =
+      sources.length === 2
+        ? [...sources[0].ingredients.slice(0, 2), ...sources[1].ingredients.slice(0, 2)]
+        : lastChange.ingredients
     const nextId = `remix-${Date.now()}`
     const remix: ImageVariant = {
       id: nextId,
-      title: `Remix ${variants.length}`,
+      title: sources.length === 2 ? 'Remix A+B' : `Remix ${variants.length}`,
       kind: 'generated',
       image: initialVariants[1].image,
-      score: Math.min(96, 86 + totalLift),
-      delta: Math.max(4, totalLift),
-      filter: 'contrast(1.08) saturate(1.08) brightness(1.03)',
+      score: Math.min(96, workingScore + (sources.length === 2 ? 3 : 1)),
+      delta: sources.length === 2 ? 6 : Math.max(1, projectedDelta(scalars)),
+      filter: `${imageFilterForScalars(scalars)} contrast(1.05)`,
+      ingredients,
+      sourceIds: sources.map((source) => source.id),
+    }
+    const trace: ChangeTrace = {
+      id: `${nextId}-trace`,
+      control: 'Remix',
+      what:
+        sources.length === 2
+          ? 'Combined Variant A and Variant B into Remix A+B.'
+          : 'Created a remix from the current scalar trace.',
+      why:
+        sources.length === 2
+          ? 'The remix keeps the strongest saved prompt ingredients from both sources instead of overwriting either idea.'
+          : 'The generator used the latest scalar changes and segment delta as prompt constraints.',
+      before: sources.length === 2 ? `${sources[0].label} + ${sources[1].label}` : selectedVariantId,
+      after: remix.title,
+      scoreBefore: workingScore,
+      scoreAfter: remix.score,
+      segment: activeSegment.label,
+      ingredients,
     }
     setVariants((current) => [...current, remix])
     setSelectedVariantId(nextId)
-    setIsGenerating(false)
-    setToast('Remix generated')
+    setLastChange(trace)
+    setHistory((current) =>
+      [
+        {
+          ...trace,
+          scalarsBefore: scalars,
+          scalarsAfter: scalars,
+          scoreScalarsBefore: scoreScalars,
+          scoreScalarsAfter: scoreScalars,
+          variantIdBefore: selectedVariantId,
+          variantIdAfter: nextId,
+        },
+        ...current,
+      ].slice(0, 6),
+    )
+    setAgentTasks((current) =>
+      current.map((task) =>
+        task.id === 'variant'
+          ? {
+              ...task,
+              status: 'running',
+              input: sources.length === 2 ? 'Variant A + Variant B' : 'Current trace',
+              output: 'Generating remix candidate',
+              test: 'Pending shimmer visible',
+            }
+          : task,
+      ),
+    )
+    startWork('remixing', trace)
+    setToast(sources.length === 2 ? 'Ideas combined' : 'Remix generated')
     window.setTimeout(() => setToast(''), 1800)
+  }
+
+  function undoLastChange() {
+    const [entry] = history
+    if (!entry) return
+    setScalars(entry.scalarsBefore)
+    setScoreScalars(entry.scoreScalarsBefore)
+    setSelectedVariantId(entry.variantIdBefore)
+    const trace: ChangeTrace = {
+      ...entry,
+      id: `undo-${Date.now()}`,
+      what: `Undid ${entry.control}.`,
+      why: 'The previous scalar and output snapshot was restored from history.',
+      before: entry.after,
+      after: entry.before,
+      scoreBefore: entry.scoreAfter,
+      scoreAfter: entry.scoreBefore,
+      ingredients: ['Undo', entry.control, `Projected ES ${entry.scoreBefore}%`],
+    }
+    setLastChange(trace)
+    setHistory((current) => current.slice(1))
+    startWork('applying', trace)
+  }
+
+  function restoreHistory(entry: HistoryEntry) {
+    setScalars(entry.scalarsAfter)
+    setScoreScalars(entry.scoreScalarsAfter)
+    setSelectedVariantId(entry.variantIdAfter)
+    const trace: ChangeTrace = {
+      ...entry,
+      id: `restore-${Date.now()}`,
+      what: `Restored ${entry.control}.`,
+      why: 'The timeline entry reapplied its saved controls, output score, and explanation.',
+    }
+    setLastChange(trace)
+    startWork('applying', trace)
   }
 
   function openScoreMode(segmentId: string) {
@@ -127,6 +504,7 @@ function App() {
     event.preventDefault()
     const trimmed = chatValue.trim()
     if (!trimmed) return
+    const lower = trimmed.toLowerCase()
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
@@ -134,17 +512,39 @@ function App() {
     }
     setMessages((current) => [...current, userMessage])
     setChatValue('')
-    setIsGenerating(true)
+    if (lower.includes('fail') || lower.includes('simulate failure')) {
+      failWork()
+      setMessages((current) => [
+        ...current,
+        {
+          id: `assistant-failed-${Date.now()}`,
+          role: 'assistant',
+          content: 'The critic pass failed on product placement. I left the artifact visible so you can retry or adjust the segment.',
+        },
+      ])
+      return
+    }
+    if (lower.includes('candid') || lower.includes('face')) {
+      applyScalarChange('staging', Math.min(100, scalarValue(scalars, 'staging') + 8), 'edit')
+    } else {
+      startWork('applying', lastChange)
+    }
     window.setTimeout(() => {
+      const nextStep =
+        savedIdeas.length < 2
+          ? 'Save two ideas, then combine them into a remix.'
+          : 'You have enough saved signal to combine ideas or generate a remix.'
       setMessages((current) => [
         ...current,
         {
           id: `assistant-${Date.now()}`,
           role: 'assistant',
-          content: 'I updated the working prompt and marked the strongest canvas areas for review.',
+          content:
+            lower.includes('what should i do next') || lower.includes('next')
+              ? `Next: ${nextStep} Current focus is ${activeSegment.label}; latest change is ${lastChange.control}.`
+              : `Applied state-aware guidance to ${activeSegment.label}. Latest trace: ${lastChange.what}`,
         },
       ])
-      setIsGenerating(false)
     }, 650)
   }
 
@@ -163,7 +563,7 @@ function App() {
             />
             <CanvasWorkspace
               selectedAsset={selectedAsset}
-              variants={variants}
+              variants={workingVariants}
               selectedVariantId={selectedVariantId}
               onSelectVariant={setSelectedVariantId}
               annotationsVisible={annotationsVisible}
@@ -172,21 +572,42 @@ function App() {
               onZoomChange={setZoom}
               selectedSegmentId={selectedSegmentId}
               onSelectSegment={openScoreMode}
+              lastChange={lastChange}
+              pendingPhase={pendingPhase}
             />
             <AssistantPanel
               messages={messages}
-              isGenerating={isGenerating}
+              pendingPhase={pendingPhase}
+              workError={workError}
               chatValue={chatValue}
               onChatValueChange={setChatValue}
               onSubmit={sendChat}
+              trace={lastChange}
+              history={history}
+              onUndo={undoLastChange}
+              onRestore={restoreHistory}
+              savedIdeas={savedIdeas}
+              onSaveIdea={saveIdea}
+              onCombineIdeas={combineIdeas}
+              agentTasks={agentTasks}
+              agentPaused={agentPaused}
+              onToggleAgentPaused={() => setAgentPaused((paused) => !paused)}
             />
           </div>
         ) : mode === 'score' ? (
           <div className="editor-body score-editor-body">
-            <ScoreControlsPanel scalars={scoreScalars} onScalarChange={updateScoreScalar} />
+            <ScoreControlsPanel
+              scalars={scoreScalars}
+              onScalarChange={updateScoreScalar}
+              trace={lastChange}
+            />
             <ScoreWorkspace
               selectedAsset={selectedAsset}
-              variant={initialVariants[0]}
+              variant={{
+                ...initialVariants[0],
+                filter: imageFilterForScalars(scoreScalars),
+                score: projectedScore(scoreScalars),
+              }}
               selectedSegmentId={activeSegment.id}
               annotationsVisible={annotationsVisible}
               onToggleAnnotations={() => setAnnotationsVisible((visible) => !visible)}
@@ -194,6 +615,8 @@ function App() {
               onOpenHybrid={openHybridMode}
               onZoomChange={setZoom}
               mode="score"
+              pendingPhase={pendingPhase}
+              lastChange={lastChange}
             />
           </div>
         ) : (
@@ -202,10 +625,15 @@ function App() {
               scalars={scoreScalars}
               onScalarChange={updateScoreScalar}
               variant="hybrid"
+              trace={lastChange}
             />
             <ScoreWorkspace
               selectedAsset={selectedAsset}
-              variant={initialVariants[0]}
+              variant={{
+                ...initialVariants[0],
+                filter: imageFilterForScalars(scoreScalars),
+                score: projectedScore(scoreScalars),
+              }}
               selectedSegmentId={activeSegment.id}
               annotationsVisible={annotationsVisible}
               onToggleAnnotations={() => setAnnotationsVisible((visible) => !visible)}
@@ -215,12 +643,26 @@ function App() {
               mode="hybrid"
               onReset={() => setMode('score')}
               onRemix={remixImage}
+              pendingPhase={pendingPhase}
+              lastChange={lastChange}
             />
             <HybridInsightsPanel
               segment={activeSegment}
               scoreScalars={scoreScalars}
               editScalars={scalars}
               onScalarChange={updateScalar}
+              trace={lastChange}
+              pendingPhase={pendingPhase}
+              workError={workError}
+              history={history}
+              onUndo={undoLastChange}
+              onRestore={restoreHistory}
+              savedIdeas={savedIdeas}
+              onSaveIdea={saveIdea}
+              onCombineIdeas={combineIdeas}
+              agentTasks={agentTasks}
+              agentPaused={agentPaused}
+              onToggleAgentPaused={() => setAgentPaused((paused) => !paused)}
             />
           </div>
         )}
@@ -413,6 +855,8 @@ function CanvasWorkspace({
   onZoomChange,
   selectedSegmentId,
   onSelectSegment,
+  lastChange,
+  pendingPhase,
 }: {
   selectedAsset: { version: string }
   variants: ImageVariant[]
@@ -424,6 +868,8 @@ function CanvasWorkspace({
   onZoomChange: (value: number) => void
   selectedSegmentId: string
   onSelectSegment: (id: string) => void
+  lastChange: ChangeTrace
+  pendingPhase: PendingPhase
 }) {
   const comparisonVariants = variants.slice(0, 2)
   const generatedVariants = variants.slice(2)
@@ -466,6 +912,8 @@ function CanvasWorkspace({
               focus={index === 1}
               showScore
               showDeltas={index === 1}
+              lastChange={index === 1 ? lastChange : undefined}
+              pendingPhase={index === 1 ? pendingPhase : 'idle'}
             />
           ))}
         </div>
@@ -481,6 +929,9 @@ function CanvasWorkspace({
               >
                 <img src={variant.image} alt="" style={{ filter: variant.filter }} />
                 <span>{variant.title}</span>
+                {variant.ingredients?.length ? (
+                  <small>Sources: {variant.ingredients.slice(0, 2).join(' + ')}</small>
+                ) : null}
                 <ScoreBadge score={variant.score} delta={variant.delta} />
               </button>
             ))}
@@ -503,6 +954,8 @@ function CreativeArtboard({
   showScore = false,
   showDeltas = false,
   titleOverride,
+  lastChange,
+  pendingPhase = 'idle',
 }: {
   variant: ImageVariant
   selected: boolean
@@ -515,7 +968,10 @@ function CreativeArtboard({
   showScore?: boolean
   showDeltas?: boolean
   titleOverride?: string
+  lastChange?: ChangeTrace
+  pendingPhase?: PendingPhase
 }) {
+  const isPending = pendingPhase !== 'idle' && pendingPhase !== 'failed'
   return (
     <div className={`creative-stack ${size === 'large' ? 'large' : ''}`}>
       <div className="creative-title">{titleOverride ?? variant.title}</div>
@@ -526,6 +982,14 @@ function CreativeArtboard({
       >
         <img src={variant.image} alt="" style={{ filter: variant.filter }} />
         {showScore ? <ScoreBadge score={variant.score} /> : null}
+        {lastChange && focus ? (
+          <span className="last-applied">
+            <b>{lastChange.scoreBefore}%</b>
+            <span>→</span>
+            <b>{lastChange.scoreAfter}%</b>
+          </span>
+        ) : null}
+        {isPending ? <span className="artboard-shimmer" data-testid="pending-shimmer" /> : null}
         {annotationsVisible ? (
           <div className="segment-hit-layer" aria-label="Image segments">
             {segments.map((segment) => (
@@ -588,16 +1052,38 @@ function ScoreBadge({ score, delta }: { score: number; delta?: number }) {
 
 function AssistantPanel({
   messages,
-  isGenerating,
+  pendingPhase,
+  workError,
   chatValue,
   onChatValueChange,
   onSubmit,
+  trace,
+  history,
+  onUndo,
+  onRestore,
+  savedIdeas,
+  onSaveIdea,
+  onCombineIdeas,
+  agentTasks,
+  agentPaused,
+  onToggleAgentPaused,
 }: {
   messages: ChatMessage[]
-  isGenerating: boolean
+  pendingPhase: PendingPhase
+  workError: string
   chatValue: string
   onChatValueChange: (value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  trace: ChangeTrace
+  history: HistoryEntry[]
+  onUndo: () => void
+  onRestore: (entry: HistoryEntry) => void
+  savedIdeas: SavedIdea[]
+  onSaveIdea: (slot: 'idea-a' | 'idea-b') => void
+  onCombineIdeas: () => void
+  agentTasks: AgentTask[]
+  agentPaused: boolean
+  onToggleAgentPaused: () => void
 }) {
   return (
     <aside className="assistant-panel">
@@ -612,6 +1098,22 @@ function AssistantPanel({
       </header>
       <div className="chat-log">
         <div className="chat-spacer" />
+        <InteractionTrace
+          trace={trace}
+          history={history}
+          pendingPhase={pendingPhase}
+          workError={workError}
+          onUndo={onUndo}
+          onRestore={onRestore}
+          savedIdeas={savedIdeas}
+          onSaveIdea={onSaveIdea}
+          onCombineIdeas={onCombineIdeas}
+        />
+        <AgentActivity
+          tasks={agentTasks}
+          paused={agentPaused}
+          onTogglePaused={onToggleAgentPaused}
+        />
         {messages.map((message) => (
           <div key={message.id} className={`chat-message ${message.role}`}>
             {message.content}
@@ -621,8 +1123,8 @@ function AssistantPanel({
           <Bot size={21} />
           <div>
             <strong>AI Assistant</strong>
-            <span>{isGenerating ? 'Generating image...' : 'Ready'}</span>
-            {isGenerating ? (
+            <span>{pendingPhase === 'idle' ? 'Ready' : pendingPhase === 'failed' ? 'Needs review' : 'Generating image...'}</span>
+            {pendingPhase !== 'idle' && pendingPhase !== 'failed' ? (
               <i>
                 <b />
                 <b />
@@ -647,14 +1149,169 @@ function AssistantPanel({
   )
 }
 
+function TraceInline({ trace }: { trace: ChangeTrace }) {
+  return (
+    <section className="trace-inline" aria-label="Interaction result">
+      <span>What changed</span>
+      <strong>{trace.what}</strong>
+    </section>
+  )
+}
+
+function InteractionTrace({
+  trace,
+  history,
+  pendingPhase,
+  workError,
+  onUndo,
+  onRestore,
+  savedIdeas,
+  onSaveIdea,
+  onCombineIdeas,
+  compact = false,
+}: {
+  trace: ChangeTrace
+  history: HistoryEntry[]
+  pendingPhase: PendingPhase
+  workError: string
+  onUndo: () => void
+  onRestore: (entry: HistoryEntry) => void
+  savedIdeas: SavedIdea[]
+  onSaveIdea: (slot: 'idea-a' | 'idea-b') => void
+  onCombineIdeas: () => void
+  compact?: boolean
+}) {
+  const isPending = pendingPhase !== 'idle' && pendingPhase !== 'failed'
+  return (
+    <section className={`trace-panel ${compact ? 'compact' : ''}`} aria-label="Interaction trace">
+      <div className="trace-head">
+        <span>Insight</span>
+        <b>{isPending ? pendingPhase : pendingPhase === 'failed' ? 'review' : 'live'}</b>
+      </div>
+      {isPending ? <div className="trace-shimmer" data-testid="trace-shimmer" /> : null}
+      {pendingPhase === 'failed' ? (
+        <div className="trace-error" role="alert">
+          <AlertTriangle size={14} />
+          <span>{workError}</span>
+        </div>
+      ) : null}
+      <div className="trace-copy">
+        <small>What changed</small>
+        <strong>{trace.what}</strong>
+      </div>
+      <div className="trace-copy">
+        <small>Why it changed</small>
+        <p>{trace.why}</p>
+      </div>
+      <div className="trace-metrics">
+        <span>{trace.before}</span>
+        <b>→</b>
+        <span>{trace.after}</span>
+        <em>
+          ES {trace.scoreBefore}% → {trace.scoreAfter}%
+        </em>
+      </div>
+      <div className="ingredient-row" aria-label="Remix ingredients">
+        {trace.ingredients.slice(0, compact ? 2 : 3).map((ingredient) => (
+          <span key={ingredient}>{ingredient}</span>
+        ))}
+      </div>
+      <div className="trace-actions">
+        <button type="button" onClick={onUndo} disabled={!history.length}>
+          <Undo2 size={14} />
+          Undo
+        </button>
+        <button type="button" onClick={() => onSaveIdea('idea-a')}>
+          Save Variant A
+        </button>
+        <button type="button" onClick={() => onSaveIdea('idea-b')}>
+          Save Variant B
+        </button>
+        <button type="button" onClick={onCombineIdeas}>
+          <GitBranch size={14} />
+          Combine
+        </button>
+      </div>
+      {savedIdeas.length ? (
+        <div className="saved-ideas" aria-label="Saved ideas">
+          {savedIdeas.map((idea) => (
+            <span key={idea.id}>
+              {idea.label} · ES {idea.score}%
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {history.length ? (
+        <div className="history-list" aria-label="History timeline">
+          <div>
+            <History size={13} />
+            Timeline
+          </div>
+          {history.slice(0, compact ? 2 : 3).map((entry) => (
+            <button key={entry.id} type="button" onClick={() => onRestore(entry)}>
+              {entry.control}
+              <span>
+                {entry.scoreBefore}% → {entry.scoreAfter}%
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function AgentActivity({
+  tasks,
+  paused,
+  onTogglePaused,
+  compact = false,
+}: {
+  tasks: AgentTask[]
+  paused: boolean
+  onTogglePaused: () => void
+  compact?: boolean
+}) {
+  return (
+    <section className={`agent-panel ${compact ? 'compact' : ''}`} aria-label="Agent activity">
+      <div className="agent-head">
+        <span>Agent activity</span>
+        <button type="button" onClick={onTogglePaused}>
+          {paused ? <Play size={13} /> : <Pause size={13} />}
+          {paused ? 'Resume loop' : 'Pause loop'}
+        </button>
+      </div>
+      {tasks.slice(0, compact ? 2 : 4).map((task) => (
+        <details className={`agent-task ${task.status}`} key={task.id}>
+          <summary>
+            <span>
+              {task.status === 'done' ? <CheckCircle2 size={13} /> : <Sparkles size={13} />}
+              {task.label}
+            </span>
+            <b>{task.kind}</b>
+          </summary>
+          <div className="agent-artifact">
+            <span>Goal: {task.goal}</span>
+            <span>Input: {task.input}</span>
+            <span>Output: {task.output}</span>
+            <span>Latest test: {task.test}</span>
+          </div>
+        </details>
+      ))}
+    </section>
+  )
+}
+
 function ScoreControlsPanel({
   scalars,
   onScalarChange,
   variant = 'score',
+  trace,
 }: {
   scalars: AestheticScalar[]
   onScalarChange: (id: string, value: number) => void
   variant?: 'score' | 'hybrid'
+  trace: ChangeTrace
 }) {
   const scalarMap = new Map(scalars.map((scalar) => [scalar.id, scalar]))
   const groups = [
@@ -680,6 +1337,7 @@ function ScoreControlsPanel({
           <button type="button">Insights</button>
         </div>
       ) : null}
+      {variant === 'score' ? <TraceInline trace={trace} /> : null}
       <div className="score-groups">
         {groups.map((group) => (
           <section className="score-group" key={group.title}>
@@ -760,6 +1418,8 @@ function ScoreWorkspace({
   mode,
   onReset,
   onRemix,
+  pendingPhase,
+  lastChange,
 }: {
   selectedAsset: { version: string }
   variant: ImageVariant
@@ -772,6 +1432,8 @@ function ScoreWorkspace({
   mode: 'score' | 'hybrid'
   onReset?: () => void
   onRemix?: () => void
+  pendingPhase: PendingPhase
+  lastChange: ChangeTrace
 }) {
   return (
     <section className={`canvas-panel score-canvas-panel ${mode}`}>
@@ -814,6 +1476,8 @@ function ScoreWorkspace({
             focus
             size="large"
             titleOverride="325×325 px"
+            pendingPhase={pendingPhase}
+            lastChange={lastChange}
           />
         </div>
       </div>
@@ -909,11 +1573,35 @@ function HybridInsightsPanel({
   scoreScalars,
   editScalars,
   onScalarChange,
+  trace,
+  pendingPhase,
+  workError,
+  history,
+  onUndo,
+  onRestore,
+  savedIdeas,
+  onSaveIdea,
+  onCombineIdeas,
+  agentTasks,
+  agentPaused,
+  onToggleAgentPaused,
 }: {
   segment: SegmentAnnotation
   scoreScalars: AestheticScalar[]
   editScalars: AestheticScalar[]
   onScalarChange: (id: string, value: number) => void
+  trace: ChangeTrace
+  pendingPhase: PendingPhase
+  workError: string
+  history: HistoryEntry[]
+  onUndo: () => void
+  onRestore: (entry: HistoryEntry) => void
+  savedIdeas: SavedIdea[]
+  onSaveIdea: (slot: 'idea-a' | 'idea-b') => void
+  onCombineIdeas: () => void
+  agentTasks: AgentTask[]
+  agentPaused: boolean
+  onToggleAgentPaused: () => void
 }) {
   return (
     <aside className="hybrid-panel">
@@ -932,6 +1620,24 @@ function HybridInsightsPanel({
         </div>
         <p>Increase process materiality and reduce abstraction to create a more authentic look and feel.</p>
       </section>
+      <InteractionTrace
+        trace={trace}
+        history={history}
+        pendingPhase={pendingPhase}
+        workError={workError}
+        onUndo={onUndo}
+        onRestore={onRestore}
+        savedIdeas={savedIdeas}
+        onSaveIdea={onSaveIdea}
+        onCombineIdeas={onCombineIdeas}
+        compact
+      />
+      <AgentActivity
+        tasks={agentTasks}
+        paused={agentPaused}
+        onTogglePaused={onToggleAgentPaused}
+        compact
+      />
       <div className="search-box hybrid-search">
         <Search size={18} />
         <span>Search...</span>
