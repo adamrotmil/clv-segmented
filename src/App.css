@@ -734,9 +734,15 @@ button {
   height: 100%;
   padding-top: clamp(156px, 19vh, 190px);
   overflow: hidden;
+  overscroll-behavior: contain;
   cursor: grab;
   touch-action: none;
   user-select: none;
+}
+
+.canvas-scroll:focus,
+.score-canvas-scroll:focus {
+  outline: none;
 }
 
 .canvas-scroll.is-panning,
@@ -2102,6 +2108,7 @@ button {
   height: 100%;
   padding-top: 187px;
   overflow: hidden;
+  overscroll-behavior: contain;
   cursor: grab;
   touch-action: none;
   user-select: none;

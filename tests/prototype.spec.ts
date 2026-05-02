@@ -183,6 +183,35 @@ test('dragging empty canvas pans the viewport like a canvas tool', async ({ page
   expect(Math.abs(firstDy - secondDy)).toBeLessThan(1)
 })
 
+test('canvas background click clears selection and enables trackpad panning', async ({ page }) => {
+  await page.goto('/')
+
+  const canvas = page.locator('.canvas-scroll')
+  const firstStack = page.locator('.creative-stack').first()
+  const updatedStack = page.locator('.creative-stack').nth(1)
+  await page.getByRole('button', { name: 'Updated Image', exact: true }).click()
+  await expect(updatedStack).toHaveClass(/selected/)
+
+  const canvasBox = await canvas.boundingBox()
+  const firstBefore = await firstStack.boundingBox()
+  expect(canvasBox).not.toBeNull()
+  expect(firstBefore).not.toBeNull()
+
+  const startX = (canvasBox?.x ?? 0) + (canvasBox?.width ?? 0) / 2
+  const startY = (canvasBox?.y ?? 0) + 132
+  await page.mouse.click(startX, startY)
+  await expect(canvas).toBeFocused()
+  await expect(updatedStack).not.toHaveClass(/selected/)
+
+  await page.mouse.wheel(-86, -44)
+  await page.waitForTimeout(160)
+
+  const firstAfter = await firstStack.boundingBox()
+  expect(firstAfter).not.toBeNull()
+  expect((firstAfter?.x ?? 0) - (firstBefore?.x ?? 0)).toBeGreaterThan(70)
+  expect((firstAfter?.y ?? 0) - (firstBefore?.y ?? 0)).toBeGreaterThan(34)
+})
+
 test('dragging one artboard onto another creates a blended variant', async ({ page }) => {
   await page.goto('/')
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, FormEvent, KeyboardEvent, PointerEvent, ReactNode } from 'react'
+import type { CSSProperties, FormEvent, KeyboardEvent, PointerEvent, ReactNode, WheelEvent } from 'react'
 import {
   AlertTriangle,
   ArrowUp,
@@ -458,6 +458,7 @@ function canStartCanvasPan(target: EventTarget | null) {
 function useCanvasPan() {
   const [pan, setPan] = useState<DragOffset>({ x: 0, y: 0 })
   const [panState, setPanState] = useState<CanvasPanState | null>(null)
+  const [wheelFocused, setWheelFocused] = useState(false)
 
   function beginPan(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0 || !canStartCanvasPan(event.target)) return
@@ -491,12 +492,26 @@ function useCanvasPan() {
     setPanState(null)
   }
 
+  function wheelPan(event: WheelEvent<HTMLDivElement>) {
+    if (!wheelFocused || !canStartCanvasPan(event.target)) return
+
+    const deltaScale = event.deltaMode === 1 ? 18 : event.deltaMode === 2 ? 120 : 1
+    setPan((current) => ({
+      x: current.x - event.deltaX * deltaScale,
+      y: current.y - event.deltaY * deltaScale,
+    }))
+  }
+
   return {
     pan,
     panning: Boolean(panState),
+    wheelFocused,
     beginPan,
     movePan,
     endPan,
+    wheelPan,
+    focusWheel: () => setWheelFocused(true),
+    blurWheel: () => setWheelFocused(false),
   }
 }
 
@@ -2233,6 +2248,16 @@ function CanvasWorkspace({
     onBlendVariants(result.id, targetId)
   }
 
+  function handleCanvasPointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (canStartCanvasPan(event.target)) {
+      event.currentTarget.focus({ preventScroll: true })
+      canvasPan.focusWheel()
+      onSelectVariant('')
+      onSelectSegment('')
+    }
+    canvasPan.beginPan(event)
+  }
+
   return (
     <section className="canvas-panel">
       <div className="canvas-toolbar">
@@ -2259,11 +2284,21 @@ function CanvasWorkspace({
       </div>
 
       <div
-        className={`canvas-scroll ${canvasPan.panning ? 'is-panning' : ''}`}
-        onPointerDown={canvasPan.beginPan}
+        className={`canvas-scroll ${canvasPan.panning ? 'is-panning' : ''} ${
+          canvasPan.wheelFocused ? 'is-wheel-focused' : ''
+        }`}
+        aria-label="Creative canvas"
+        tabIndex={0}
+        onPointerDown={handleCanvasPointerDown}
         onPointerMove={canvasPan.movePan}
         onPointerUp={canvasPan.endPan}
         onPointerCancel={canvasPan.endPan}
+        onWheel={canvasPan.wheelPan}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            canvasPan.blurWheel()
+          }
+        }}
       >
         <div className="canvas-world" style={canvasWorldStyle}>
           <div className="artboard-row">
@@ -3123,6 +3158,14 @@ function ScoreWorkspace({
     '--score-zoom': scoreScale,
   } as CSSProperties
 
+  function handleScoreCanvasPointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (canStartCanvasPan(event.target)) {
+      event.currentTarget.focus({ preventScroll: true })
+      canvasPan.focusWheel()
+    }
+    canvasPan.beginPan(event)
+  }
+
   return (
     <section className={`canvas-panel score-canvas-panel ${mode}`}>
       <div className="canvas-toolbar score-toolbar">
@@ -3154,11 +3197,21 @@ function ScoreWorkspace({
         </div>
       </div>
       <div
-        className={`score-canvas-scroll ${canvasPan.panning ? 'is-panning' : ''}`}
-        onPointerDown={canvasPan.beginPan}
+        className={`score-canvas-scroll ${canvasPan.panning ? 'is-panning' : ''} ${
+          canvasPan.wheelFocused ? 'is-wheel-focused' : ''
+        }`}
+        aria-label="Score canvas"
+        tabIndex={0}
+        onPointerDown={handleScoreCanvasPointerDown}
         onPointerMove={canvasPan.movePan}
         onPointerUp={canvasPan.endPan}
         onPointerCancel={canvasPan.endPan}
+        onWheel={canvasPan.wheelPan}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            canvasPan.blurWheel()
+          }
+        }}
       >
         <div className="canvas-world score-canvas-world" style={canvasWorldStyle}>
           <div className="single-artboard-row">
