@@ -99,6 +99,24 @@ test('canvas artboards select from title and drag into place', async ({ page }) 
   await expect(updatedStack).toHaveClass(/selected/)
 })
 
+test('segment labels attach to their SAM frames', async ({ page }) => {
+  await page.goto('/')
+
+  const updatedStack = page.locator('.creative-stack').nth(1)
+  const labels = updatedStack.locator('.segment-label')
+  const frames = updatedStack.locator('.segment-hotspot')
+
+  for (let index = 0; index < 4; index += 1) {
+    const labelBox = await labels.nth(index).boundingBox()
+    const frameBox = await frames.nth(index).boundingBox()
+
+    expect(labelBox).not.toBeNull()
+    expect(frameBox).not.toBeNull()
+    expect(Math.abs((labelBox?.x ?? 0) - (frameBox?.x ?? 0))).toBeLessThanOrEqual(1)
+    expect(Math.abs((labelBox?.y ?? 0) + (labelBox?.height ?? 0) - (frameBox?.y ?? 0))).toBeLessThanOrEqual(2.5)
+  }
+})
+
 test('accordion controls collapse and restore inspector and score sections', async ({ page }) => {
   await page.goto('/')
 
