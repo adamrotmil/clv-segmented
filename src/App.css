@@ -1223,6 +1223,15 @@ button {
     0 16px 34px rgba(18, 18, 23, 0.2);
 }
 
+.creative-stack.generating .creative-card img {
+  opacity: 0.78;
+}
+
+.creative-stack.generating .score-wrap,
+.creative-stack.generating .last-applied {
+  opacity: 0.72;
+}
+
 .creative-card img {
   display: block;
   width: 100%;
@@ -1519,6 +1528,7 @@ button {
   position: relative;
   width: 78px;
   padding: 4px;
+  overflow: hidden;
   border: 1px solid #dedfe5;
   border-radius: 7px;
   background: #fff;
@@ -1528,6 +1538,10 @@ button {
 
 .variant-thumb.selected {
   border-color: #111217;
+}
+
+.variant-thumb.generating img {
+  opacity: 0.72;
 }
 
 .variant-thumb img {
@@ -1562,6 +1576,21 @@ button {
 .variant-thumb .score-wrap {
   top: 6px;
   right: 6px;
+}
+
+.thumb-shimmer {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  left: 4px;
+  height: 68px;
+  border-radius: 4px;
+  background:
+    linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.54) 42%, transparent 68%),
+    rgba(255, 255, 255, 0.1);
+  background-size: 220% 100%;
+  pointer-events: none;
+  animation: shimmer 850ms ease-in-out infinite;
 }
 
 .assistant-panel {

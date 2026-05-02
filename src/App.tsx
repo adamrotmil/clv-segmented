@@ -1231,6 +1231,40 @@ function App() {
     )
   }
 
+  function queueGeneratingVariant(request: CreativeGenerationRequest, predictedScore: number) {
+    const sourceVariant =
+      workingVariants.find((variant) => variant.id === request.sourceIds[0]) ??
+      workingVariants.find((variant) => variant.id === selectedVariantId) ??
+      request.sourceVariant
+    const pendingVariant: ImageVariant = {
+      id: request.id,
+      title: request.outputTitle,
+      kind: 'generated',
+      image: request.fallbackImage,
+      score: predictedScore,
+      delta: Math.max(1, predictedScore - sourceVariant.score),
+      filter: request.baseFilter,
+      ingredients: request.latestTrace.ingredients,
+      sourceIds: request.sourceIds,
+      status: 'generating',
+    }
+
+    setVariants((current) =>
+      current.some((variant) => variant.id === pendingVariant.id)
+        ? current.map((variant) => (variant.id === pendingVariant.id ? pendingVariant : variant))
+        : [...current, pendingVariant],
+    )
+    setSelectedVariantId(request.id)
+  }
+
+  function resolveGeneratedVariant(nextVariant: ImageVariant) {
+    setVariants((current) =>
+      current.some((variant) => variant.id === nextVariant.id)
+        ? current.map((variant) => (variant.id === nextVariant.id ? nextVariant : variant))
+        : [...current, nextVariant],
+    )
+  }
+
   async function remixImage() {
     if (!hasPendingScalarChanges) {
       await combineIdeas()
@@ -1245,6 +1279,7 @@ function App() {
       (scalar) => scalar.value !== scalarValue(beforeScalars, scalar.id),
     )
     const nextId = `remix-${Date.now()}`
+    const outputTitle = `Remix ${variants.length}`
     const predictedScore = Math.min(96, nextScore + 1)
     const pendingTrace: ChangeTrace = {
       id: `${nextId}-trace`,
@@ -1265,7 +1300,7 @@ function App() {
     const generationRequest = buildGenerationRequest({
       id: nextId,
       intent: 'scalar-remix',
-      outputTitle: `Remix ${variants.length}`,
+      outputTitle,
       sourceIds: [selectedVariantId],
       beforeScalars,
       nextScalars,
@@ -1281,6 +1316,7 @@ function App() {
     })
 
     setLastChange(pendingTrace)
+    queueGeneratingVariant(generationRequest, predictedScore)
     setVariantGenerationTask(
       generationRequest.chatContext.length ? 'Scalar remix + chat context' : 'Scalar remix',
     )
@@ -1296,6 +1332,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      status: 'ready',
     }
     const trace: ChangeTrace = {
       ...pendingTrace,
@@ -1306,7 +1343,7 @@ function App() {
     }
     setScalars(nextScalars)
     setDraftScalars(nextScalars)
-    setVariants((current) => [...current, remix])
+    resolveGeneratedVariant(remix)
     setSelectedVariantId(nextId)
     setLastChange(trace)
     setHistory((current) =>
@@ -1451,6 +1488,7 @@ function App() {
       ],
     })
     setLastChange(pendingTrace)
+    queueGeneratingVariant(generationRequest, predictedScore)
     setVariantGenerationTask(
       sources.length === 2 ? 'Variant A + Variant B + chat context' : 'Current trace + chat context',
       'Waiting for generated remix',
@@ -1467,6 +1505,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      status: 'ready',
     }
     const trace: ChangeTrace = {
       ...pendingTrace,
@@ -1474,7 +1513,7 @@ function App() {
       scoreAfter: remix.score,
       ingredients: generation.ingredients,
     }
-    setVariants((current) => [...current, remix])
+    resolveGeneratedVariant(remix)
     setScalars(remixScalars)
     setDraftScalars(remixScalars)
     setSelectedVariantId(nextId)
@@ -1566,6 +1605,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      status: 'ready',
     }
     const trace: ChangeTrace = {
       ...pendingTrace,
@@ -1644,6 +1684,7 @@ function App() {
     })
 
     setLastChange(pendingTrace)
+    queueGeneratingVariant(generationRequest, predictedScore)
     setVariantGenerationTask(
       `${sourceVariant.title} + ${targetVariant.title}`,
       'Blending selected images',
@@ -1660,6 +1701,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      status: 'ready',
     }
     const trace: ChangeTrace = {
       ...pendingTrace,
@@ -1668,7 +1710,7 @@ function App() {
       ingredients: generation.ingredients,
     }
 
-    setVariants((current) => [...current, blendVariant])
+    resolveGeneratedVariant(blendVariant)
     setSelectedVariantId(nextId)
     setLastChange(trace)
     setHistory((current) =>
@@ -2812,6 +2854,12 @@ function CanvasWorkspace({
               const isActiveComparison = selectedGeneratedVariant
                 ? selectedGeneratedVariant.id === variant.id
                 : variant.id === 'updated'
+              const artboardPendingPhase =
+                variant.status === 'generating'
+                  ? 'remixing'
+                  : isActiveComparison
+                    ? pendingPhase
+                    : 'idle'
 
               return (
                 <CreativeArtboard
@@ -2835,7 +2883,7 @@ function CanvasWorkspace({
                   showScore
                   showDeltas={isActiveComparison && variant.id !== 'original'}
                   lastChange={isActiveComparison ? lastChange : undefined}
-                  pendingPhase={isActiveComparison ? pendingPhase : 'idle'}
+                  pendingPhase={artboardPendingPhase}
                 />
               )
             })}
@@ -2848,10 +2896,13 @@ function CanvasWorkspace({
               <button
                 key={variant.id}
                 type="button"
-                className={`variant-thumb ${selectedVariantId === variant.id ? 'selected' : ''}`}
+                className={`variant-thumb ${selectedVariantId === variant.id ? 'selected' : ''} ${
+                  variant.status === 'generating' ? 'generating' : ''
+                }`}
                 onClick={() => onSelectVariant(variant.id)}
               >
                 <img src={variant.image} alt="" style={{ filter: variant.filter }} />
+                {variant.status === 'generating' ? <span className="thumb-shimmer" /> : null}
                 <span>{variant.title}</span>
                 {variant.ingredients?.length ? (
                   <small>Sources: {variant.ingredients.slice(0, 2).join(' + ')}</small>
@@ -2863,7 +2914,7 @@ function CanvasWorkspace({
         ) : null}
       </div>
       <CanvasRemixActions
-        visible={hasPendingChanges}
+        visible={hasPendingChanges && pendingPhase !== 'remixing'}
         pending={pendingPhase === 'remixing'}
         onReset={onResetChanges}
         onRemix={onRemix}
@@ -2949,7 +3000,8 @@ function CreativeArtboard({
   pendingPhase?: PendingPhase
 }) {
   const title = titleOverride ?? variant.title
-  const isPending = pendingPhase !== 'idle' && pendingPhase !== 'failed'
+  const isGenerating = variant.status === 'generating'
+  const isPending = isGenerating || (pendingPhase !== 'idle' && pendingPhase !== 'failed')
   const activeSegment = segments.find((segment) => segment.id === selectedSegmentId) ?? null
   const hasFocusedSelection = Boolean(activeSegment && focus)
   const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -2973,7 +3025,7 @@ function CreativeArtboard({
     <div
       className={`creative-stack ${size === 'large' ? 'large' : ''} ${
         selected ? 'selected' : ''
-      } ${dragging ? 'dragging' : ''} ${dropTarget ? 'drop-target' : ''} ${
+      } ${isGenerating ? 'generating' : ''} ${dragging ? 'dragging' : ''} ${dropTarget ? 'drop-target' : ''} ${
         combineSource ? 'combine-source' : ''
       }`}
       style={stackStyle}

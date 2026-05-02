@@ -45,6 +45,25 @@ test('interaction trace shows slider effect, shimmer, explanation, and undo', as
   await expect(page.getByLabel('History timeline').first()).toBeVisible()
 })
 
+test('new remix generation reserves a shimmering target frame before resolving', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByLabel('Staging').fill('92')
+  await page.getByRole('button', { name: 'Remix Image' }).click()
+
+  const updatedStack = page.locator('.artboard-row .creative-stack').nth(1)
+  const remixStack = page.locator('.artboard-row .creative-stack').filter({ hasText: /Remix/ }).first()
+  await expect(remixStack).toBeVisible()
+  await expect(remixStack).toHaveClass(/generating/)
+  await expect(remixStack.getByTestId('pending-shimmer')).toBeVisible()
+  await expect(updatedStack.getByTestId('pending-shimmer')).toHaveCount(0)
+  await expect(page.locator('.variant-strip .variant-thumb.generating').filter({ hasText: /Remix/ })).toBeVisible()
+
+  await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
+  await expect(remixStack).not.toHaveClass(/generating/)
+  await expect(remixStack.getByTestId('pending-shimmer')).toHaveCount(0)
+})
+
 test('asset and version selectors update the active editor context', async ({ page }) => {
   await page.goto('/')
 
@@ -157,6 +176,7 @@ test('generated remixes appear as full-size canvas nodes and tidy back to grid',
   await page.getByLabel('Staging').fill('92')
   await page.getByRole('button', { name: 'Remix Image' }).click()
   await expect(page.locator('.variant-strip').getByText(/Remix/)).toBeVisible()
+  await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
 
   const originalStack = page.locator('.artboard-row .creative-stack').first()
   const updatedStack = page.locator('.artboard-row .creative-stack').nth(1)

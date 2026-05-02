@@ -15,6 +15,7 @@ export type ImageVariant = {
   filter?: string
   ingredients?: string[]
   sourceIds?: string[]
+  status?: 'ready' | 'generating'
 }
 
 export type CreativeGenerationIntent =
