@@ -32,6 +32,25 @@ export type AestheticScalar = {
   marker?: string
 }
 
+export type StylePresetScalarSetting = {
+  id: string
+  value: number
+  marker?: string
+}
+
+export type StylePreset = {
+  id: string
+  title: string
+  detail: string
+  scalarSettings: StylePresetScalarSetting[]
+  context: {
+    image: string
+    audience: string
+    brand: string
+    chat: string[]
+  }
+}
+
 export type SegmentSuggestion = {
   id: string
   label: string

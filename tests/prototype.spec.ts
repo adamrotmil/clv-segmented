@@ -98,6 +98,28 @@ test('aesthetic search filters the full star plot slider set', async ({ page }) 
   await expect(hybridList).toContainText('Arousal')
 })
 
+test('preset styles select rows and expose saved preset context', async ({ page }) => {
+  await page.goto('/')
+
+  const currentPreset = page.getByTestId('style-preset-current')
+  const metaPreset = page.getByTestId('style-preset-meta-campaign-dec')
+  await expect(currentPreset).toHaveClass(/active/)
+
+  await page.getByRole('button', { name: /Select Meta - Campaign/ }).click()
+  await expect(metaPreset).toHaveClass(/active/)
+  await expect(currentPreset).not.toHaveClass(/active/)
+  await expect(page.getByLabel('Staging')).toHaveValue('66')
+  await expect(page.getByLabel('Key')).toHaveValue('82')
+
+  await page.getByRole('button', { name: /Open preset details for Meta - Campaign/ }).click()
+  const popover = page.getByRole('dialog', { name: /Preset details for Meta - Campaign/ })
+  await expect(popover).toBeVisible()
+  await expect(popover).toContainText('Parameters')
+  await expect(popover).toContainText('Audience')
+  await expect(popover).toContainText('Brand')
+  await expect(popover).toContainText('Asked for more human warmth')
+})
+
 test('editor chrome hover states do not move controls', async ({ page }) => {
   await page.goto('/')
 
@@ -313,7 +335,7 @@ test('stubbed buttons visibly change local prototype state', async ({ page }) =>
   await page.getByRole('button', { name: 'Reopen assistant' }).click()
   await expect(page.getByRole('button', { name: 'Close assistant' })).toBeVisible()
 
-  await page.locator('.preset-row.active').click()
+  await page.getByRole('button', { name: 'Save current style' }).click()
   await expect(page.getByLabel('Interaction trace').first()).toContainText('Current style saved')
 
   await page.getByRole('button', { name: 'Dismiss suggestions' }).click()

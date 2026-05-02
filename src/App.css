@@ -315,8 +315,9 @@ button {
 }
 
 .preset-row {
+  position: relative;
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   width: 100%;
   min-height: 47px;
@@ -331,9 +332,25 @@ button {
 }
 
 .preset-row.active {
-  border: 2px solid #14151b;
-  padding: 5px 7px;
-  box-shadow: none;
+  border-color: #14151b;
+  box-shadow: inset 0 0 0 1px #14151b;
+}
+
+.preset-row.menu-open {
+  z-index: 25;
+}
+
+.preset-select {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  min-height: 33px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
 }
 
 .radio-dot {
@@ -370,13 +387,180 @@ button {
   font-size: 13px;
 }
 
+.preset-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 8px;
+}
+
 .save-pill {
-  padding: 9px 12px;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
   border-radius: 7px;
   background: #111217;
   color: #fff;
   font-size: 14px;
   font-weight: 500;
+}
+
+.preset-more {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #14151b;
+}
+
+.preset-more:hover,
+.preset-more.open {
+  background: #f1f2f4;
+}
+
+.preset-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 6px;
+  z-index: 30;
+  width: 278px;
+  max-height: min(390px, calc(100vh - 230px));
+  padding: 11px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid #dedfe5;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 18px 42px rgba(17, 18, 23, 0.15), 0 2px 8px rgba(17, 18, 23, 0.08);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(19, 19, 22, 0.16) transparent;
+}
+
+.preset-popover-head {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid #ececf0;
+}
+
+.preset-popover-head strong {
+  overflow: hidden;
+  color: #16171c;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-popover-head small {
+  color: #85878f;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.preset-popover-section {
+  margin-top: 10px;
+}
+
+.preset-popover-section > span {
+  display: block;
+  margin-bottom: 6px;
+  color: #787a82;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 14px;
+}
+
+.preset-setting-list {
+  display: grid;
+  gap: 7px;
+}
+
+.preset-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 8px;
+  align-items: center;
+}
+
+.preset-setting div {
+  min-width: 0;
+}
+
+.preset-setting span,
+.preset-setting small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-setting span {
+  color: #202127;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.preset-setting small {
+  color: #85878f;
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.preset-setting b {
+  color: #111217;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.preset-setting i {
+  grid-column: 1 / -1;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5e6e9;
+}
+
+.preset-setting em {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #111217;
+}
+
+.preset-popover-section dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.preset-popover-section dl div {
+  display: grid;
+  gap: 1px;
+}
+
+.preset-popover-section dt,
+.preset-popover-section dd {
+  margin: 0;
+}
+
+.preset-popover-section dt {
+  color: #85878f;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 14px;
+}
+
+.preset-popover-section dd {
+  color: #292a30;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .show-styles {

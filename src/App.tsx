@@ -26,6 +26,7 @@ import {
   initialScalars,
   initialVariants,
   segments,
+  stylePresets,
 } from './data'
 import type {
   AestheticScalar,
@@ -34,6 +35,7 @@ import type {
   ImageVariant,
   SegmentAnnotation,
   SegmentSuggestion,
+  StylePreset,
 } from './types'
 import { requestCreativeGeneration } from './generation'
 
@@ -316,6 +318,42 @@ function sliderVars(value: number, committedValue = value) {
   } as CSSProperties
 }
 
+function scalarSettingsFromScalars(scalars: AestheticScalar[]) {
+  return scalars.map(({ id, value, marker }) => ({ id, value, marker }))
+}
+
+function currentStylePreset(scalars: AestheticScalar[]): StylePreset {
+  return {
+    id: 'current',
+    title: 'Current style',
+    detail: 'Updated just now',
+    scalarSettings: scalarSettingsFromScalars(scalars),
+    context: {
+      image: 'Active canvas state with the latest slider recipe, segment edits, and generated variants.',
+      audience: 'Current campaign audience and channel targeting.',
+      brand: 'Logged-in brand metadata and approved creative guardrails.',
+      chat: ['Latest assistant and user notes from this edit session.'],
+    },
+  }
+}
+
+function applyStylePresetToScalars(scalars: AestheticScalar[], preset: StylePreset) {
+  const settings = new Map(preset.scalarSettings.map((setting) => [setting.id, setting]))
+  return scalars.map((scalar) => {
+    const setting = settings.get(scalar.id)
+    if (!setting) return scalar
+    return {
+      ...scalar,
+      value: setting.value,
+      marker: setting.marker ?? scalar.marker,
+    }
+  })
+}
+
+function presetScalarDisplayValue(value: number) {
+  return (value / 100).toFixed(1).replace(/\.0$/, '')
+}
+
 function scoreTabLabel(tab: ScoreTab) {
   if (tab === 'scenes') return 'Scenes'
   if (tab === 'insights') return 'Insights'
@@ -523,6 +561,7 @@ function App() {
   const chatStreamMessage = useRef<{ id: string; content: string } | null>(null)
   const [selectedAssetId, setSelectedAssetId] = useState(assets[0].id)
   const [selectedVersion, setSelectedVersion] = useState(assets[0].version)
+  const [selectedStylePresetId, setSelectedStylePresetId] = useState('current')
   const [selectedVariantId, setSelectedVariantId] = useState('updated')
   const [selectedSegmentId, setSelectedSegmentId] = useState('')
   const [annotationsVisible, setAnnotationsVisible] = useState(true)
@@ -668,11 +707,50 @@ function App() {
   }
 
   function saveCurrentStyle() {
+    setSelectedStylePresetId('current')
     recordPrototypeAction(
       'Style saved',
       'Current style saved as the active preset.',
       'The saved preset keeps the current scalar values available for the next creative or remix.',
     )
+  }
+
+  function selectStylePreset(preset: StylePreset) {
+    const nextScalars = applyStylePresetToScalars(scalars, preset)
+    const scoreAfter = projectedScore(nextScalars)
+    const trace: ChangeTrace = {
+      id: `preset-${preset.id}-${Date.now()}`,
+      control: preset.title,
+      what: `${preset.title} selected.`,
+      why: 'The preset applies its saved aesthetic parameters and keeps the brand, audience, image, and chat context available for remixing.',
+      before: `ES ${workingScore}%`,
+      after: `ES ${scoreAfter}%`,
+      scoreBefore: workingScore,
+      scoreAfter,
+      segment: activeSegment.label,
+      ingredients: ['Preset settings', preset.context.audience, preset.context.brand],
+    }
+
+    setSelectedStylePresetId(preset.id)
+    setScalars(nextScalars)
+    setDraftScalars(nextScalars)
+    setLastChange(trace)
+    setWorkError('')
+    setPendingPhase('idle')
+    setAgentTasks((current) =>
+      current.map((task) =>
+        task.id === 'prompt'
+          ? {
+              ...task,
+              status: agentPaused ? 'paused' : 'queued',
+              input: `${preset.title} preset context`,
+              output: 'Preset context loaded',
+              test: 'Preset selected',
+            }
+          : task,
+      ),
+    )
+    flashToast(`${preset.title} selected`)
   }
 
   function dismissSuggestion() {
@@ -775,6 +853,7 @@ function App() {
     }
 
     setDraftScalars(nextDraftScalars)
+    setSelectedStylePresetId('current')
     setWorkError('')
     setPendingPhase('idle')
     setLastChange(trace)
@@ -1642,7 +1721,9 @@ function App() {
               onSelectAsset={selectAsset}
               scalars={draftScalars}
               committedScalars={scalars}
+              selectedStylePresetId={selectedStylePresetId}
               onScalarChange={updateScalar}
+              onSelectStylePreset={selectStylePreset}
               onSaveCurrentStyle={saveCurrentStyle}
               onDismissSuggestion={dismissSuggestion}
             />
@@ -1861,7 +1942,9 @@ function LeftInspector({
   onSelectAsset,
   scalars,
   committedScalars,
+  selectedStylePresetId,
   onScalarChange,
+  onSelectStylePreset,
   onSaveCurrentStyle,
   onDismissSuggestion,
 }: {
@@ -1869,22 +1952,41 @@ function LeftInspector({
   onSelectAsset: (id: string) => void
   scalars: AestheticScalar[]
   committedScalars: AestheticScalar[]
+  selectedStylePresetId: string
   onScalarChange: (id: string, value: number) => void
+  onSelectStylePreset: (preset: StylePreset) => void
   onSaveCurrentStyle: () => void
   onDismissSuggestion: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [openPresetMenuId, setOpenPresetMenuId] = useState('')
   const [stylesOpen, setStylesOpen] = useState(true)
   const [showAllStyles, setShowAllStyles] = useState(false)
   const [intentOpen, setIntentOpen] = useState(true)
   const [suggestionVisible, setSuggestionVisible] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const presetPanelRef = useRef<HTMLDivElement>(null)
   const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0]
+  const presetOptions = useMemo(() => [currentStylePreset(scalars), ...stylePresets], [scalars])
   const committedScalarMap = new Map(committedScalars.map((scalar) => [scalar.id, scalar]))
   const filteredScalars = useMemo(
     () => filterScalarsByQuery(scalars, searchQuery),
     [scalars, searchQuery],
   )
+  const visiblePresets = showAllStyles ? presetOptions : presetOptions.slice(0, 3)
+
+  useEffect(() => {
+    if (!openPresetMenuId) return undefined
+
+    function closePresetMenu(event: globalThis.PointerEvent) {
+      if (!presetPanelRef.current?.contains(event.target as Node)) {
+        setOpenPresetMenuId('')
+      }
+    }
+
+    document.addEventListener('pointerdown', closePresetMenu)
+    return () => document.removeEventListener('pointerdown', closePresetMenu)
+  }, [openPresetMenuId])
 
   return (
     <aside className="left-panel">
@@ -1927,38 +2029,31 @@ function LeftInspector({
           leading={<span className="spin-mark" />}
         />
         {stylesOpen ? (
-          <div id="preset-styles-panel">
+          <div
+            id="preset-styles-panel"
+            ref={presetPanelRef}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setOpenPresetMenuId('')
+            }}
+          >
             <div className="preset-list">
-              <PresetRow
-                active
-                title="Current style"
-                detail="Updated just now"
-                onClick={onSaveCurrentStyle}
-              />
-              <PresetRow
-                title="Meta - Campaign 12-Dec-202..."
-                detail="Created 13 Dec 2025"
-                onClick={() => onSelectAsset('meta-b')}
-              />
-              <PresetRow
-                title="Original pre-set for Reddit ca..."
-                detail="Created 27 Nov 2025"
-                onClick={() => onSelectAsset('reddit-c')}
-              />
-              {showAllStyles ? (
-                <>
-                  <PresetRow
-                    title="TikTok - Creator prospecting"
-                    detail="Created 22 Nov 2025"
-                    onClick={() => onSelectAsset('tiktok-a')}
-                  />
-                  <PresetRow
-                    title="Shopify - Retargeting lift"
-                    detail="Created 18 Nov 2025"
-                    onClick={() => onSelectAsset('meta-b')}
-                  />
-                </>
-              ) : null}
+              {visiblePresets.map((preset) => (
+                <PresetRow
+                  key={preset.id}
+                  preset={preset}
+                  active={preset.id === selectedStylePresetId}
+                  menuOpen={preset.id === openPresetMenuId}
+                  scalars={scalars}
+                  onSelect={() => {
+                    onSelectStylePreset(preset)
+                    setOpenPresetMenuId('')
+                  }}
+                  onSave={preset.id === 'current' ? onSaveCurrentStyle : undefined}
+                  onToggleMenu={() =>
+                    setOpenPresetMenuId((current) => (current === preset.id ? '' : preset.id))
+                  }
+                />
+              ))}
             </div>
             <button
               className={`show-styles ${showAllStyles ? 'open' : ''}`}
@@ -2064,25 +2159,131 @@ function AccordionHeader({
 }
 
 function PresetRow({
-  active = false,
-  title,
-  detail,
-  onClick,
+  preset,
+  active,
+  menuOpen,
+  scalars,
+  onSelect,
+  onSave,
+  onToggleMenu,
 }: {
-  active?: boolean
-  title: string
-  detail: string
-  onClick?: () => void
+  preset: StylePreset
+  active: boolean
+  menuOpen: boolean
+  scalars: AestheticScalar[]
+  onSelect: () => void
+  onSave?: () => void
+  onToggleMenu: () => void
 }) {
   return (
-    <button className={`preset-row ${active ? 'active' : ''}`} type="button" onClick={onClick}>
-      <span className="radio-dot" />
-      <span className="preset-copy">
-        <strong>{title}</strong>
-        <small>{detail}</small>
+    <div
+      className={`preset-row ${active ? 'active' : ''} ${menuOpen ? 'menu-open' : ''}`}
+      data-testid={`style-preset-${preset.id}`}
+    >
+      <button
+        className="preset-select"
+        type="button"
+        aria-label={`Select ${preset.title}`}
+        aria-pressed={active}
+        onClick={onSelect}
+      >
+        <span className="radio-dot" aria-hidden="true" />
+        <span className="preset-copy">
+          <strong>{preset.title}</strong>
+          <small>{preset.detail}</small>
+        </span>
+      </button>
+      <span className="preset-actions">
+        {onSave ? (
+          <button
+            className="save-pill"
+            type="button"
+            aria-label="Save current style"
+            onClick={(event) => {
+              event.stopPropagation()
+              onSelect()
+              onSave()
+            }}
+          >
+            Save
+          </button>
+        ) : null}
+        <button
+          className={`preset-more ${menuOpen ? 'open' : ''}`}
+          type="button"
+          aria-label={`Open preset details for ${preset.title}`}
+          aria-expanded={menuOpen}
+          onClick={(event) => {
+            event.stopPropagation()
+            onToggleMenu()
+          }}
+        >
+          <MoreHorizontal size={18} />
+        </button>
       </span>
-      {active ? <span className="save-pill">Save</span> : <MoreHorizontal size={18} />}
-    </button>
+      {menuOpen ? <PresetPopover preset={preset} scalars={scalars} /> : null}
+    </div>
+  )
+}
+
+function PresetPopover({ preset, scalars }: { preset: StylePreset; scalars: AestheticScalar[] }) {
+  const scalarMap = new Map(scalars.map((scalar) => [scalar.id, scalar]))
+  const settings = preset.scalarSettings
+    .map((setting) => {
+      const scalar = scalarMap.get(setting.id)
+      if (!scalar) return undefined
+      return {
+        ...setting,
+        label: scalar.label,
+      }
+    })
+    .filter(Boolean) as Array<StylePreset['scalarSettings'][number] & { label: string }>
+
+  return (
+    <div className="preset-popover" role="dialog" aria-label={`Preset details for ${preset.title}`}>
+      <div className="preset-popover-head">
+        <strong>{preset.title}</strong>
+        <small>{preset.detail}</small>
+      </div>
+      <div className="preset-popover-section">
+        <span>Parameters</span>
+        <div className="preset-setting-list">
+          {settings.map((setting) => (
+            <div className="preset-setting" key={setting.id}>
+              <div>
+                <span>{setting.label}</span>
+                <small>{setting.marker}</small>
+              </div>
+              <b>{presetScalarDisplayValue(setting.value)}</b>
+              <i aria-hidden="true">
+                <em style={{ width: `${setting.value}%` }} />
+              </i>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="preset-popover-section context">
+        <span>Context</span>
+        <dl>
+          <div>
+            <dt>Image</dt>
+            <dd>{preset.context.image}</dd>
+          </div>
+          <div>
+            <dt>Audience</dt>
+            <dd>{preset.context.audience}</dd>
+          </div>
+          <div>
+            <dt>Brand</dt>
+            <dd>{preset.context.brand}</dd>
+          </div>
+          <div>
+            <dt>Chats</dt>
+            <dd>{preset.context.chat.join(' ')}</dd>
+          </div>
+        </dl>
+      </div>
+    </div>
   )
 }
 
