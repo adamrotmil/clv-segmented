@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, KeyboardEvent, ReactNode } from 'react'
 import {
   AlertTriangle,
@@ -87,6 +87,12 @@ type AgentTask = {
   input: string
   output: string
   test: string
+}
+
+type ChatDraft = {
+  id: string
+  phase: string
+  lines: string[]
 }
 
 const scoreScalarPreset: Record<string, Pick<AestheticScalar, 'value' | 'marker'>> = {
@@ -262,6 +268,8 @@ function scoreTabLabel(tab: ScoreTab) {
 
 function App() {
   const workTimer = useRef<number | undefined>(undefined)
+  const chatThinkTimer = useRef<number | undefined>(undefined)
+  const chatResolveTimer = useRef<number | undefined>(undefined)
   const [selectedAssetId, setSelectedAssetId] = useState(assets[0].id)
   const [selectedVersion, setSelectedVersion] = useState(assets[0].version)
   const [selectedVariantId, setSelectedVariantId] = useState('updated')
@@ -273,6 +281,7 @@ function App() {
   const [variants, setVariants] = useState(initialVariants)
   const [messages, setMessages] = useState(initialMessages)
   const [chatValue, setChatValue] = useState('')
+  const [chatDraft, setChatDraft] = useState<ChatDraft | null>(null)
   const [pendingPhase, setPendingPhase] = useState<PendingPhase>('idle')
   const [workError, setWorkError] = useState('')
   const [toast, setToast] = useState('')
@@ -789,6 +798,35 @@ function App() {
     flashToast('AI edit workspace opened')
   }
 
+  function queueAssistantReply(content: string, focus = 'Composing response') {
+    window.clearTimeout(chatThinkTimer.current)
+    window.clearTimeout(chatResolveTimer.current)
+    const id = `draft-${Date.now()}`
+    setChatDraft({
+      id,
+      phase: 'Thinking',
+      lines: ['Reading image context', 'Checking segment signal', 'Mapping prompt weights'],
+    })
+    chatThinkTimer.current = window.setTimeout(() => {
+      setChatDraft({
+        id,
+        phase: 'Composing',
+        lines: [focus, 'Preparing response'],
+      })
+    }, 420)
+    chatResolveTimer.current = window.setTimeout(() => {
+      setChatDraft(null)
+      setMessages((current) => [
+        ...current,
+        {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          content,
+        },
+      ])
+    }, 1050)
+  }
+
   function sendChat(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const trimmed = chatValue.trim()
@@ -803,14 +841,10 @@ function App() {
     setChatValue('')
     if (lower.includes('fail') || lower.includes('simulate failure')) {
       failWork()
-      setMessages((current) => [
-        ...current,
-        {
-          id: `assistant-failed-${Date.now()}`,
-          role: 'assistant',
-          content: 'The critic pass failed on product placement. I left the artifact visible so you can retry or adjust the segment.',
-        },
-      ])
+      queueAssistantReply(
+        'The critic pass failed on product placement. I left the artifact visible so you can retry or adjust the segment.',
+        'Holding failed artifact',
+      )
       return
     }
     let appliedTrace: ChangeTrace | undefined
@@ -835,26 +869,18 @@ function App() {
     } else {
       startWork('applying', lastChange)
     }
-    window.setTimeout(() => {
-      const nextStep =
-        savedIdeas.length < 2
-          ? 'Save two ideas, then combine them into a remix.'
-          : 'You have enough saved signal to combine ideas or generate a remix.'
-      const stateNote = appliedTrace
-        ? `Applied: ${appliedTrace.what}`
-        : `Latest trace: ${lastChange.what}`
-      setMessages((current) => [
-        ...current,
-        {
-          id: `assistant-${Date.now()}`,
-          role: 'assistant',
-          content:
-            lower.includes('what should i do next') || lower.includes('next')
-              ? `Next: ${nextStep} Current focus is ${activeSegment.label}; latest change is ${lastChange.control}.`
-              : `Applied state-aware guidance to ${activeSegment.label}. ${stateNote}`,
-        },
-      ])
-    }, 650)
+    const nextStep =
+      savedIdeas.length < 2
+        ? 'Save two ideas, then combine them into a remix.'
+        : 'You have enough saved signal to combine ideas or generate a remix.'
+    const stateNote = appliedTrace
+      ? `Applied: ${appliedTrace.what}`
+      : `Latest trace: ${lastChange.what}`
+    const reply =
+      lower.includes('what should i do next') || lower.includes('next')
+        ? `Next: ${nextStep} Current focus is ${activeSegment.label}; latest change is ${lastChange.control}.`
+        : `Applied state-aware guidance to ${activeSegment.label}. ${stateNote}`
+    queueAssistantReply(reply, appliedTrace ? `Applying ${appliedTrace.control}` : 'Reading latest trace')
   }
 
   return (
@@ -900,6 +926,7 @@ function App() {
             ) : (
               <AssistantPanel
                 messages={messages}
+                chatDraft={chatDraft}
                 pendingPhase={pendingPhase}
                 workError={workError}
                 chatValue={chatValue}
@@ -1684,6 +1711,7 @@ function SegmentFlyout({
 
 function AssistantPanel({
   messages,
+  chatDraft,
   pendingPhase,
   workError,
   chatValue,
@@ -1702,6 +1730,7 @@ function AssistantPanel({
   onClose,
 }: {
   messages: ChatMessage[]
+  chatDraft: ChatDraft | null
   pendingPhase: PendingPhase
   workError: string
   chatValue: string
@@ -1719,6 +1748,14 @@ function AssistantPanel({
   onToggleAgentPaused: () => void
   onClose: () => void
 }) {
+  const chatLogRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const chatLog = chatLogRef.current
+    if (!chatLog) return
+    chatLog.scrollTop = chatLog.scrollHeight
+  }, [messages.length, chatDraft?.id, chatDraft?.phase, pendingPhase])
+
   return (
     <aside className="assistant-panel">
       <header className="assistant-header">
@@ -1730,7 +1767,7 @@ function AssistantPanel({
           <X size={19} />
         </button>
       </header>
-      <div className="chat-log">
+      <div className="chat-log" ref={chatLogRef}>
         <div className="chat-spacer" />
         <InteractionTrace
           trace={trace}
@@ -1748,6 +1785,7 @@ function AssistantPanel({
             {message.content}
           </div>
         ))}
+        {chatDraft ? <ChatThinkingBubble draft={chatDraft} /> : null}
         <AgentActivity
           tasks={agentTasks}
           paused={agentPaused}
@@ -1780,6 +1818,27 @@ function AssistantPanel({
         </button>
       </form>
     </aside>
+  )
+}
+
+function ChatThinkingBubble({ draft }: { draft: ChatDraft }) {
+  return (
+    <div
+      className="chat-message assistant thinking"
+      data-testid="chat-thinking"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="thinking-head">
+        <Sparkles size={13} fill="currentColor" />
+        <span>{draft.phase}</span>
+      </div>
+      <div className="thinking-lines">
+        {draft.lines.map((line) => (
+          <span key={`${draft.id}-${line}`}>{line}</span>
+        ))}
+      </div>
+    </div>
   )
 }
 

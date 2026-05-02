@@ -1296,6 +1296,57 @@ button {
   color: #fff;
 }
 
+.chat-message.thinking {
+  width: 248px;
+  margin: 0 auto 18px 4px;
+  border-color: #ececf0;
+  background: #fff;
+}
+
+.thinking-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #1b1269;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.thinking-lines {
+  display: grid;
+  gap: 5px;
+  margin-top: 9px;
+}
+
+.thinking-lines span {
+  width: max-content;
+  max-width: 100%;
+  background:
+    linear-gradient(
+      100deg,
+      #8d8f98 0%,
+      #23242b 24%,
+      #8d8f98 48%,
+      #8d8f98 100%
+    );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-size: 13px;
+  line-height: 17px;
+  animation: text-shimmer 1.15s ease-in-out infinite;
+}
+
+.thinking-lines span:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.thinking-lines span:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
 .trace-inline,
 .trace-panel,
 .agent-panel {
@@ -2101,6 +2152,16 @@ button {
   }
 }
 
+@keyframes text-shimmer {
+  0% {
+    background-position: 180% 0;
+  }
+
+  100% {
+    background-position: -60% 0;
+  }
+}
+
 @keyframes pulse {
   0%,
   100% {
@@ -2109,5 +2170,13 @@ button {
 
   50% {
     opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-lines span {
+    animation: none;
+    background: none;
+    color: #3b3c43;
   }
 }

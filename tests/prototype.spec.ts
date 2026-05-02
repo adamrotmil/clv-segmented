@@ -158,11 +158,14 @@ test('chat, failure, and agent loop status are state-aware and inspectable', asy
   await page.getByPlaceholder('Ask anything...').fill('make the face more candid')
   await page.getByRole('button', { name: 'Send message' }).click()
   await expect(page.getByLabel('Staging')).toHaveValue('86')
+  await expect(page.getByTestId('chat-thinking')).toBeVisible()
   await expect(page.getByText(/Applied: Staging moved/)).toBeVisible()
+  await expect(page.getByTestId('chat-thinking')).toBeHidden()
   await expect(page.getByLabel('Interaction trace').first()).toContainText('Staging moved')
 
   await page.getByPlaceholder('Ask anything...').fill('what should I do next?')
   await page.getByRole('button', { name: 'Send message' }).click()
+  await expect(page.getByTestId('chat-thinking')).toContainText(/Thinking|Composing/)
   await expect(page.getByText(/Next:/)).toBeVisible()
   await expect(page.getByText(/Current focus is/)).toBeVisible()
 
