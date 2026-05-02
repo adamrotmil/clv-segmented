@@ -635,6 +635,7 @@ function App() {
   const [selectedStylePresetId, setSelectedStylePresetId] = useState('current')
   const [selectedVariantId, setSelectedVariantId] = useState('updated')
   const [selectedSegmentId, setSelectedSegmentId] = useState('')
+  const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([])
   const [annotationsVisible, setAnnotationsVisible] = useState(true)
   const [zoom, setZoom] = useState(100)
   const [scalars, setScalars] = useState(initialScalars)
@@ -753,8 +754,30 @@ function App() {
     applyScalarChange(id, value, 'score')
   }
 
-  function chooseSegment(segmentId: string) {
-    setSelectedSegmentId(segmentId)
+  function chooseSegment(segmentId: string, additive = false) {
+    if (!segmentId) {
+      setSelectedSegmentId('')
+      setSelectedSegmentIds([])
+      return
+    }
+
+    if (!additive) {
+      setSelectedSegmentId(segmentId)
+      setSelectedSegmentIds([segmentId])
+      return
+    }
+
+    const seed = selectedSegmentIds.length
+      ? selectedSegmentIds
+      : selectedSegmentId
+        ? [selectedSegmentId]
+        : []
+    const next = seed.includes(segmentId)
+      ? seed.filter((id) => id !== segmentId)
+      : [...seed, segmentId]
+
+    setSelectedSegmentIds(next)
+    setSelectedSegmentId(seed.includes(segmentId) ? next[0] ?? '' : segmentId)
   }
 
   function selectAsset(assetId: string) {
@@ -762,7 +785,7 @@ function App() {
     setSelectedAssetId(nextAsset.id)
     setSelectedVersion(nextAsset.version)
     setSelectedVariantId('updated')
-    setSelectedSegmentId('')
+    chooseSegment('')
     flashToast(`${nextAsset.name} selected`)
   }
 
@@ -2058,14 +2081,14 @@ function App() {
   }
 
   function openScoreMode(segmentId: string) {
-    setSelectedSegmentId(segmentId)
+    chooseSegment(segmentId)
     setMode('score')
     setZoom(100)
     flashToast('Score workspace opened')
   }
 
   function openHybridMode() {
-    if (!selectedSegmentId) setSelectedSegmentId('emotion')
+    if (!selectedSegmentId) chooseSegment('emotion')
     setMode('hybrid')
     setZoom(100)
     flashToast('AI edit workspace opened')
@@ -2275,6 +2298,7 @@ function App() {
               zoom={zoom}
               onZoomChange={setZoom}
               selectedSegmentId={selectedSegmentId}
+              selectedSegmentIds={selectedSegmentIds}
               onSelectSegment={chooseSegment}
               onOpenScoreSegment={openScoreMode}
               onApplySegmentSuggestion={applySegmentSuggestion}
@@ -3013,6 +3037,7 @@ function CanvasWorkspace({
   zoom,
   onZoomChange,
   selectedSegmentId,
+  selectedSegmentIds,
   onSelectSegment,
   onOpenScoreSegment,
   onApplySegmentSuggestion,
@@ -3039,7 +3064,8 @@ function CanvasWorkspace({
   zoom: number
   onZoomChange: (value: number) => void
   selectedSegmentId: string
-  onSelectSegment: (id: string) => void
+  selectedSegmentIds: string[]
+  onSelectSegment: (id: string, additive?: boolean) => void
   onOpenScoreSegment: (id: string) => void
   onApplySegmentSuggestion: (
     segment: SegmentAnnotation,
@@ -3118,6 +3144,7 @@ function CanvasWorkspace({
   const detailsVariant = variantDetails
     ? canvasVariants.find((variant) => variant.id === variantDetails.variantId) ?? null
     : null
+  const hasSegmentSelection = selectedSegmentIds.length > 0 || Boolean(selectedSegmentId)
 
   useEffect(() => {
     if (!nodeMenu) return undefined
@@ -3293,6 +3320,19 @@ function CanvasWorkspace({
                   : variant.id === 'updated'
               const isComparisonSelection = comparisonIds.length > 1 && comparisonIds.includes(variant.id)
               const isComparisonAnchor = isComparisonSelection && comparisonIds[0] === variant.id
+              const isBaselineSegmentComparison =
+                comparisonIds.length <= 1 &&
+                !selectedGeneratedVariant &&
+                (variant.id === 'original' || variant.id === 'updated')
+              const isGeneratedSegmentComparison =
+                comparisonIds.length <= 1 &&
+                Boolean(selectedGeneratedVariant) &&
+                (variant.id === 'original' || variant.id === selectedGeneratedVariant?.id)
+              const isSegmentComparisonFocus =
+                hasSegmentSelection &&
+                (isComparisonSelection ||
+                  isBaselineSegmentComparison ||
+                  isGeneratedSegmentComparison)
               const artboardPendingPhase =
                 variant.status === 'generating'
                   ? 'remixing'
@@ -3312,6 +3352,7 @@ function CanvasWorkspace({
                   combineSource={Boolean(dropTargetId) && artboardDrag.draggingId === variant.id}
                   annotationsVisible={annotationsVisible}
                   selectedSegmentId={selectedSegmentId}
+                  selectedSegmentIds={selectedSegmentIds}
                   onSelect={(event) => selectCanvasVariant(variant.id, Boolean(event?.shiftKey))}
                   onOpenNodeMenu={(event) => openNodeMenu(variant.id, event)}
                   onSelectSegment={onSelectSegment}
@@ -3321,6 +3362,7 @@ function CanvasWorkspace({
                   onDragPointerMove={artboardDrag.moveDrag}
                   onDragPointerEnd={endArtboardDrag}
                   focus={isActiveComparison}
+                  segmentFocus={isSegmentComparisonFocus}
                   showScore
                   showDeltas={isActiveComparison && variant.id !== 'original'}
                   lastChange={isActiveComparison ? lastChange : undefined}
@@ -3781,6 +3823,7 @@ function CreativeArtboard({
   combineSource = false,
   annotationsVisible,
   selectedSegmentId,
+  selectedSegmentIds = [],
   onSelect,
   onSelectSegment,
   onOpenScoreSegment,
@@ -3790,6 +3833,7 @@ function CreativeArtboard({
   onDragPointerEnd,
   onOpenNodeMenu,
   focus,
+  segmentFocus = focus,
   size = 'normal',
   showScore = false,
   showDeltas = false,
@@ -3806,8 +3850,9 @@ function CreativeArtboard({
   combineSource?: boolean
   annotationsVisible: boolean
   selectedSegmentId: string
+  selectedSegmentIds?: string[]
   onSelect: (event?: VariantSelectEvent) => void
-  onSelectSegment: (id: string) => void
+  onSelectSegment: (id: string, additive?: boolean) => void
   onOpenScoreSegment?: (id: string) => void
   onApplySegmentSuggestion?: (
     segment: SegmentAnnotation,
@@ -3818,6 +3863,7 @@ function CreativeArtboard({
   onDragPointerEnd?: (event: PointerEvent<HTMLElement>) => void
   onOpenNodeMenu?: (event: MouseEvent<HTMLElement>) => void
   focus: boolean
+  segmentFocus?: boolean
   size?: 'normal' | 'large'
   showScore?: boolean
   showDeltas?: boolean
@@ -3829,7 +3875,9 @@ function CreativeArtboard({
   const isGenerating = variant.status === 'generating'
   const isPending = isGenerating || (pendingPhase !== 'idle' && pendingPhase !== 'failed')
   const activeSegment = segments.find((segment) => segment.id === selectedSegmentId) ?? null
-  const hasFocusedSelection = Boolean(activeSegment && focus)
+  const selectedSegmentSet =
+    selectedSegmentIds.length > 0 ? selectedSegmentIds : selectedSegmentId ? [selectedSegmentId] : []
+  const hasFocusedSelection = selectedSegmentSet.length > 0 && segmentFocus
   const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
@@ -3902,8 +3950,8 @@ function CreativeArtboard({
               <button
                 key={segment.id}
                 className={`segment-hotspot ${
-                  selectedSegmentId === segment.id && focus ? 'selected' : ''
-                } ${hasFocusedSelection && segment.id !== selectedSegmentId ? 'muted' : ''}`}
+                  selectedSegmentSet.includes(segment.id) && segmentFocus ? 'selected' : ''
+                } ${hasFocusedSelection && !selectedSegmentSet.includes(segment.id) ? 'muted' : ''}`}
                 style={{
                   left: `${segment.x}%`,
                   top: `${segment.y}%`,
@@ -3916,7 +3964,7 @@ function CreativeArtboard({
                 onClick={(event) => {
                   event.stopPropagation()
                   onSelect()
-                  onSelectSegment(segment.id)
+                  onSelectSegment(segment.id, event.shiftKey)
                 }}
               />
             ))}
@@ -3924,8 +3972,8 @@ function CreativeArtboard({
               <span
                 key={`${segment.id}-label`}
                 className={`segment-label segment-label-${segment.id} ${
-                  selectedSegmentId === segment.id && focus ? 'selected' : ''
-                } ${hasFocusedSelection && segment.id !== selectedSegmentId ? 'muted' : ''}`}
+                  selectedSegmentSet.includes(segment.id) && segmentFocus ? 'selected' : ''
+                } ${hasFocusedSelection && !selectedSegmentSet.includes(segment.id) ? 'muted' : ''}`}
                 style={{
                   left: `${segment.x}%`,
                   top: `${segment.y}%`,
@@ -3978,7 +4026,9 @@ function SegmentFlyout({
   onApplySuggestion: (suggestion: SegmentSuggestion) => void
 }) {
   const left = Math.min(42, Math.max(4, segment.x + segment.width - 44))
-  const top = Math.min(72, Math.max(4, segment.y + segment.height - 10))
+  const topOffset = segment.id === 'resonance' ? 24 : -10
+  const topLimit = segment.id === 'resonance' ? 86 : 72
+  const top = Math.min(topLimit, Math.max(4, segment.y + segment.height + topOffset))
 
   return (
     <section
@@ -4612,7 +4662,7 @@ function ScoreWorkspace({
   selectedSegmentId: string
   annotationsVisible: boolean
   onToggleAnnotations: () => void
-  onSelectSegment: (id: string) => void
+  onSelectSegment: (id: string, additive?: boolean) => void
   onOpenHybrid: () => void
   onZoomChange: (value: number) => void
   onSelectCreative: () => void

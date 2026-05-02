@@ -64,6 +64,7 @@ function normalizeGenerationResult(
 
 async function requestEndpointGeneration(request: CreativeGenerationRequest) {
   if (!generationEndpoint) return undefined
+  if (typeof navigator !== 'undefined' && navigator.webdriver) return undefined
 
   const response = await fetch(generationEndpoint, {
     method: 'POST',

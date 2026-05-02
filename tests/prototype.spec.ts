@@ -299,6 +299,7 @@ test('shift selecting canvas nodes creates an anchored comparison set', async ({
 test('comparison factor chips focus the related SAM segment', async ({ page }) => {
   await page.goto('/')
 
+  const originalStack = page.locator('.creative-stack').nth(0)
   const updatedStack = page.locator('.creative-stack').nth(1)
 
   await page.getByRole('button', { name: 'Original Image', exact: true }).click()
@@ -306,6 +307,7 @@ test('comparison factor chips focus the related SAM segment', async ({ page }) =
   await page.getByRole('button', { name: 'Face visibility' }).click()
 
   await expect(page.getByRole('button', { name: 'Face visibility' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(originalStack.locator('.segment-hotspot[aria-label="Emotional engagement"]')).toHaveClass(/selected/)
   await expect(updatedStack.locator('.segment-hotspot[aria-label="Emotional engagement"]')).toHaveClass(/selected/)
   await expect(updatedStack.locator('.segment-label-emotion')).toHaveClass(/selected/)
 
@@ -313,6 +315,7 @@ test('comparison factor chips focus the related SAM segment', async ({ page }) =
   await expect(page.getByRole('button', { name: 'CTA clarity' })).toHaveClass(/selected/)
   await expect(page.getByRole('button', { name: 'CTA clarity' })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('button', { name: 'Face visibility' })).toHaveAttribute('aria-pressed', 'false')
+  await expect(originalStack.locator('.segment-hotspot[aria-label="CTA"]')).toHaveClass(/selected/)
   await expect(updatedStack.locator('.segment-hotspot[aria-label="CTA"]')).toHaveClass(/selected/)
   await expect(updatedStack.locator('.segment-label-cta')).toHaveClass(/selected/)
 })
@@ -523,6 +526,31 @@ test('segment labels attach to their SAM frames', async ({ page }) => {
     const insideAttachment = Math.abs((labelBox?.y ?? 0) - (frameBox?.y ?? 0))
     expect(Math.min(aboveAttachment, insideAttachment)).toBeLessThanOrEqual(18)
   }
+})
+
+test('SAM segment focus mirrors across compared images and supports shift selection', async ({ page }) => {
+  await page.goto('/')
+
+  const originalStack = page.locator('.creative-stack').nth(0)
+  const updatedStack = page.locator('.creative-stack').nth(1)
+
+  await updatedStack.locator('.segment-hotspot[aria-label="Creative resonance"]').click()
+
+  await expect(originalStack.locator('.segment-hotspot[aria-label="Creative resonance"]')).toHaveClass(/selected/)
+  await expect(updatedStack.locator('.segment-hotspot[aria-label="Creative resonance"]')).toHaveClass(/selected/)
+  await expect(originalStack.locator('.segment-hotspot[aria-label="CTA"]')).toHaveClass(/muted/)
+  await expect(updatedStack.locator('.segment-hotspot[aria-label="CTA"]')).toHaveClass(/muted/)
+
+  await updatedStack
+    .locator('.segment-hotspot[aria-label="Product placement"]')
+    .click({ modifiers: ['Shift'] })
+
+  await expect(originalStack.locator('.segment-hotspot[aria-label="Creative resonance"]')).toHaveClass(/selected/)
+  await expect(updatedStack.locator('.segment-hotspot[aria-label="Creative resonance"]')).toHaveClass(/selected/)
+  await expect(originalStack.locator('.segment-hotspot[aria-label="Product placement"]')).toHaveClass(/selected/)
+  await expect(updatedStack.locator('.segment-hotspot[aria-label="Product placement"]')).toHaveClass(/selected/)
+  await expect(updatedStack.locator('.segment-hotspot[aria-label="CTA"]')).toHaveClass(/muted/)
+  await expect(page.getByLabel('Segment suggestions')).toContainText('Product placement')
 })
 
 test('accordion controls collapse and restore inspector and score sections', async ({ page }) => {
