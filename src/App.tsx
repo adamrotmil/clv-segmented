@@ -3047,6 +3047,10 @@ function CanvasWorkspace({
   const [nodeMenu, setNodeMenu] = useState<NodeMenuState | null>(null)
   const [variantDetails, setVariantDetails] = useState<VariantDetailsState | null>(null)
   const [comparisonIds, setComparisonIds] = useState<string[]>([])
+  const [activeComparisonFactor, setActiveComparisonFactor] = useState<{
+    targetId: string
+    factor: string
+  } | null>(null)
   const artboardScale = zoom / 78
   const artboardDrag = useArtboardDrag(artboardScale, onSelectVariant)
   const canvasPan = useCanvasPan()
@@ -3145,6 +3149,7 @@ function CanvasWorkspace({
   function selectCanvasVariant(variantId: string, additive = false) {
     setNodeMenu(null)
     setVariantDetails(null)
+    setActiveComparisonFactor(null)
 
     if (!variantId) {
       setComparisonIds([])
@@ -3347,6 +3352,7 @@ function CanvasWorkspace({
                 comparisonAnchor.id,
                 comparisonTargets.map((target) => target.id),
               )
+              setActiveComparisonFactor(null)
               setComparisonIds([])
             }}
             onUseInChat={() =>
@@ -3355,25 +3361,35 @@ function CanvasWorkspace({
                 comparisonTargets.map((target) => target.id),
               )
             }
+            activeFactor={activeComparisonFactor}
             selectedSegmentId={selectedSegmentId}
             onInspectFactor={(targetId, factor) => {
+              setActiveComparisonFactor({ targetId, factor })
               onSelectVariant(targetId)
               onSelectSegment(segmentIdForComparisonFactor(factor))
             }}
             onMakeAnchor={(targetId) => {
+              setActiveComparisonFactor(null)
               onSelectVariant(targetId)
               setComparisonIds((current) => [
                 targetId,
                 ...current.filter((id) => id !== targetId),
               ])
             }}
-            onRemoveTarget={(targetId) =>
+            onRemoveTarget={(targetId) => {
+              if (activeComparisonFactor?.targetId === targetId) {
+                setActiveComparisonFactor(null)
+              }
+
               setComparisonIds((current) => {
                 const next = current.filter((id) => id !== targetId)
                 return next.length ? next : [comparisonAnchor.id]
               })
-            }
-            onClose={() => setComparisonIds(comparisonAnchor ? [comparisonAnchor.id] : [])}
+            }}
+            onClose={() => {
+              setActiveComparisonFactor(null)
+              setComparisonIds(comparisonAnchor ? [comparisonAnchor.id] : [])
+            }}
           />
         ) : null}
         {nodeMenu && menuVariant ? (
@@ -3626,6 +3642,7 @@ function segmentIdForComparisonFactor(factor: string) {
 function SelectedComparisonPanel({
   anchor,
   targets,
+  activeFactor,
   selectedSegmentId,
   onBlend,
   onRemixDelta,
@@ -3637,6 +3654,7 @@ function SelectedComparisonPanel({
 }: {
   anchor: ImageVariant
   targets: ImageVariant[]
+  activeFactor: { targetId: string; factor: string } | null
   selectedSegmentId: string
   onBlend: () => void
   onRemixDelta: () => void
@@ -3690,18 +3708,25 @@ function SelectedComparisonPanel({
                 </div>
               </div>
               <div className="selection-factor-list">
-                {factors.map((factor) => (
-                  <button
-                    key={`${target.id}-${factor}`}
-                    className={
-                      segmentIdForComparisonFactor(factor) === selectedSegmentId ? 'selected' : ''
-                    }
-                    type="button"
-                    onClick={() => onInspectFactor(target.id, factor)}
-                  >
-                    {factor}
-                  </button>
-                ))}
+                {factors.map((factor) => {
+                  const factorSegmentId = segmentIdForComparisonFactor(factor)
+                  const isActiveFactor =
+                    activeFactor?.targetId === target.id &&
+                    activeFactor.factor === factor &&
+                    factorSegmentId === selectedSegmentId
+
+                  return (
+                    <button
+                      key={`${target.id}-${factor}`}
+                      className={isActiveFactor ? 'selected' : ''}
+                      type="button"
+                      aria-pressed={isActiveFactor}
+                      onClick={() => onInspectFactor(target.id, factor)}
+                    >
+                      {factor}
+                    </button>
+                  )
+                })}
               </div>
             </div>
           )

@@ -305,11 +305,14 @@ test('comparison factor chips focus the related SAM segment', async ({ page }) =
   await page.getByRole('button', { name: 'Updated Image', exact: true }).click({ modifiers: ['Shift'] })
   await page.getByRole('button', { name: 'Face visibility' }).click()
 
+  await expect(page.getByRole('button', { name: 'Face visibility' })).toHaveAttribute('aria-pressed', 'true')
   await expect(updatedStack.locator('.segment-hotspot[aria-label="Emotional engagement"]')).toHaveClass(/selected/)
   await expect(updatedStack.locator('.segment-label-emotion')).toHaveClass(/selected/)
 
   await page.getByRole('button', { name: 'CTA clarity' }).click()
   await expect(page.getByRole('button', { name: 'CTA clarity' })).toHaveClass(/selected/)
+  await expect(page.getByRole('button', { name: 'CTA clarity' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: 'Face visibility' })).toHaveAttribute('aria-pressed', 'false')
   await expect(updatedStack.locator('.segment-hotspot[aria-label="CTA"]')).toHaveClass(/selected/)
   await expect(updatedStack.locator('.segment-label-cta')).toHaveClass(/selected/)
 })
