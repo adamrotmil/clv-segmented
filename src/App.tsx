@@ -2149,18 +2149,24 @@ function App() {
     }, 1050)
   }
 
-  function sendChat(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const trimmed = chatValue.trim()
+  function processChatPrompt(trimmed: string, editedMessageId = '') {
     if (!trimmed) return
     const lower = trimmed.toLowerCase()
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: trimmed,
-    }
-    setMessages((current) => [...current, userMessage])
-    setChatValue('')
+    setMessages((current) => {
+      if (editedMessageId) {
+        return current.map((message) =>
+          message.id === editedMessageId ? { ...message, content: trimmed } : message,
+        )
+      }
+
+      const userMessage: ChatMessage = {
+        id: `user-${Date.now()}`,
+        role: 'user',
+        content: trimmed,
+      }
+
+      return [...current, userMessage]
+    })
     if (lower.includes('fail') || lower.includes('simulate failure')) {
       failWork()
       queueAssistantReply(
@@ -2207,6 +2213,20 @@ function App() {
       appliedTrace ? `Staging ${appliedTrace.control}` : 'Reading latest trace',
       lower.includes('what should i do next') || lower.includes('next') ? 'Thought for 2s >' : 'Worked for 1s >',
     )
+  }
+
+  function sendChat(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const trimmed = chatValue.trim()
+    if (!trimmed) return
+    setChatValue('')
+    processChatPrompt(trimmed)
+  }
+
+  function sendEditedChat(messageId: string, content: string) {
+    const trimmed = content.trim()
+    if (!trimmed) return
+    processChatPrompt(trimmed, messageId)
   }
 
   return (
@@ -2289,6 +2309,7 @@ function App() {
                 chatValue={chatValue}
                 onChatValueChange={setChatValue}
                 onSubmit={sendChat}
+                onSubmitEdit={sendEditedChat}
                 trace={lastChange}
                 history={history}
                 onUndo={undoLastChange}
@@ -4002,6 +4023,7 @@ function AssistantPanel({
   chatValue,
   onChatValueChange,
   onSubmit,
+  onSubmitEdit,
   trace,
   history,
   onUndo,
@@ -4018,6 +4040,7 @@ function AssistantPanel({
   chatValue: string
   onChatValueChange: (value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  onSubmitEdit: (messageId: string, content: string) => void
   trace: ChangeTrace
   history: HistoryEntry[]
   onUndo: () => void
@@ -4030,6 +4053,10 @@ function AssistantPanel({
   const chatLogRef = useRef<HTMLDivElement | null>(null)
   const chatInputRef = useRef<HTMLInputElement | null>(null)
   const [copiedMessageId, setCopiedMessageId] = useState('')
+  const [editingMessage, setEditingMessage] = useState<{
+    id: string
+    content: string
+  } | null>(null)
 
   useEffect(() => {
     const chatLog = chatLogRef.current
@@ -4038,14 +4065,21 @@ function AssistantPanel({
   }, [messages, chatDraft?.id, chatDraft?.phase, pendingPhase])
 
   function editMessage(message: ChatMessage) {
-    onChatValueChange(message.content)
-    window.requestAnimationFrame(() => chatInputRef.current?.focus())
+    setEditingMessage({ id: message.id, content: message.content })
   }
 
   function copyMessage(message: ChatMessage) {
     void navigator.clipboard?.writeText(message.content).catch(() => undefined)
     setCopiedMessageId(message.id)
     window.setTimeout(() => setCopiedMessageId((id) => (id === message.id ? '' : id)), 1200)
+  }
+
+  function submitMessageEdit(messageId: string) {
+    if (!editingMessage) return
+    const trimmed = editingMessage.content.trim()
+    if (!trimmed) return
+    onSubmitEdit(messageId, trimmed)
+    setEditingMessage(null)
   }
 
   return (
@@ -4074,6 +4108,15 @@ function AssistantPanel({
             key={message.id}
             message={message}
             copied={copiedMessageId === message.id}
+            editing={editingMessage?.id === message.id}
+            editValue={editingMessage?.id === message.id ? editingMessage.content : ''}
+            onEditValueChange={(content) =>
+              setEditingMessage((current) =>
+                current?.id === message.id ? { ...current, content } : current,
+              )
+            }
+            onCancelEdit={() => setEditingMessage(null)}
+            onSubmitEdit={() => submitMessageEdit(message.id)}
             onCopy={copyMessage}
             onEdit={editMessage}
           />
@@ -4099,20 +4142,47 @@ function AssistantPanel({
 function AssistantChatMessage({
   message,
   copied,
+  editing,
+  editValue,
+  onEditValueChange,
+  onCancelEdit,
+  onSubmitEdit,
   onCopy,
   onEdit,
 }: {
   message: ChatMessage
   copied: boolean
+  editing: boolean
+  editValue: string
+  onEditValueChange: (value: string) => void
+  onCancelEdit: () => void
+  onSubmitEdit: () => void
   onCopy: (message: ChatMessage) => void
   onEdit: (message: ChatMessage) => void
 }) {
+  const editAreaRef = useRef<HTMLTextAreaElement | null>(null)
   const showActivity = message.role === 'assistant' && message.activity
   const isUser = message.role === 'user'
 
+  function resizeEditArea(editArea: HTMLTextAreaElement) {
+    editArea.style.height = 'auto'
+    editArea.style.height = `${Math.min(280, Math.max(150, editArea.scrollHeight))}px`
+  }
+
+  useEffect(() => {
+    if (!editing) return
+    const editArea = editAreaRef.current
+    if (!editArea) return
+    resizeEditArea(editArea)
+    editArea.focus()
+    editArea.setSelectionRange(editArea.value.length, editArea.value.length)
+  }, [editing, editValue])
+
   return (
     <div
-      className={`chat-message ${message.role} ${message.streaming ? 'is-streaming' : ''}`}
+      className={`chat-message ${message.role} ${message.streaming ? 'is-streaming' : ''} ${
+        editing ? 'is-editing' : ''
+      }`}
       data-streaming={message.streaming ? 'true' : undefined}
     >
       {showActivity ? (
@@ -4121,8 +4191,47 @@ function AssistantChatMessage({
           <div className="assistant-rule" />
         </>
       ) : null}
-      <div className="message-content">{message.content}</div>
-      {isUser ? (
+      {editing ? (
+        <form
+          className="message-edit-form"
+          aria-label="Edit chat message"
+          onSubmit={(event) => {
+            event.preventDefault()
+            onSubmitEdit()
+          }}
+        >
+          <textarea
+            ref={editAreaRef}
+            value={editValue}
+            aria-label="Edit message text"
+            onChange={(event) => {
+              onEditValueChange(event.target.value)
+              resizeEditArea(event.currentTarget)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                onCancelEdit()
+              }
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault()
+                onSubmitEdit()
+              }
+            }}
+          />
+          <div className="message-edit-actions">
+            <button type="button" onClick={onCancelEdit}>
+              Cancel
+            </button>
+            <button type="submit" disabled={!editValue.trim()}>
+              Send
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="message-content">{message.content}</div>
+      )}
+      {isUser && !editing ? (
         <div className="message-actions" aria-label="Message actions">
           <button
             type="button"
