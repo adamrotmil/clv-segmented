@@ -979,6 +979,9 @@ button {
   flex: 1;
   flex-direction: column;
   padding: 18px 16px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(19, 19, 22, 0.18) transparent;
 }
 
 .chat-spacer {
