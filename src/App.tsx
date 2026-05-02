@@ -2112,10 +2112,7 @@ function AssistantPanel({
   return (
     <aside className="assistant-panel">
       <header className="assistant-header">
-        <div>
-          <Sparkles size={18} fill="currentColor" />
-          <strong>Edit Image with AI</strong>
-        </div>
+        <span className="assistant-title">Assistant</span>
         <button type="button" aria-label="Close assistant" onClick={onClose}>
           <X size={19} />
         </button>

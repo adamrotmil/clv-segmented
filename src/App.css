@@ -1250,20 +1250,17 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 50px;
-  padding: 0 16px 0 18px;
+  height: 46px;
+  padding: 0 14px 0 16px;
   border-bottom: 1px solid #ededf0;
 }
 
-.assistant-header div {
-  gap: 9px;
-  font-size: 18px;
-}
-
-.assistant-header strong {
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: 0;
+.assistant-title {
+  color: #30323a;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: -0.0104em;
 }
 
 .assistant-header button {

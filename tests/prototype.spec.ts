@@ -16,7 +16,7 @@ async function expectStableHover(locator: Locator) {
 
 test('interaction trace shows slider effect, shimmer, explanation, and undo', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByText('Edit Image with AI')).toBeVisible()
+  await expect(page.locator('.assistant-title')).toHaveText('Assistant')
 
   const staging = page.getByLabel('Staging')
   await expect(staging).toHaveValue('78')
