@@ -1452,6 +1452,18 @@ button {
   white-space: pre-wrap;
 }
 
+.chat-message.assistant.is-streaming .message-content::after {
+  display: inline-block;
+  width: 5px;
+  height: 1em;
+  margin-left: 2px;
+  border-radius: 999px;
+  background: #7b7e86;
+  vertical-align: -0.16em;
+  animation: stream-cursor 0.78s ease-in-out infinite;
+  content: "";
+}
+
 .chat-message.user .message-content {
   max-width: min(286px, calc(100% - 22px));
   padding: 13px 15px;
@@ -2366,10 +2378,25 @@ button {
   }
 }
 
+@keyframes stream-cursor {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+
+  50% {
+    opacity: 0.9;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .thinking-lines span {
     animation: none;
     background: none;
     color: #3b3c43;
+  }
+
+  .chat-message.assistant.is-streaming .message-content::after {
+    animation: none;
   }
 }

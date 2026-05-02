@@ -54,6 +54,7 @@ export type ChatMessage = {
   role: 'user' | 'assistant'
   content: string
   activity?: string
+  streaming?: boolean
 }
 
 export type ScalarGenerationChange = {

@@ -504,6 +504,8 @@ function App() {
   const workTimer = useRef<number | undefined>(undefined)
   const chatThinkTimer = useRef<number | undefined>(undefined)
   const chatResolveTimer = useRef<number | undefined>(undefined)
+  const chatStreamTimer = useRef<number | undefined>(undefined)
+  const chatStreamMessage = useRef<{ id: string; content: string } | null>(null)
   const [selectedAssetId, setSelectedAssetId] = useState(assets[0].id)
   const [selectedVersion, setSelectedVersion] = useState(assets[0].version)
   const [selectedVariantId, setSelectedVariantId] = useState('updated')
@@ -527,6 +529,16 @@ function App() {
   const [agentTasks, setAgentTasks] = useState<AgentTask[]>(initialAgentTasks)
   const [agentPaused] = useState(false)
   const [assistantMinimized, setAssistantMinimized] = useState(false)
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(workTimer.current)
+      window.clearTimeout(chatThinkTimer.current)
+      window.clearTimeout(chatResolveTimer.current)
+      window.clearInterval(chatStreamTimer.current)
+    },
+    [],
+  )
 
   const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0]
   const activeCanvasAsset = { ...selectedAsset, version: selectedVersion }
@@ -1461,9 +1473,65 @@ function App() {
     flashToast('AI edit workspace opened')
   }
 
+  function finishStreamingMessage() {
+    const streaming = chatStreamMessage.current
+    if (!streaming) return
+
+    window.clearInterval(chatStreamTimer.current)
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === streaming.id
+          ? { ...message, content: streaming.content, streaming: false }
+          : message,
+      ),
+    )
+    chatStreamTimer.current = undefined
+    chatStreamMessage.current = null
+  }
+
+  function streamAssistantReply(content: string, activity: string) {
+    const id = `assistant-${Date.now()}`
+    const tokens = content.match(/\S+\s*/g) ?? [content]
+    let index = 0
+    chatStreamMessage.current = { id, content }
+
+    setMessages((current) => [
+      ...current,
+      {
+        id,
+        role: 'assistant',
+        activity,
+        content: '',
+        streaming: true,
+      },
+    ])
+
+    function appendNextToken() {
+      index += 1
+      const partial = tokens.slice(0, index).join('')
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === id
+            ? { ...message, content: partial, streaming: index < tokens.length }
+            : message,
+        ),
+      )
+
+      if (index >= tokens.length) {
+        window.clearInterval(chatStreamTimer.current)
+        chatStreamTimer.current = undefined
+        chatStreamMessage.current = null
+      }
+    }
+
+    appendNextToken()
+    chatStreamTimer.current = window.setInterval(appendNextToken, 76)
+  }
+
   function queueAssistantReply(content: string, focus = 'Composing response', activity = 'Worked for 1s >') {
     window.clearTimeout(chatThinkTimer.current)
     window.clearTimeout(chatResolveTimer.current)
+    finishStreamingMessage()
     const id = `draft-${Date.now()}`
     setChatDraft({
       id,
@@ -1479,15 +1547,7 @@ function App() {
     }, 420)
     chatResolveTimer.current = window.setTimeout(() => {
       setChatDraft(null)
-      setMessages((current) => [
-        ...current,
-        {
-          id: `assistant-${Date.now()}`,
-          role: 'assistant',
-          activity,
-          content,
-        },
-      ])
+      streamAssistantReply(content, activity)
     }, 1050)
   }
 
@@ -2572,7 +2632,7 @@ function AssistantPanel({
     const chatLog = chatLogRef.current
     if (!chatLog) return
     chatLog.scrollTop = chatLog.scrollHeight
-  }, [messages.length, chatDraft?.id, chatDraft?.phase, pendingPhase])
+  }, [messages, chatDraft?.id, chatDraft?.phase, pendingPhase])
 
   function editMessage(message: ChatMessage) {
     onChatValueChange(message.content)
@@ -2648,7 +2708,10 @@ function AssistantChatMessage({
   const isUser = message.role === 'user'
 
   return (
-    <div className={`chat-message ${message.role}`}>
+    <div
+      className={`chat-message ${message.role} ${message.streaming ? 'is-streaming' : ''}`}
+      data-streaming={message.streaming ? 'true' : undefined}
+    >
       {showActivity ? (
         <>
           <div className="assistant-activity">{message.activity}</div>

@@ -330,7 +330,15 @@ test('chat and failure states stay state-aware without exposed agent activity', 
   await page.getByRole('button', { name: 'Send message' }).click()
   await expect(page.getByLabel('Staging')).toHaveValue('86')
   await expect(page.getByTestId('chat-thinking')).toBeVisible()
-  await expect(page.getByText(/Staged: Staging staged/)).toBeVisible()
+  const streamingReply = page.locator('.chat-message.assistant[data-streaming="true"]').last()
+  await expect(streamingReply).toBeVisible()
+  const partialReply = await streamingReply.locator('.message-content').textContent()
+  expect(partialReply?.length ?? 0).toBeGreaterThan(0)
+  expect(partialReply?.length ?? 0).toBeLessThan(
+    'Staged: Staging staged from 78 to 86. Use Remix Image to generate the committed image.'.length,
+  )
+  await expect(page.getByText(/committed image/)).toBeVisible()
+  await expect(page.locator('.chat-message.assistant[data-streaming="true"]')).toHaveCount(0)
   await expect(page.getByText('Worked for 1s >')).toBeVisible()
   await expect(page.getByTestId('chat-thinking')).toBeHidden()
   await page.getByRole('button', { name: 'Edit message' }).last().click()
