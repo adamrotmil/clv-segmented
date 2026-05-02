@@ -3360,79 +3360,77 @@ function InteractionTrace({
   const isPending = pendingPhase !== 'idle' && pendingPhase !== 'failed'
   return (
     <section className={`trace-panel ${compact ? 'compact' : ''}`} aria-label="Interaction trace">
-      <div className="trace-head">
-        <span>Insight</span>
-        <b>{isPending ? pendingPhase : pendingPhase === 'failed' ? 'review' : 'live'}</b>
-      </div>
-      {isPending ? <div className="trace-shimmer" data-testid="trace-shimmer" /> : null}
-      {pendingPhase === 'failed' ? (
-        <div className="trace-error" role="alert">
-          <AlertTriangle size={14} />
-          <span>{workError}</span>
-        </div>
-      ) : null}
-      <div className="trace-copy">
-        <small>What changed</small>
-        <strong>{trace.what}</strong>
-      </div>
-      <div className="trace-copy">
-        <small>Why it changed</small>
-        <p>{trace.why}</p>
-      </div>
-      <div className="trace-metrics">
-        <span>{trace.before}</span>
-        <b>→</b>
-        <span>{trace.after}</span>
-        <em>
-          ES {trace.scoreBefore}% → {trace.scoreAfter}%
-        </em>
-      </div>
-      <div className="ingredient-row" aria-label="Remix ingredients">
-        {trace.ingredients.slice(0, compact ? 2 : 3).map((ingredient) => (
-          <span key={ingredient}>{ingredient}</span>
-        ))}
-      </div>
-      <div className="trace-actions">
-        <button type="button" onClick={onUndo} disabled={!history.length}>
-          <Undo2 size={14} />
-          Undo
-        </button>
-        <button type="button" onClick={() => onSaveIdea('idea-a')}>
-          Save Variant A
-        </button>
-        <button type="button" onClick={() => onSaveIdea('idea-b')}>
-          Save Variant B
-        </button>
-        <button type="button" onClick={onCombineIdeas}>
-          <GitBranch size={14} />
-          Combine
-        </button>
-      </div>
-      {savedIdeas.length ? (
-        <div className="saved-ideas" aria-label="Saved ideas">
-          {savedIdeas.map((idea) => (
-            <span key={idea.id}>
-              {idea.label} · ES {idea.score}%
-            </span>
-          ))}
-        </div>
-      ) : null}
-      {history.length ? (
-        <div className="history-list" aria-label="History timeline">
-          <div>
-            <History size={13} />
-            Timeline
+      <div className="trace-scroll" tabIndex={0}>
+        {isPending ? <div className="trace-shimmer" data-testid="trace-shimmer" /> : null}
+        {pendingPhase === 'failed' ? (
+          <div className="trace-error" role="alert">
+            <AlertTriangle size={14} />
+            <span>{workError}</span>
           </div>
-          {history.slice(0, compact ? 2 : 3).map((entry) => (
-            <button key={entry.id} type="button" onClick={() => onRestore(entry)}>
-              {entry.control}
-              <span>
-                {entry.scoreBefore}% → {entry.scoreAfter}%
-              </span>
-            </button>
+        ) : null}
+        <div className="trace-copy">
+          <small>What changed</small>
+          <strong>{trace.what}</strong>
+        </div>
+        <div className="trace-copy">
+          <small>Why it changed</small>
+          <p>{trace.why}</p>
+        </div>
+        <div className="trace-metrics">
+          <span>{trace.before}</span>
+          <b>→</b>
+          <span>{trace.after}</span>
+          <em>
+            ES {trace.scoreBefore}% → {trace.scoreAfter}%
+          </em>
+        </div>
+        <div className="ingredient-row" aria-label="Remix ingredients">
+          {trace.ingredients.slice(0, compact ? 2 : 3).map((ingredient) => (
+            <span key={ingredient}>{ingredient}</span>
           ))}
         </div>
-      ) : null}
+        <div className="trace-actions">
+          <button type="button" onClick={onUndo} disabled={!history.length}>
+            <Undo2 size={14} />
+            Undo
+          </button>
+          <button type="button" onClick={() => onSaveIdea('idea-a')}>
+            Save Variant A
+          </button>
+          <button type="button" onClick={() => onSaveIdea('idea-b')}>
+            Save Variant B
+          </button>
+          <button type="button" onClick={onCombineIdeas}>
+            <GitBranch size={14} />
+            Combine
+          </button>
+        </div>
+        {savedIdeas.length ? (
+          <div className="saved-ideas" aria-label="Saved ideas">
+            {savedIdeas.map((idea) => (
+              <span key={idea.id}>
+                {idea.label} · ES {idea.score}%
+              </span>
+            ))}
+          </div>
+        ) : null}
+        {history.length ? (
+          <div className="history-list" aria-label="History timeline">
+            <div>
+              <History size={13} />
+              Timeline
+            </div>
+            {history.slice(0, compact ? 2 : 3).map((entry) => (
+              <button key={entry.id} type="button" onClick={() => onRestore(entry)}>
+                {entry.control}
+                <span>
+                  {entry.scoreBefore}% → {entry.scoreAfter}%
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </section>
   )
 }

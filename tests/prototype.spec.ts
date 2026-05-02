@@ -479,6 +479,35 @@ test('chat and failure states stay state-aware without exposed agent activity', 
   await page.goto('/')
   await expect(page.getByText('AI Assistant')).toHaveCount(0)
   await expect(page.getByText('Worked for 35s >')).toBeVisible()
+  await expect(page.getByText('Listening for segment changes')).toHaveCount(0)
+
+  const chatFade = await page.locator('.chat-log').evaluate((element) => {
+    const styles = getComputedStyle(element, '::before')
+    return {
+      background: styles.backgroundImage,
+      height: styles.height,
+      marginBottom: styles.marginBottom,
+      position: styles.position,
+    }
+  })
+  expect(chatFade.position).toBe('sticky')
+  expect(chatFade.height).toBe('40px')
+  expect(chatFade.marginBottom).toBe('-40px')
+  expect(chatFade.background).toContain('linear-gradient')
+
+  const traceFade = await page.locator('.trace-scroll').first().evaluate((element) => {
+    const styles = getComputedStyle(element, '::before')
+    return {
+      background: styles.backgroundImage,
+      height: styles.height,
+      marginBottom: styles.marginBottom,
+      position: styles.position,
+    }
+  })
+  expect(traceFade.position).toBe('sticky')
+  expect(traceFade.height).toBe('40px')
+  expect(traceFade.marginBottom).toBe('-40px')
+  expect(traceFade.background).toContain('linear-gradient')
 
   await page.getByPlaceholder('Ask anything...').fill('make the face more candid')
   await page.getByRole('button', { name: 'Send message' }).click()
