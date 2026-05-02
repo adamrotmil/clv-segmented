@@ -25,7 +25,7 @@
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--text);
-  background: #76777b;
+  background: #fff;
 }
 
 * {
@@ -43,7 +43,7 @@ body {
   min-width: 1100px;
   min-height: 760px;
   overflow: hidden;
-  background: #77787c;
+  background: #fff;
   font-weight: 400;
 }
 
@@ -59,113 +59,20 @@ button {
 .portfolio-frame {
   position: relative;
   min-height: 100vh;
-  padding: 24px 0;
-  background: rgba(0, 0, 0, 0.34);
-}
-
-.background-chrome {
-  position: absolute;
-  inset: 0;
-  color: #14151a;
-  opacity: 0.72;
-  pointer-events: none;
-}
-
-.left-rail {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 48px;
-  height: 100%;
-  border-right: 1px solid rgba(0, 0, 0, 0.18);
-  background: rgba(255, 255, 255, 0.24);
-}
-
-.left-rail > * {
-  position: absolute;
-  left: 50%;
-  color: #111217;
-  transform: translateX(-50%);
-}
-
-.rail-top {
-  top: 18px;
-}
-
-.rail-plus {
-  top: 70px;
-}
-
-.rail-active {
-  top: 104px;
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border-radius: 50%;
-  background: rgba(17, 18, 23, 0.11);
-}
-
-.rail-bookmark {
-  top: 149px;
-}
-
-.rail-chart {
-  top: 185px;
-}
-
-.rail-bell {
-  bottom: 77px;
-}
-
-.rail-settings {
-  bottom: 40px;
-}
-
-.rail-avatar {
-  bottom: 8px;
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  border-radius: 50%;
-  background: #1d155f;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.background-title {
-  position: absolute;
-  top: 16px;
-  left: 64px;
-  font-size: 22px;
-  font-weight: 600;
-}
-
-.background-button {
-  position: absolute;
-  top: 8px;
-  right: 16px;
-  padding: 13px 22px;
-  border-radius: 8px;
-  background: #101116;
-  color: #fff;
-  font-size: 15px;
-  font-weight: 600;
+  background: #fff;
 }
 
 .editor-window {
   position: relative;
   z-index: 1;
-  width: min(1352px, calc(100vw - 96px));
-  height: min(854px, calc(100vh - 48px));
-  margin: 0 auto;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
   overflow: hidden;
-  border: 1px solid rgba(12, 13, 16, 0.13);
-  border-radius: 12px;
+  border: 0;
+  border-radius: 0;
   background: var(--surface);
-  box-shadow: 0 18px 58px rgba(0, 0, 0, 0.22);
+  box-shadow: none;
 }
 
 .editor-header {
@@ -775,7 +682,7 @@ button {
 .canvas-scroll {
   position: relative;
   height: 100%;
-  padding-top: 210px;
+  padding-top: clamp(156px, 19vh, 190px);
   overflow: hidden;
 }
 

@@ -3,26 +3,19 @@ import type { CSSProperties, FormEvent, KeyboardEvent, PointerEvent, ReactNode }
 import {
   AlertTriangle,
   ArrowUp,
-  Bell,
   Bot,
-  Bookmark,
-  Building2,
-  ChartNoAxesColumn,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
-  CirclePlus,
   GitBranch,
   History,
   EyeOff,
-  LogIn,
   MoreHorizontal,
   Pause,
   Play,
   Plus,
   RefreshCw,
   Search,
-  Settings,
   Sparkles,
   Undo2,
   X,
@@ -1134,7 +1127,6 @@ function App() {
 
   return (
     <main className="portfolio-frame">
-      <BackgroundChrome />
       <section className="editor-window" aria-label="Edit creative">
         <EditorHeader
           mode={mode}
@@ -1325,27 +1317,6 @@ function App() {
         {toast ? <div className="toast">{toast}</div> : null}
       </section>
     </main>
-  )
-}
-
-function BackgroundChrome() {
-  return (
-    <div className="background-chrome" aria-hidden="true">
-      <div className="left-rail">
-        <LogIn className="rail-top" size={17} strokeWidth={2.1} />
-        <CirclePlus className="rail-plus" size={22} strokeWidth={2.4} fill="currentColor" />
-        <span className="rail-active">
-          <Building2 size={18} strokeWidth={2.2} fill="currentColor" />
-        </span>
-        <Bookmark className="rail-bookmark" size={17} strokeWidth={2.1} />
-        <ChartNoAxesColumn className="rail-chart" size={18} strokeWidth={2.1} />
-        <Bell className="rail-bell" size={17} strokeWidth={2.1} />
-        <Settings className="rail-settings" size={18} strokeWidth={2.1} />
-        <span className="rail-avatar">S</span>
-      </div>
-      <div className="background-title">Welcome, Sidia. Let's grow your brand.</div>
-      <div className="background-button">+ New Campaign</div>
-    </div>
   )
 }
 
