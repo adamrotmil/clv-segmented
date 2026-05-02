@@ -420,6 +420,43 @@ function App() {
     combineIdeas()
   }
 
+  function resetChanges() {
+    const resetScoreScalars = applyScorePreset(initialScalars)
+    const trace: ChangeTrace = {
+      id: `reset-${Date.now()}`,
+      control: 'Reset',
+      what: 'Reset changes to the current style.',
+      why: 'The scalar controls and active variant were restored to the saved baseline so the next remix starts from a clean prompt state.',
+      before: `ES ${workingScore}%`,
+      after: 'ES 83%',
+      scoreBefore: workingScore,
+      scoreAfter: 83,
+      segment: activeSegment.label,
+      ingredients: ['Current style', 'Baseline scalars', 'Updated image'],
+    }
+    setScalars(initialScalars)
+    setScoreScalars(resetScoreScalars)
+    setSelectedVariantId('updated')
+    setLastChange(trace)
+    setHistory((current) =>
+      [
+        {
+          ...trace,
+          scalarsBefore: scalars,
+          scalarsAfter: initialScalars,
+          scoreScalarsBefore: scoreScalars,
+          scoreScalarsAfter: resetScoreScalars,
+          variantIdBefore: selectedVariantId,
+          variantIdAfter: 'updated',
+        },
+        ...current,
+      ].slice(0, 6),
+    )
+    startWork('applying', trace)
+    setToast('Changes reset')
+    window.setTimeout(() => setToast(''), 1400)
+  }
+
   function saveIdea(slot: 'idea-a' | 'idea-b') {
     const label = slot === 'idea-a' ? 'Variant A' : 'Variant B'
     const idea: SavedIdea = {
@@ -804,7 +841,7 @@ function App() {
               onOpenHybrid={openHybridMode}
               onZoomChange={setZoom}
               mode="hybrid"
-              onReset={() => setMode('score')}
+              onReset={resetChanges}
               onRemix={remixImage}
               pendingPhase={pendingPhase}
               lastChange={lastChange}
