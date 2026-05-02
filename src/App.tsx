@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, FormEvent, KeyboardEvent, PointerEvent, ReactNode, WheelEvent } from 'react'
+import type {
+  CSSProperties,
+  FormEvent,
+  KeyboardEvent,
+  MouseEvent,
+  PointerEvent,
+  ReactNode,
+  WheelEvent,
+} from 'react'
 import {
   AlertTriangle,
   ArrowUp,
@@ -16,6 +24,7 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  Trash2,
   Undo2,
   X,
 } from 'lucide-react'
@@ -84,6 +93,19 @@ type AgentTask = {
   input: string
   output: string
   test: string
+}
+
+type NodeMenuState = {
+  variantId: string
+  peerVariantId: string
+  x: number
+  y: number
+}
+
+type VariantDetailsState = {
+  variantId: string
+  mode: 'details' | 'compare'
+  compareToId?: string
 }
 
 type ChatDraft = {
@@ -1537,6 +1559,135 @@ function App() {
     window.setTimeout(() => setToast(''), 1800)
   }
 
+  async function remixFromVariant(variantId: string) {
+    const sourceVariant = workingVariants.find((variant) => variant.id === variantId)
+    if (!sourceVariant) return
+
+    const remixScalars = promptScalars
+    const remixScore = projectedScore(remixScalars)
+    const nextId = `remix-${Date.now()}`
+    const outputTitle = `Remix ${variants.length}`
+    const predictedScore = Math.min(96, Math.max(sourceVariant.score + 2, remixScore + 1))
+    const pendingTrace: ChangeTrace = {
+      id: `${nextId}-trace`,
+      control: 'Remix source',
+      what: `Remixed from ${sourceVariant.title}.`,
+      why: 'The selected canvas node was used as the source image, then combined with the current scalar recipe and recent chat context.',
+      before: sourceVariant.title,
+      after: outputTitle,
+      scoreBefore: sourceVariant.score,
+      scoreAfter: predictedScore,
+      segment: activeSegment.label,
+      ingredients: [
+        sourceVariant.title,
+        activeSegment.label,
+        ...remixScalars.slice(0, 1).map((scalar) => scalar.label),
+      ],
+    }
+    const generationRequest = buildGenerationRequest({
+      id: nextId,
+      intent: 'scalar-remix',
+      outputTitle,
+      sourceIds: [sourceVariant.id],
+      beforeScalars: scalars,
+      nextScalars: remixScalars,
+      projectedScoreValue: remixScore,
+      scoreLift: Math.max(1, predictedScore - remixScore),
+      baseFilter: imageFilterForScalars(remixScalars),
+      trace: pendingTrace,
+      promptHints: [
+        `Use ${sourceVariant.title} as source`,
+        pendingTrace.why,
+        ...messages.slice(-4).map((message) => `${message.role}: ${message.content}`),
+      ],
+      sourceVariantOverride: sourceVariant,
+    })
+
+    setLastChange(pendingTrace)
+    queueGeneratingVariant(generationRequest, predictedScore)
+    setVariantGenerationTask(`${sourceVariant.title} + current context`, 'Generating source remix')
+    startWork('remixing', pendingTrace, false)
+    const generation = await requestCreativeGeneration(generationRequest)
+    const remix: ImageVariant = {
+      id: nextId,
+      title: generation.title,
+      kind: 'generated',
+      image: generation.image,
+      score: generation.score,
+      delta: generation.delta,
+      filter: generation.filter,
+      ingredients: generation.ingredients,
+      sourceIds: generation.sourceIds,
+      status: 'ready',
+    }
+    const trace: ChangeTrace = {
+      ...pendingTrace,
+      after: remix.title,
+      scoreAfter: remix.score,
+      ingredients: generation.ingredients,
+    }
+
+    setScalars(remixScalars)
+    setDraftScalars(remixScalars)
+    resolveGeneratedVariant(remix)
+    setSelectedVariantId(nextId)
+    setLastChange(trace)
+    setHistory((current) =>
+      [
+        {
+          ...trace,
+          scalarsBefore: scalars,
+          scalarsAfter: remixScalars,
+          scoreScalarsBefore: scoreScalars,
+          scoreScalarsAfter: scoreScalars,
+          variantIdBefore: sourceVariant.id,
+          variantIdAfter: nextId,
+        },
+        ...current,
+      ].slice(0, 6),
+    )
+    completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock source response ready')
+    setToast('Source remix generated')
+    window.setTimeout(() => setToast(''), 1800)
+  }
+
+  function useVariantAsChatContext(variantId: string) {
+    const variant = workingVariants.find((item) => item.id === variantId)
+    if (!variant) return
+
+    const contextMessage: ChatMessage = {
+      id: `variant-context-${Date.now()}`,
+      role: 'assistant',
+      activity: 'Added context >',
+      content: `${variant.title} is now in context. I will weigh its score, source lineage, and visible ingredients in the next remix.`,
+    }
+    setSelectedVariantId(variant.id)
+    setMessages((current) => [...current, contextMessage])
+    recordPrototypeAction(
+      'Variant in context',
+      `${variant.title} added to the assistant context.`,
+      'The next generation request can use this canvas node as part of the recent conversation context.',
+    )
+  }
+
+  function removeCanvasVariant(variantId: string) {
+    const variant = workingVariants.find((item) => item.id === variantId)
+    if (!variant || variant.kind !== 'generated') {
+      flashToast('Base images stay on canvas')
+      return
+    }
+
+    setVariants((current) => current.filter((item) => item.id !== variantId))
+    if (selectedVariantId === variantId) {
+      setSelectedVariantId('updated')
+    }
+    recordPrototypeAction(
+      'Variant removed',
+      `${variant.title} removed from the canvas.`,
+      'Generated alternates can be cleared while the original and updated approval images remain pinned.',
+    )
+  }
+
   async function applySegmentSuggestion(segment: SegmentAnnotation, suggestion: SegmentSuggestion) {
     const beforeScalars = scalars
     const beforeScoreScalars = scoreScalars
@@ -1974,7 +2125,10 @@ function App() {
               hasPendingChanges={hasPendingScalarChanges}
               onResetChanges={resetChanges}
               onRemix={remixImage}
+              onRemixFromVariant={remixFromVariant}
               onBlendVariants={blendCanvasVariants}
+              onUseVariantAsChatContext={useVariantAsChatContext}
+              onRemoveVariant={removeCanvasVariant}
               lastChange={lastChange}
               pendingPhase={pendingPhase}
             />
@@ -2706,7 +2860,10 @@ function CanvasWorkspace({
   hasPendingChanges,
   onResetChanges,
   onRemix,
+  onRemixFromVariant,
   onBlendVariants,
+  onUseVariantAsChatContext,
+  onRemoveVariant,
   lastChange,
   pendingPhase,
 }: {
@@ -2730,7 +2887,10 @@ function CanvasWorkspace({
   hasPendingChanges: boolean
   onResetChanges: () => void
   onRemix: () => void
+  onRemixFromVariant: (variantId: string) => void
   onBlendVariants: (sourceId: string, targetId: string) => void
+  onUseVariantAsChatContext: (variantId: string) => void
+  onRemoveVariant: (variantId: string) => void
   lastChange: ChangeTrace
   pendingPhase: PendingPhase
 }) {
@@ -2742,6 +2902,8 @@ function CanvasWorkspace({
   )
   const canvasVariants = variants
   const generatedVariants = variants.slice(2)
+  const [nodeMenu, setNodeMenu] = useState<NodeMenuState | null>(null)
+  const [variantDetails, setVariantDetails] = useState<VariantDetailsState | null>(null)
   const artboardScale = zoom / 78
   const artboardDrag = useArtboardDrag(artboardScale, onSelectVariant)
   const canvasPan = useCanvasPan()
@@ -2771,6 +2933,39 @@ function CanvasWorkspace({
     artboardDrag.draggingId,
     gridColumns,
   )
+  const menuVariant = nodeMenu
+    ? canvasVariants.find((variant) => variant.id === nodeMenu.variantId) ?? null
+    : null
+  const menuPeerVariant = nodeMenu?.peerVariantId
+    ? canvasVariants.find((variant) => variant.id === nodeMenu.peerVariantId) ?? null
+    : null
+  const detailsVariant = variantDetails
+    ? canvasVariants.find((variant) => variant.id === variantDetails.variantId) ?? null
+    : null
+  const detailsCompareVariant = variantDetails?.compareToId
+    ? canvasVariants.find((variant) => variant.id === variantDetails.compareToId) ?? null
+    : null
+
+  useEffect(() => {
+    if (!nodeMenu) return undefined
+
+    function closeMenu() {
+      setNodeMenu(null)
+    }
+
+    function closeWithKeyboard(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        closeMenu()
+      }
+    }
+
+    window.addEventListener('pointerdown', closeMenu)
+    window.addEventListener('keydown', closeWithKeyboard)
+    return () => {
+      window.removeEventListener('pointerdown', closeMenu)
+      window.removeEventListener('keydown', closeWithKeyboard)
+    }
+  }, [nodeMenu])
 
   function endArtboardDrag(event: PointerEvent<HTMLElement>) {
     const result = artboardDrag.endDrag(event)
@@ -2785,6 +2980,29 @@ function CanvasWorkspace({
 
   function tidyCanvas() {
     artboardDrag.resetPositions(canvasVariants.map((variant) => variant.id))
+  }
+
+  function openNodeMenu(variantId: string, event: MouseEvent<HTMLElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    setNodeMenu({
+      variantId,
+      peerVariantId: selectedVariantId && selectedVariantId !== variantId ? selectedVariantId : '',
+      x: event.clientX,
+      y: event.clientY,
+    })
+    onSelectVariant(variantId)
+  }
+
+  function compareTargetFor(variantId: string) {
+    const peerId = nodeMenu?.peerVariantId
+    if (peerId && peerId !== variantId) return peerId
+    if (variantId === 'updated') return 'original'
+    return 'updated'
+  }
+
+  function closeNodeMenu() {
+    setNodeMenu(null)
   }
 
   function handleCanvasPointerDown(event: PointerEvent<HTMLDivElement>) {
@@ -2873,6 +3091,7 @@ function CanvasWorkspace({
                   annotationsVisible={annotationsVisible}
                   selectedSegmentId={selectedSegmentId}
                   onSelect={() => onSelectVariant(variant.id)}
+                  onOpenNodeMenu={(event) => openNodeMenu(variant.id, event)}
                   onSelectSegment={onSelectSegment}
                   onOpenScoreSegment={onOpenScoreSegment}
                   onApplySegmentSuggestion={onApplySegmentSuggestion}
@@ -2912,6 +3131,54 @@ function CanvasWorkspace({
             ))}
           </div>
         ) : null}
+        {detailsVariant ? (
+          <VariantDetailsPanel
+            variant={detailsVariant}
+            variants={canvasVariants}
+            compareVariant={detailsCompareVariant}
+            mode={variantDetails?.mode ?? 'details'}
+            onClose={() => setVariantDetails(null)}
+          />
+        ) : null}
+        {nodeMenu && menuVariant ? (
+          <NodeContextMenu
+            position={{ x: nodeMenu.x, y: nodeMenu.y }}
+            variant={menuVariant}
+            peerVariant={menuPeerVariant}
+            onRemix={() => {
+              closeNodeMenu()
+              onRemixFromVariant(menuVariant.id)
+            }}
+            onCompare={() => {
+              setVariantDetails({
+                variantId: menuVariant.id,
+                mode: 'compare',
+                compareToId: compareTargetFor(menuVariant.id),
+              })
+              closeNodeMenu()
+            }}
+            onBlend={() => {
+              if (!menuPeerVariant) return
+              closeNodeMenu()
+              onBlendVariants(menuVariant.id, menuPeerVariant.id)
+            }}
+            onUseAsContext={() => {
+              closeNodeMenu()
+              onUseVariantAsChatContext(menuVariant.id)
+            }}
+            onViewDetails={() => {
+              setVariantDetails({ variantId: menuVariant.id, mode: 'details' })
+              closeNodeMenu()
+            }}
+            onRemove={() => {
+              closeNodeMenu()
+              onRemoveVariant(menuVariant.id)
+              setVariantDetails((current) =>
+                current?.variantId === menuVariant.id ? null : current,
+              )
+            }}
+          />
+        ) : null}
       </div>
       <CanvasRemixActions
         visible={hasPendingChanges && pendingPhase !== 'remixing'}
@@ -2949,6 +3216,158 @@ function CanvasRemixActions({
   )
 }
 
+function NodeContextMenu({
+  position,
+  variant,
+  peerVariant,
+  onRemix,
+  onCompare,
+  onBlend,
+  onUseAsContext,
+  onViewDetails,
+  onRemove,
+}: {
+  position: { x: number; y: number }
+  variant: ImageVariant
+  peerVariant: ImageVariant | null
+  onRemix: () => void
+  onCompare: () => void
+  onBlend: () => void
+  onUseAsContext: () => void
+  onViewDetails: () => void
+  onRemove: () => void
+}) {
+  const menuStyle = {
+    '--menu-x': `${position.x}px`,
+    '--menu-y': `${position.y}px`,
+  } as CSSProperties
+  const canBlend = Boolean(peerVariant && peerVariant.id !== variant.id)
+  const canRemove = variant.kind === 'generated'
+
+  return (
+    <div
+      className="node-context-menu"
+      style={menuStyle}
+      role="menu"
+      aria-label={`${variant.title} actions`}
+      onPointerDown={(event) => event.stopPropagation()}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <div className="node-menu-head">
+        <span>{variant.title}</span>
+        <b>ES {variant.score}%</b>
+      </div>
+      <button type="button" role="menuitem" onClick={onRemix}>
+        <RefreshCw size={14} />
+        Remix from this
+      </button>
+      <button type="button" role="menuitem" onClick={onCompare}>
+        <GitBranch size={14} />
+        Compare from here
+      </button>
+      <button type="button" role="menuitem" disabled={!canBlend} onClick={onBlend}>
+        <Sparkles size={14} />
+        {peerVariant ? `Blend with ${peerVariant.title}` : 'Blend with selected'}
+      </button>
+      <button type="button" role="menuitem" onClick={onUseAsContext}>
+        <Copy size={14} />
+        Use as chat context
+      </button>
+      <span className="node-menu-rule" />
+      <button type="button" role="menuitem" onClick={onViewDetails}>
+        <MoreHorizontal size={14} />
+        View details
+      </button>
+      <button
+        className="danger"
+        type="button"
+        role="menuitem"
+        disabled={!canRemove}
+        onClick={onRemove}
+      >
+        <Trash2 size={14} />
+        Remove from canvas
+      </button>
+    </div>
+  )
+}
+
+function VariantDetailsPanel({
+  variant,
+  variants,
+  compareVariant,
+  mode,
+  onClose,
+}: {
+  variant: ImageVariant
+  variants: ImageVariant[]
+  compareVariant?: ImageVariant | null
+  mode: 'details' | 'compare'
+  onClose: () => void
+}) {
+  const sourceLabels = (variant.sourceIds ?? [])
+    .map((id) => variants.find((item) => item.id === id)?.title ?? id)
+    .slice(0, 3)
+  const ingredients = Array.from(new Set(variant.ingredients ?? [])).slice(0, 4)
+  const scoreDelta = compareVariant ? variant.score - compareVariant.score : variant.delta
+
+  return (
+    <aside
+      className="variant-details-panel"
+      aria-label={mode === 'compare' ? 'Variant comparison' : 'Variant details'}
+    >
+      <div className="variant-details-head">
+        <span>{mode === 'compare' ? 'Compare' : 'Details'}</span>
+        <button type="button" aria-label="Close details" onClick={onClose}>
+          <X size={16} />
+        </button>
+      </div>
+      {mode === 'compare' && compareVariant ? (
+        <div className="variant-compare">
+          <div>
+            <small>{compareVariant.title}</small>
+            <b>ES {compareVariant.score}%</b>
+          </div>
+          <span>→</span>
+          <div>
+            <small>{variant.title}</small>
+            <b>ES {variant.score}%</b>
+          </div>
+        </div>
+      ) : (
+        <div className="variant-detail-title">
+          <b>{variant.title}</b>
+          <span>{variant.kind}</span>
+        </div>
+      )}
+      <dl className="variant-detail-grid">
+        <div>
+          <dt>Score</dt>
+          <dd>ES {variant.score}%</dd>
+        </div>
+        <div>
+          <dt>Delta</dt>
+          <dd>{scoreDelta !== undefined && scoreDelta >= 0 ? '+' : ''}{scoreDelta ?? 0}%</dd>
+        </div>
+        <div>
+          <dt>Sources</dt>
+          <dd>{sourceLabels.length ? sourceLabels.join(' + ') : 'Canvas node'}</dd>
+        </div>
+      </dl>
+      {ingredients.length ? (
+        <div className="variant-ingredients">
+          <span>{mode === 'compare' ? 'Changed factors' : 'Prompt signals'}</span>
+          <div>
+            {ingredients.map((item) => (
+              <b key={item}>{item}</b>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </aside>
+  )
+}
+
 function CreativeArtboard({
   variant,
   selected,
@@ -2965,6 +3384,7 @@ function CreativeArtboard({
   onDragPointerDown,
   onDragPointerMove,
   onDragPointerEnd,
+  onOpenNodeMenu,
   focus,
   size = 'normal',
   showScore = false,
@@ -2991,6 +3411,7 @@ function CreativeArtboard({
   onDragPointerDown?: (event: PointerEvent<HTMLElement>) => void
   onDragPointerMove?: (event: PointerEvent<HTMLElement>) => void
   onDragPointerEnd?: (event: PointerEvent<HTMLElement>) => void
+  onOpenNodeMenu?: (event: MouseEvent<HTMLElement>) => void
   focus: boolean
   size?: 'normal' | 'large'
   showScore?: boolean
@@ -3016,6 +3437,9 @@ function CreativeArtboard({
   const handleDragPointerEnd = (event: PointerEvent<HTMLElement>) => {
     onDragPointerEnd?.(event)
   }
+  const handleNodeContextMenu = (event: MouseEvent<HTMLElement>) => {
+    onOpenNodeMenu?.(event)
+  }
   const stackStyle = {
     '--drag-x': `${position?.x ?? 0}px`,
     '--drag-y': `${position?.y ?? 0}px`,
@@ -3039,6 +3463,7 @@ function CreativeArtboard({
         onPointerMove={onDragPointerMove}
         onPointerUp={handleDragPointerEnd}
         onPointerCancel={handleDragPointerEnd}
+        onContextMenu={handleNodeContextMenu}
       >
         {title}
       </button>
@@ -3054,6 +3479,7 @@ function CreativeArtboard({
         onPointerMove={onDragPointerMove}
         onPointerUp={handleDragPointerEnd}
         onPointerCancel={handleDragPointerEnd}
+        onContextMenu={handleNodeContextMenu}
       >
         <img src={variant.image} alt="" style={{ filter: variant.filter }} draggable={false} />
         {showScore ? <ScoreBadge score={variant.score} /> : null}

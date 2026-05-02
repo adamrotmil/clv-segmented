@@ -246,6 +246,36 @@ test('canvas artboards select from title and drag into place', async ({ page }) 
   await expect(updatedStack).toHaveClass(/selected/)
 })
 
+test('canvas node context menu exposes compact image actions', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Original Image', exact: true }).click()
+  await page.getByRole('button', { name: 'Updated Image', exact: true }).click({ button: 'right' })
+
+  await expect(page.getByRole('menu', { name: 'Updated Image actions' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: 'Blend with Original Image' })).toBeEnabled()
+
+  await page.getByRole('menuitem', { name: 'Compare from here' }).click()
+  await expect(page.getByLabel('Variant comparison')).toBeVisible()
+  await expect(page.getByLabel('Variant comparison')).toContainText('Original Image')
+  await expect(page.getByLabel('Variant comparison')).toContainText('Updated Image')
+  await page.getByRole('button', { name: 'Close details' }).click()
+
+  await page.getByRole('button', { name: 'Updated Image', exact: true }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Use as chat context' }).click()
+  await expect(page.getByText('Updated Image is now in context')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Add Asset', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Asset draft', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Asset draft', exact: true }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'View details' }).click()
+  await expect(page.getByLabel('Variant details')).toContainText('Imported asset')
+  await page.getByRole('button', { name: 'Close details' }).click()
+  await page.getByRole('button', { name: 'Asset draft', exact: true }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Remove from canvas' }).click()
+  await expect(page.getByRole('button', { name: 'Asset draft', exact: true })).toHaveCount(0)
+})
+
 test('dragging empty canvas pans the viewport like a canvas tool', async ({ page }) => {
   await page.goto('/')
 
