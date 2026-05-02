@@ -248,6 +248,7 @@ function formatTraceValue(scalar: AestheticScalar, value: number) {
 function App() {
   const workTimer = useRef<number | undefined>(undefined)
   const [selectedAssetId, setSelectedAssetId] = useState(assets[0].id)
+  const [selectedVersion, setSelectedVersion] = useState(assets[0].version)
   const [selectedVariantId, setSelectedVariantId] = useState('updated')
   const [selectedSegmentId, setSelectedSegmentId] = useState('')
   const [annotationsVisible, setAnnotationsVisible] = useState(true)
@@ -268,6 +269,10 @@ function App() {
   const [agentPaused, setAgentPaused] = useState(false)
 
   const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0]
+  const activeCanvasAsset = { ...selectedAsset, version: selectedVersion }
+  const versionOptions = Array.from(
+    new Set([selectedAsset.version, 'v 1.0.1', 'v 1.0.0', 'v 0.9.8']),
+  )
   const selectedSegment = segments.find((segment) => segment.id === selectedSegmentId) ?? null
   const activeSegment = selectedSegment ?? segments[0]
   const workingScore = projectedScore(scalars)
@@ -296,6 +301,14 @@ function App() {
 
   function chooseSegment(segmentId: string) {
     setSelectedSegmentId(segmentId)
+  }
+
+  function selectAsset(assetId: string) {
+    const nextAsset = assets.find((asset) => asset.id === assetId) ?? assets[0]
+    setSelectedAssetId(nextAsset.id)
+    setSelectedVersion(nextAsset.version)
+    setSelectedVariantId('updated')
+    setSelectedSegmentId('')
   }
 
   function applyScalarChange(id: string, value: number, target: 'edit' | 'score') {
@@ -678,12 +691,14 @@ function App() {
           <div className="editor-body">
             <LeftInspector
               selectedAssetId={selectedAssetId}
-              onSelectAsset={setSelectedAssetId}
+              onSelectAsset={selectAsset}
               scalars={scalars.slice(0, 3)}
               onScalarChange={updateScalar}
             />
             <CanvasWorkspace
-              selectedAsset={selectedAsset}
+              selectedAsset={activeCanvasAsset}
+              versionOptions={versionOptions}
+              onSelectVersion={setSelectedVersion}
               variants={workingVariants}
               selectedVariantId={selectedVariantId}
               onSelectVariant={setSelectedVariantId}
@@ -725,7 +740,9 @@ function App() {
               trace={lastChange}
             />
             <ScoreWorkspace
-              selectedAsset={selectedAsset}
+              selectedAsset={activeCanvasAsset}
+              versionOptions={versionOptions}
+              onSelectVersion={setSelectedVersion}
               variant={{
                 ...initialVariants[0],
                 filter: imageFilterForScalars(scoreScalars),
@@ -751,7 +768,9 @@ function App() {
               trace={lastChange}
             />
             <ScoreWorkspace
-              selectedAsset={selectedAsset}
+              selectedAsset={activeCanvasAsset}
+              versionOptions={versionOptions}
+              onSelectVersion={setSelectedVersion}
               variant={{
                 ...initialVariants[0],
                 filter: imageFilterForScalars(scoreScalars),
@@ -849,12 +868,40 @@ function LeftInspector({
   scalars: AestheticScalar[]
   onScalarChange: (id: string, value: number) => void
 }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0]
+
   return (
     <aside className="left-panel">
-      <button className="asset-select" type="button">
-        <span>{assets.find((asset) => asset.id === selectedAssetId)?.name}</span>
-        <ChevronDown size={18} />
-      </button>
+      <div className="asset-picker">
+        <button
+          className={`asset-select ${menuOpen ? 'open' : ''}`}
+          type="button"
+          onClick={() => setMenuOpen((open) => !open)}
+          aria-expanded={menuOpen}
+        >
+          <span>{selectedAsset.name}</span>
+          <ChevronDown size={18} />
+        </button>
+        {menuOpen ? (
+          <div className="asset-menu" aria-label="Creative assets">
+            {assets.map((asset) => (
+              <button
+                key={asset.id}
+                type="button"
+                className={asset.id === selectedAssetId ? 'selected' : ''}
+                onClick={() => {
+                  onSelectAsset(asset.id)
+                  setMenuOpen(false)
+                }}
+              >
+                <span>{asset.name}</span>
+                <small>{asset.channel} · {asset.version}</small>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
 
       <section className="styles-section">
         <div className="section-title">
@@ -967,8 +1014,53 @@ function ScalarSlider({
   )
 }
 
+function VersionSelect({
+  value,
+  options,
+  onChange,
+}: {
+  value: string
+  options: string[]
+  onChange: (version: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="version-picker">
+      <button
+        className={`version-select ${open ? 'open' : ''}`}
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+      >
+        {value}
+        <ChevronDown size={18} />
+      </button>
+      {open ? (
+        <div className="version-menu" aria-label="Creative versions">
+          {options.map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={option === value ? 'selected' : ''}
+              onClick={() => {
+                onChange(option)
+                setOpen(false)
+              }}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function CanvasWorkspace({
   selectedAsset,
+  versionOptions,
+  onSelectVersion,
   variants,
   selectedVariantId,
   onSelectVariant,
@@ -984,6 +1076,8 @@ function CanvasWorkspace({
   pendingPhase,
 }: {
   selectedAsset: { version: string }
+  versionOptions: string[]
+  onSelectVersion: (version: string) => void
   variants: ImageVariant[]
   selectedVariantId: string
   onSelectVariant: (id: string) => void
@@ -1007,10 +1101,11 @@ function CanvasWorkspace({
   return (
     <section className="canvas-panel">
       <div className="canvas-toolbar">
-        <button className="version-select" type="button">
-          {selectedAsset.version}
-          <ChevronDown size={18} />
-        </button>
+        <VersionSelect
+          value={selectedAsset.version}
+          options={versionOptions}
+          onChange={onSelectVersion}
+        />
         <div className="canvas-tools">
           <button className="tool-button" type="button" onClick={onToggleAnnotations}>
             <EyeOff size={18} />
@@ -1608,6 +1703,8 @@ function ScoreScalarRow({
 
 function ScoreWorkspace({
   selectedAsset,
+  versionOptions,
+  onSelectVersion,
   variant,
   selectedSegmentId,
   annotationsVisible,
@@ -1622,6 +1719,8 @@ function ScoreWorkspace({
   lastChange,
 }: {
   selectedAsset: { version: string }
+  versionOptions: string[]
+  onSelectVersion: (version: string) => void
   variant: ImageVariant
   selectedSegmentId: string
   annotationsVisible: boolean
@@ -1638,10 +1737,11 @@ function ScoreWorkspace({
   return (
     <section className={`canvas-panel score-canvas-panel ${mode}`}>
       <div className="canvas-toolbar score-toolbar">
-        <button className="version-select" type="button">
-          {selectedAsset.version}
-          <ChevronDown size={18} />
-        </button>
+        <VersionSelect
+          value={selectedAsset.version}
+          options={versionOptions}
+          onChange={onSelectVersion}
+        />
         <div className="canvas-tools">
           <button className="tool-button" type="button" onClick={onToggleAnnotations}>
             <EyeOff size={18} />

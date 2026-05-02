@@ -20,6 +20,25 @@ test('interaction trace shows slider effect, shimmer, explanation, and undo', as
   await expect(page.getByLabel('Interaction trace').first()).toContainText('Undid Staging')
 })
 
+test('asset and version selectors update the active editor context', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByRole('button', { name: /TikTok - Variant A/ }).click()
+  await page
+    .getByLabel('Creative assets')
+    .getByRole('button', { name: /Meta - Variant B/ })
+    .click()
+  await expect(page.getByRole('button', { name: /Meta - Variant B/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /v 1.0.1/ }).first()).toBeVisible()
+
+  await page.getByRole('button', { name: /v 1.0.1/ }).first().click()
+  await page
+    .getByLabel('Creative versions')
+    .getByRole('button', { name: 'v 1.0.0' })
+    .click()
+  await expect(page.getByRole('button', { name: /v 1.0.0/ }).first()).toBeVisible()
+})
+
 test('saved ideas can be combined into an inspectable remix', async ({ page }) => {
   await page.goto('/')
 
