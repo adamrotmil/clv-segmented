@@ -44,6 +44,7 @@ body {
   min-height: 760px;
   overflow: hidden;
   background: #77787c;
+  font-weight: 400;
 }
 
 button,
@@ -131,7 +132,7 @@ button {
   background: #1d155f;
   color: #fff;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .background-title {
@@ -139,7 +140,7 @@ button {
   top: 16px;
   left: 64px;
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .background-button {
@@ -151,7 +152,7 @@ button {
   background: #101116;
   color: #fff;
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .editor-window {
@@ -206,7 +207,7 @@ button {
 
 .breadcrumbs strong {
   color: #191a20;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .header-actions {
@@ -222,7 +223,7 @@ button {
   border: 1px solid transparent;
   border-radius: 8px;
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 500;
   line-height: 1;
   transition:
     background-color 120ms ease,
@@ -250,6 +251,7 @@ button {
 .button.primary {
   background: var(--primary);
   color: #fff;
+  font-weight: 600;
   box-shadow: var(--shadow-sm);
 }
 
@@ -285,8 +287,8 @@ button {
   background: transparent;
   color: #13141a;
   font-size: 22px;
-  font-weight: 760;
-  letter-spacing: -0.01em;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .asset-picker {
@@ -337,7 +339,7 @@ button {
 .asset-menu span {
   overflow: hidden;
   font-size: 13px;
-  font-weight: 720;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -345,7 +347,7 @@ button {
 .asset-menu small {
   color: #7a7a7c;
   font-size: 11px;
-  font-weight: 520;
+  font-weight: 500;
 }
 
 .styles-section {
@@ -357,7 +359,7 @@ button {
   gap: 8px;
   color: #85878f;
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .section-title.compact {
@@ -428,7 +430,7 @@ button {
 
 .preset-copy strong {
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .preset-copy small {
@@ -443,7 +445,7 @@ button {
   background: #111217;
   color: #fff;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .show-styles {
@@ -457,7 +459,7 @@ button {
   background: transparent;
   color: #191a20;
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .suggestion-card {
@@ -514,7 +516,7 @@ button {
   justify-content: space-between;
   margin-bottom: 6px;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .scalar-top b {
@@ -525,7 +527,7 @@ button {
   background: #e6e6e8;
   color: #33343a;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -603,7 +605,7 @@ button {
   gap: 9px;
   padding: 0 12px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .version-picker {
@@ -621,7 +623,7 @@ button {
   height: 30px;
   padding: 0 9px;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .canvas-tools {
@@ -645,7 +647,7 @@ button {
   min-width: 46px;
   text-align: center;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .canvas-scroll {
@@ -675,7 +677,7 @@ button {
   margin-bottom: 5px;
   color: #8c8e95;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .creative-card {
@@ -740,7 +742,7 @@ button {
   background: rgba(19, 19, 22, 0.74);
   color: #fff;
   font-size: 10px;
-  font-weight: 760;
+  font-weight: 600;
   line-height: 1;
   backdrop-filter: blur(8px);
 }
@@ -775,7 +777,7 @@ button {
   padding: 0 6px;
   border-radius: 4px;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1;
 }
 
@@ -837,7 +839,7 @@ button {
   background: #fff;
   color: #34353b;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.08;
   text-align: left;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
@@ -923,7 +925,7 @@ button {
 .flyout-head strong {
   max-width: 94px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .flyout-head small {
@@ -940,7 +942,7 @@ button {
   background: #fff;
   color: #131316;
   font-size: 10px;
-  font-weight: 740;
+  font-weight: 600;
   box-shadow: var(--shadow-static);
 }
 
@@ -968,7 +970,7 @@ button {
   border-radius: 4px;
   background: #111217;
   color: #fff;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .suggestion-row button {
@@ -1069,8 +1071,8 @@ button {
 
 .assistant-header strong {
   font-size: 18px;
-  font-weight: 760;
-  letter-spacing: -0.01em;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .assistant-header button {
@@ -1134,7 +1136,7 @@ button {
   color: #e8fff0;
   padding: 3px 6px;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .radar {
@@ -1156,7 +1158,7 @@ button {
   inset: -8px -28px;
   color: #1e1f25;
   font-size: 12px;
-  font-weight: 470;
+  font-weight: 400;
   pointer-events: none;
 }
 
@@ -1191,7 +1193,7 @@ button {
   background: #fff;
   color: #16171d;
   font-size: 15px;
-  font-weight: 760;
+  font-weight: 600;
   box-shadow: var(--shadow-sm);
 }
 
@@ -1231,7 +1233,7 @@ button {
   display: block;
   color: #7a7a7c;
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 500;
   line-height: 16px;
 }
 
@@ -1240,7 +1242,7 @@ button {
   margin-top: 2px;
   color: #131316;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
   line-height: 16px;
 }
 
@@ -1305,7 +1307,7 @@ button {
 .agent-head span {
   color: #131316;
   font-size: 13px;
-  font-weight: 760;
+  font-weight: 500;
   line-height: 16px;
 }
 
@@ -1352,7 +1354,7 @@ button {
   display: block;
   color: #7a7a7c;
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 500;
   line-height: 16px;
 }
 
@@ -1362,12 +1364,12 @@ button {
   margin: 1px 0 0;
   color: #202126;
   font-size: 12px;
-  font-weight: 560;
+  font-weight: 500;
   line-height: 16px;
 }
 
 .trace-copy p {
-  font-weight: 430;
+  font-weight: 400;
 }
 
 .trace-metrics {
@@ -1390,7 +1392,7 @@ button {
   margin-left: auto;
   background: var(--success-soft);
   color: var(--success);
-  font-weight: 720;
+  font-weight: 500;
 }
 
 .ingredient-row {
@@ -1407,7 +1409,7 @@ button {
   background: var(--blue-soft);
   color: #13054a;
   font-size: 10px;
-  font-weight: 650;
+  font-weight: 500;
   line-height: 14px;
 }
 
@@ -1429,7 +1431,7 @@ button {
   background: #fff;
   color: #131316;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 500;
   line-height: 1;
   box-shadow: var(--shadow-static);
 }
@@ -1455,7 +1457,7 @@ button {
   gap: 5px;
   color: #7a7a7c;
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .history-list button {
@@ -1469,13 +1471,13 @@ button {
   background: transparent;
   color: #202126;
   font-size: 11px;
-  font-weight: 560;
+  font-weight: 500;
   text-align: left;
 }
 
 .history-list button span {
   color: #7a7a7c;
-  font-weight: 520;
+  font-weight: 500;
 }
 
 .agent-panel {
@@ -1516,7 +1518,7 @@ button {
   min-height: 28px;
   color: #202126;
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 500;
   list-style: none;
 }
 
@@ -1533,7 +1535,7 @@ button {
 .agent-task summary b {
   color: #7a7a7c;
   font-size: 10px;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .agent-task.running summary svg {
@@ -1579,7 +1581,7 @@ button {
 .assistant-status strong {
   color: #888a91;
   font-size: 15px;
-  font-weight: 760;
+  font-weight: 500;
 }
 
 .assistant-status span {
@@ -1652,7 +1654,7 @@ button {
   background: transparent;
   color: #7c7e86;
   font-size: 14px;
-  font-weight: 560;
+  font-weight: 500;
 }
 
 .score-tabs button.active {
@@ -1679,7 +1681,7 @@ button {
   margin-bottom: 9px;
   color: #777982;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .score-scalar {
@@ -1693,7 +1695,7 @@ button {
   min-height: 24px;
   color: #14151b;
   font-size: 14px;
-  font-weight: 520;
+  font-weight: 500;
 }
 
 .score-scalar-row div {
@@ -1721,7 +1723,7 @@ button {
   background: #e6e6e7;
   color: #202126;
   font-size: 12px;
-  font-weight: 540;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1732,7 +1734,7 @@ button {
   background: #111217;
   color: #fff;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .score-row-slider {
@@ -1751,7 +1753,7 @@ button {
   margin-bottom: 5px;
   color: #1d1e24;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
   text-align: center;
 }
 
@@ -1846,7 +1848,7 @@ button {
 .hybrid-signal span {
   color: #7a7a7c;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 500;
   line-height: 14px;
 }
 
@@ -1855,7 +1857,7 @@ button {
   overflow: hidden;
   color: #131316;
   font-size: 11px;
-  font-weight: 720;
+  font-weight: 500;
   line-height: 15px;
   text-align: right;
   text-overflow: ellipsis;
@@ -1870,7 +1872,7 @@ button {
   -webkit-line-clamp: 2;
   color: #3d3e45;
   font-size: 11px;
-  font-weight: 430;
+  font-weight: 400;
   line-height: 15px;
 }
 
@@ -1879,7 +1881,7 @@ button {
   margin-top: 6px;
   color: #7a7a7c;
   font-size: 10px;
-  font-weight: 650;
+  font-weight: 500;
   line-height: 14px;
   text-transform: capitalize;
 }
@@ -1917,7 +1919,7 @@ button {
   background: transparent;
   color: #101116;
   font-size: 14px;
-  font-weight: 520;
+  font-weight: 500;
 }
 
 .hybrid-actions button:last-child {
@@ -1929,7 +1931,7 @@ button {
   border: 1px solid #dedfe5;
   border-radius: 8px;
   background: #fff;
-  font-weight: 700;
+  font-weight: 600;
   box-shadow: var(--shadow-sm);
 }
 
@@ -1977,7 +1979,7 @@ button {
   background: #111217;
   color: #fff;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   box-shadow: var(--shadow-md);
 }
 
