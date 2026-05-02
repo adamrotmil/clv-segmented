@@ -2105,25 +2105,6 @@ button {
   overflow: hidden;
 }
 
-.assistant-panel::before {
-  position: absolute;
-  top: 46px;
-  right: 0;
-  left: 0;
-  z-index: 3;
-  height: 56px;
-  background: linear-gradient(
-    180deg,
-    #fff 0%,
-    #fff 22%,
-    rgba(255, 255, 255, 0.94) 45%,
-    rgba(255, 255, 255, 0.64) 74%,
-    rgba(255, 255, 255, 0) 100%
-  );
-  pointer-events: none;
-  content: "";
-}
-
 .assistant-header {
   position: relative;
   z-index: 4;
@@ -2180,20 +2161,27 @@ button {
   box-shadow: var(--shadow-sm);
 }
 
+.assistant-trace-region {
+  flex: 0 0 auto;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid #f0f0f2;
+  background: #fff;
+}
+
+.assistant-trace-region .trace-panel {
+  margin: 0;
+}
+
 .chat-log {
   position: relative;
   display: flex;
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  padding: 18px 16px;
+  padding: 14px 16px 18px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(19, 19, 22, 0.18) transparent;
-}
-
-.chat-spacer {
-  flex: 1;
 }
 
 .trace-panel,
@@ -2535,7 +2523,7 @@ button {
 .trace-panel {
   position: relative;
   margin: 0 0 12px;
-  max-height: 250px;
+  max-height: 228px;
   padding: 0;
   overflow: hidden;
 }
@@ -2554,18 +2542,18 @@ button {
 
 .trace-panel::after {
   position: absolute;
-  top: 1px;
-  right: 1px;
-  left: 1px;
+  top: 0;
+  right: 0;
+  left: 0;
   z-index: 5;
-  height: 52px;
-  border-radius: 7px 7px 0 0;
+  height: 58px;
+  border-radius: 8px 8px 0 0;
   background: linear-gradient(
     180deg,
     #fff 0%,
-    #fff 20%,
-    rgba(255, 255, 255, 0.94) 44%,
-    rgba(255, 255, 255, 0.62) 74%,
+    #fff 28%,
+    rgba(255, 255, 255, 0.96) 48%,
+    rgba(255, 255, 255, 0.68) 76%,
     rgba(255, 255, 255, 0) 100%
   );
   pointer-events: none;
@@ -2573,7 +2561,7 @@ button {
 }
 
 .trace-scroll {
-  max-height: 250px;
+  max-height: 228px;
   padding: 12px 12px 13px;
   overflow-x: hidden;
   overflow-y: auto;

@@ -646,19 +646,13 @@ test('chat and failure states stay state-aware without exposed agent activity', 
   await expect(page.getByText('Worked for 35s >')).toBeVisible()
   await expect(page.getByText('Listening for segment changes')).toHaveCount(0)
 
-  const chatFade = await page.locator('.assistant-panel').evaluate((element) => {
-    const styles = getComputedStyle(element, '::before')
-    return {
-      background: styles.backgroundImage,
-      height: styles.height,
-      position: styles.position,
-      top: styles.top,
-    }
-  })
-  expect(chatFade.position).toBe('absolute')
-  expect(chatFade.top).toBe('46px')
-  expect(chatFade.height).toBe('56px')
-  expect(chatFade.background).toContain('linear-gradient')
+  const traceRegionBox = await page.locator('.assistant-trace-region').boundingBox()
+  const chatLogBox = await page.locator('.chat-log').boundingBox()
+  expect(traceRegionBox).not.toBeNull()
+  expect(chatLogBox).not.toBeNull()
+  expect((traceRegionBox?.y ?? 0) + (traceRegionBox?.height ?? 0)).toBeLessThanOrEqual(
+    (chatLogBox?.y ?? 0) + 1,
+  )
 
   const traceFade = await page.locator('.trace-panel').first().evaluate((element) => {
     const styles = getComputedStyle(element, '::after')
@@ -670,8 +664,8 @@ test('chat and failure states stay state-aware without exposed agent activity', 
     }
   })
   expect(traceFade.position).toBe('absolute')
-  expect(traceFade.top).toBe('1px')
-  expect(traceFade.height).toBe('52px')
+  expect(traceFade.top).toBe('0px')
+  expect(traceFade.height).toBe('58px')
   expect(traceFade.background).toContain('linear-gradient')
 
   await page.getByPlaceholder('Ask anything...').fill('make the face more candid')

@@ -4140,8 +4140,7 @@ function AssistantPanel({
           <X size={19} />
         </button>
       </header>
-      <div className="chat-log" ref={chatLogRef}>
-        <div className="chat-spacer" />
+      <div className="assistant-trace-region">
         <InteractionTrace
           trace={trace}
           history={history}
@@ -4153,6 +4152,8 @@ function AssistantPanel({
           onSaveIdea={onSaveIdea}
           onCombineIdeas={onCombineIdeas}
         />
+      </div>
+      <div className="chat-log" ref={chatLogRef}>
         {messages.map((message) => (
           <AssistantChatMessage
             key={message.id}
