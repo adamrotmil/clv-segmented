@@ -1207,6 +1207,7 @@ function CreativeArtboard({
 }) {
   const isPending = pendingPhase !== 'idle' && pendingPhase !== 'failed'
   const activeSegment = segments.find((segment) => segment.id === selectedSegmentId) ?? null
+  const hasFocusedSelection = Boolean(activeSegment && focus)
   const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
@@ -1241,7 +1242,7 @@ function CreativeArtboard({
                 key={segment.id}
                 className={`segment-hotspot ${
                   selectedSegmentId === segment.id && focus ? 'selected' : ''
-                }`}
+                } ${hasFocusedSelection && segment.id !== selectedSegmentId ? 'muted' : ''}`}
                 style={{
                   left: `${segment.x}%`,
                   top: `${segment.y}%`,
@@ -1260,7 +1261,9 @@ function CreativeArtboard({
             {segments.map((segment) => (
               <span
                 key={`${segment.id}-label`}
-                className={`segment-label segment-label-${segment.id}`}
+                className={`segment-label segment-label-${segment.id} ${
+                  selectedSegmentId === segment.id && focus ? 'selected' : ''
+                } ${hasFocusedSelection && segment.id !== selectedSegmentId ? 'muted' : ''}`}
                 style={{
                   left: `${segment.x}%`,
                   top: `${segment.y}%`,

@@ -813,6 +813,10 @@ button {
     0 3px 10px rgba(0, 0, 0, 0.18);
 }
 
+.segment-hotspot.muted {
+  opacity: 0.42;
+}
+
 .segment-label {
   position: absolute;
   z-index: 2;
@@ -856,6 +860,17 @@ button {
   color: #1e6e3f;
   font-size: 9px;
   line-height: 1.15;
+}
+
+.segment-label.selected {
+  color: #15161b;
+  box-shadow:
+    0 0 0 1px rgba(17, 18, 23, 0.16),
+    0 2px 7px rgba(0, 0, 0, 0.12);
+}
+
+.segment-label.muted {
+  opacity: 0.56;
 }
 
 .segment-label-emotion {
