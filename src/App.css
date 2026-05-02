@@ -604,6 +604,7 @@ button {
   border-radius: 3px;
   background: #cba177;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
 }
 
 .creative-card::after {
@@ -622,6 +623,11 @@ button {
 
 .creative-card.selected {
   outline: 2px solid rgba(18, 18, 23, 0.16);
+  outline-offset: 4px;
+}
+
+.creative-card:focus-visible {
+  outline: 2px solid rgba(18, 18, 23, 0.48);
   outline-offset: 4px;
 }
 
@@ -1673,7 +1679,10 @@ button {
 .hybrid-panel {
   padding: 28px 16px 18px;
   border-left: 1px solid #ededf0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(19, 19, 22, 0.18) transparent;
 }
 
 .hybrid-panel .score-insights {

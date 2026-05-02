@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import type { CSSProperties, FormEvent, ReactNode } from 'react'
+import type { CSSProperties, FormEvent, KeyboardEvent, ReactNode } from 'react'
 import {
   AlertTriangle,
   ArrowUp,
@@ -972,13 +972,22 @@ function CreativeArtboard({
   pendingPhase?: PendingPhase
 }) {
   const isPending = pendingPhase !== 'idle' && pendingPhase !== 'failed'
+  const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      onSelect()
+    }
+  }
+
   return (
     <div className={`creative-stack ${size === 'large' ? 'large' : ''}`}>
       <div className="creative-title">{titleOverride ?? variant.title}</div>
-      <button
+      <div
         className={`creative-card ${selected ? 'selected' : ''}`}
-        type="button"
+        role="button"
+        tabIndex={0}
         onClick={onSelect}
+        onKeyDown={handleCardKeyDown}
       >
         <img src={variant.image} alt="" style={{ filter: variant.filter }} />
         {showScore ? <ScoreBadge score={variant.score} /> : null}
@@ -1036,7 +1045,7 @@ function CreativeArtboard({
             ))}
           </div>
         ) : null}
-      </button>
+      </div>
     </div>
   )
 }
@@ -1620,6 +1629,23 @@ function HybridInsightsPanel({
         </div>
         <p>Increase process materiality and reduce abstraction to create a more authentic look and feel.</p>
       </section>
+      <div className="search-box hybrid-search">
+        <Search size={18} />
+        <span>Search...</span>
+      </div>
+      <section className="intent-section hybrid-sliders">
+        <div className="section-title compact">
+          <span>Intent &amp; Style</span>
+          <ChevronDown size={17} />
+        </div>
+        {editScalars.slice(0, 4).map((scalar) => (
+          <ScalarSlider
+            key={scalar.id}
+            scalar={scalar}
+            onChange={(value) => onScalarChange(scalar.id, value)}
+          />
+        ))}
+      </section>
       <InteractionTrace
         trace={trace}
         history={history}
@@ -1638,23 +1664,6 @@ function HybridInsightsPanel({
         onTogglePaused={onToggleAgentPaused}
         compact
       />
-      <div className="search-box hybrid-search">
-        <Search size={18} />
-        <span>Search...</span>
-      </div>
-      <section className="intent-section hybrid-sliders">
-        <div className="section-title compact">
-          <span>Intent &amp; Style</span>
-          <ChevronDown size={17} />
-        </div>
-        {editScalars.slice(0, 4).map((scalar) => (
-          <ScalarSlider
-            key={scalar.id}
-            scalar={scalar}
-            onChange={(value) => onScalarChange(scalar.id, value)}
-          />
-        ))}
-      </section>
     </aside>
   )
 }
