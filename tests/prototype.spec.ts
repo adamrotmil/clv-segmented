@@ -110,6 +110,45 @@ test('canvas artboards select from title and drag into place', async ({ page }) 
   await expect(updatedStack).toHaveClass(/selected/)
 })
 
+test('dragging empty canvas pans the viewport like a canvas tool', async ({ page }) => {
+  await page.goto('/')
+
+  const canvas = page.locator('.canvas-scroll')
+  const firstStack = page.locator('.creative-stack').first()
+  const secondStack = page.locator('.creative-stack').nth(1)
+  const canvasBox = await canvas.boundingBox()
+  const firstBefore = await firstStack.boundingBox()
+  const secondBefore = await secondStack.boundingBox()
+
+  expect(canvasBox).not.toBeNull()
+  expect(firstBefore).not.toBeNull()
+  expect(secondBefore).not.toBeNull()
+
+  const startX = (canvasBox?.x ?? 0) + (canvasBox?.width ?? 0) / 2
+  const startY = (canvasBox?.y ?? 0) + 132
+  await page.mouse.move(startX, startY)
+  await page.mouse.down()
+  await page.mouse.move(startX + 84, startY + 42, { steps: 5 })
+  await expect(canvas).toHaveClass(/is-panning/)
+  await page.mouse.up()
+  await expect(canvas).not.toHaveClass(/is-panning/)
+
+  const firstAfter = await firstStack.boundingBox()
+  const secondAfter = await secondStack.boundingBox()
+  expect(firstAfter).not.toBeNull()
+  expect(secondAfter).not.toBeNull()
+
+  const firstDx = (firstAfter?.x ?? 0) - (firstBefore?.x ?? 0)
+  const firstDy = (firstAfter?.y ?? 0) - (firstBefore?.y ?? 0)
+  const secondDx = (secondAfter?.x ?? 0) - (secondBefore?.x ?? 0)
+  const secondDy = (secondAfter?.y ?? 0) - (secondBefore?.y ?? 0)
+
+  expect(firstDx).toBeGreaterThan(72)
+  expect(firstDy).toBeGreaterThan(30)
+  expect(Math.abs(firstDx - secondDx)).toBeLessThan(1)
+  expect(Math.abs(firstDy - secondDy)).toBeLessThan(1)
+})
+
 test('segment labels attach to their SAM frames', async ({ page }) => {
   await page.goto('/')
 

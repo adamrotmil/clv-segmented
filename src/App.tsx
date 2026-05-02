@@ -104,6 +104,14 @@ type ArtboardDragState = {
   scale: number
 }
 
+type CanvasPanState = {
+  pointerId: number
+  startX: number
+  startY: number
+  originX: number
+  originY: number
+}
+
 const scoreScalarPreset: Record<string, Pick<AestheticScalar, 'value' | 'marker'>> = {
   staging: { value: 50, marker: 'Constructed' },
   abstraction: { value: 30, marker: 'Literal' },
@@ -352,6 +360,59 @@ function useArtboardDrag(scale: number, onSelect: (id: string) => void) {
     beginDrag,
     moveDrag,
     endDrag,
+  }
+}
+
+function canStartCanvasPan(target: EventTarget | null) {
+  if (!(target instanceof Element)) return true
+
+  return !target.closest(
+    'a, button, input, textarea, select, [role="button"], .creative-stack, .variant-strip, .segment-flyout, .canvas-remix-actions',
+  )
+}
+
+function useCanvasPan() {
+  const [pan, setPan] = useState<DragOffset>({ x: 0, y: 0 })
+  const [panState, setPanState] = useState<CanvasPanState | null>(null)
+
+  function beginPan(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || !canStartCanvasPan(event.target)) return
+
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setPanState({
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: pan.x,
+      originY: pan.y,
+    })
+  }
+
+  function movePan(event: PointerEvent<HTMLDivElement>) {
+    if (!panState || panState.pointerId !== event.pointerId) return
+
+    setPan({
+      x: panState.originX + event.clientX - panState.startX,
+      y: panState.originY + event.clientY - panState.startY,
+    })
+  }
+
+  function endPan(event: PointerEvent<HTMLDivElement>) {
+    if (!panState || panState.pointerId !== event.pointerId) return
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    setPanState(null)
+  }
+
+  return {
+    pan,
+    panning: Boolean(panState),
+    beginPan,
+    movePan,
+    endPan,
   }
 }
 
@@ -1700,6 +1761,12 @@ function CanvasWorkspace({
   const generatedVariants = variants.slice(2)
   const artboardScale = zoom / 78
   const artboardDrag = useArtboardDrag(artboardScale, onSelectVariant)
+  const canvasPan = useCanvasPan()
+  const canvasWorldStyle = {
+    '--pan-x': `${canvasPan.pan.x}px`,
+    '--pan-y': `${canvasPan.pan.y}px`,
+    '--zoom': artboardScale,
+  } as CSSProperties
 
   return (
     <section className="canvas-panel">
@@ -1726,31 +1793,39 @@ function CanvasWorkspace({
         </div>
       </div>
 
-      <div className="canvas-scroll">
-        <div className="artboard-row" style={{ '--zoom': artboardScale } as CSSProperties}>
-          {comparisonVariants.map((variant, index) => (
-            <CreativeArtboard
-              key={variant.id}
-              variant={variant}
-              selected={selectedVariantId === variant.id}
-              position={artboardDrag.positions[variant.id]}
-              dragging={artboardDrag.draggingId === variant.id}
-              annotationsVisible={annotationsVisible}
-              selectedSegmentId={selectedSegmentId}
-              onSelect={() => onSelectVariant(variant.id)}
-              onSelectSegment={onSelectSegment}
-              onOpenScoreSegment={onOpenScoreSegment}
-              onApplySegmentSuggestion={onApplySegmentSuggestion}
-              onDragPointerDown={(event) => artboardDrag.beginDrag(variant.id, event)}
-              onDragPointerMove={artboardDrag.moveDrag}
-              onDragPointerEnd={artboardDrag.endDrag}
-              focus={index === 1}
-              showScore
-              showDeltas={index === 1}
-              lastChange={index === 1 ? lastChange : undefined}
-              pendingPhase={index === 1 ? pendingPhase : 'idle'}
-            />
-          ))}
+      <div
+        className={`canvas-scroll ${canvasPan.panning ? 'is-panning' : ''}`}
+        onPointerDown={canvasPan.beginPan}
+        onPointerMove={canvasPan.movePan}
+        onPointerUp={canvasPan.endPan}
+        onPointerCancel={canvasPan.endPan}
+      >
+        <div className="canvas-world" style={canvasWorldStyle}>
+          <div className="artboard-row">
+            {comparisonVariants.map((variant, index) => (
+              <CreativeArtboard
+                key={variant.id}
+                variant={variant}
+                selected={selectedVariantId === variant.id}
+                position={artboardDrag.positions[variant.id]}
+                dragging={artboardDrag.draggingId === variant.id}
+                annotationsVisible={annotationsVisible}
+                selectedSegmentId={selectedSegmentId}
+                onSelect={() => onSelectVariant(variant.id)}
+                onSelectSegment={onSelectSegment}
+                onOpenScoreSegment={onOpenScoreSegment}
+                onApplySegmentSuggestion={onApplySegmentSuggestion}
+                onDragPointerDown={(event) => artboardDrag.beginDrag(variant.id, event)}
+                onDragPointerMove={artboardDrag.moveDrag}
+                onDragPointerEnd={artboardDrag.endDrag}
+                focus={index === 1}
+                showScore
+                showDeltas={index === 1}
+                lastChange={index === 1 ? lastChange : undefined}
+                pendingPhase={index === 1 ? pendingPhase : 'idle'}
+              />
+            ))}
+          </div>
         </div>
 
         {generatedVariants.length > 0 ? (
@@ -2554,6 +2629,12 @@ function ScoreWorkspace({
 }) {
   const scoreScale = zoom / 100
   const artboardDrag = useArtboardDrag(scoreScale, () => onSelectCreative())
+  const canvasPan = useCanvasPan()
+  const canvasWorldStyle = {
+    '--pan-x': `${canvasPan.pan.x}px`,
+    '--pan-y': `${canvasPan.pan.y}px`,
+    '--score-zoom': scoreScale,
+  } as CSSProperties
 
   return (
     <section className={`canvas-panel score-canvas-panel ${mode}`}>
@@ -2585,29 +2666,34 @@ function ScoreWorkspace({
           ) : null}
         </div>
       </div>
-      <div className="score-canvas-scroll">
-        <div
-          className="single-artboard-row"
-          style={{ '--score-zoom': scoreScale } as CSSProperties}
-        >
-          <CreativeArtboard
-            variant={variant}
-            selected
-            position={artboardDrag.positions[variant.id]}
-            dragging={artboardDrag.draggingId === variant.id}
-            annotationsVisible={annotationsVisible}
-            selectedSegmentId={selectedSegmentId}
-            onSelect={onSelectCreative}
-            onSelectSegment={onSelectSegment}
-            onDragPointerDown={(event) => artboardDrag.beginDrag(variant.id, event)}
-            onDragPointerMove={artboardDrag.moveDrag}
-            onDragPointerEnd={artboardDrag.endDrag}
-            focus
-            size="large"
-            titleOverride="325×325 px"
-            pendingPhase={pendingPhase}
-            lastChange={lastChange}
-          />
+      <div
+        className={`score-canvas-scroll ${canvasPan.panning ? 'is-panning' : ''}`}
+        onPointerDown={canvasPan.beginPan}
+        onPointerMove={canvasPan.movePan}
+        onPointerUp={canvasPan.endPan}
+        onPointerCancel={canvasPan.endPan}
+      >
+        <div className="canvas-world score-canvas-world" style={canvasWorldStyle}>
+          <div className="single-artboard-row">
+            <CreativeArtboard
+              variant={variant}
+              selected
+              position={artboardDrag.positions[variant.id]}
+              dragging={artboardDrag.draggingId === variant.id}
+              annotationsVisible={annotationsVisible}
+              selectedSegmentId={selectedSegmentId}
+              onSelect={onSelectCreative}
+              onSelectSegment={onSelectSegment}
+              onDragPointerDown={(event) => artboardDrag.beginDrag(variant.id, event)}
+              onDragPointerMove={artboardDrag.moveDrag}
+              onDragPointerEnd={artboardDrag.endDrag}
+              focus
+              size="large"
+              titleOverride="325×325 px"
+              pendingPhase={pendingPhase}
+              lastChange={lastChange}
+            />
+          </div>
         </div>
       </div>
       <CanvasRemixActions

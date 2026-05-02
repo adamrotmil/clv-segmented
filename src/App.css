@@ -684,6 +684,28 @@ button {
   height: 100%;
   padding-top: clamp(156px, 19vh, 190px);
   overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.canvas-scroll.is-panning,
+.score-canvas-scroll.is-panning {
+  cursor: grabbing;
+}
+
+.canvas-world {
+  position: relative;
+  height: 100%;
+  transform: translate3d(var(--pan-x, 0px), var(--pan-y, 0px), 0);
+  transform-origin: top center;
+  transition: transform 120ms ease;
+  will-change: transform;
+}
+
+.canvas-scroll.is-panning .canvas-world,
+.score-canvas-scroll.is-panning .canvas-world {
+  transition: none;
 }
 
 .artboard-row {
@@ -1976,6 +1998,9 @@ button {
   height: 100%;
   padding-top: 187px;
   overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
 }
 
 .single-artboard-row {
