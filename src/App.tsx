@@ -3197,8 +3197,16 @@ function CanvasWorkspace({
     canvasPan.beginPan(event)
   }
 
+  const canvasPanelClass = [
+    'canvas-panel',
+    generatedVariants.length > 0 ? 'has-variant-strip' : '',
+    hasPendingChanges ? 'has-remix-actions' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <section className="canvas-panel">
+    <section className={canvasPanelClass}>
       <div className="canvas-toolbar">
         <VersionSelect
           value={selectedAsset.version}
@@ -3251,9 +3259,12 @@ function CanvasWorkspace({
         <div className="canvas-world" style={canvasWorldStyle}>
           <div className="artboard-row">
             {canvasVariants.map((variant) => {
-              const isActiveComparison = selectedGeneratedVariant
-                ? selectedGeneratedVariant.id === variant.id
-                : variant.id === 'updated'
+              const focusVariantId = comparisonIds.length > 1 ? selectedVariantId : ''
+              const isActiveComparison = focusVariantId
+                ? focusVariantId === variant.id
+                : selectedGeneratedVariant
+                  ? selectedGeneratedVariant.id === variant.id
+                  : variant.id === 'updated'
               const isComparisonSelection = comparisonIds.length > 1 && comparisonIds.includes(variant.id)
               const isComparisonAnchor = isComparisonSelection && comparisonIds[0] === variant.id
               const artboardPendingPhase =
@@ -3344,12 +3355,18 @@ function CanvasWorkspace({
                 comparisonTargets.map((target) => target.id),
               )
             }
-            onMakeAnchor={(targetId) =>
+            selectedSegmentId={selectedSegmentId}
+            onInspectFactor={(targetId, factor) => {
+              onSelectVariant(targetId)
+              onSelectSegment(segmentIdForComparisonFactor(factor))
+            }}
+            onMakeAnchor={(targetId) => {
+              onSelectVariant(targetId)
               setComparisonIds((current) => [
                 targetId,
                 ...current.filter((id) => id !== targetId),
               ])
-            }
+            }}
             onRemoveTarget={(targetId) =>
               setComparisonIds((current) => {
                 const next = current.filter((id) => id !== targetId)
@@ -3583,21 +3600,48 @@ function comparisonFactors(anchor: ImageVariant, target: ImageVariant) {
   return ['Score movement', 'Visual treatment', 'Canvas context']
 }
 
+function segmentIdForComparisonFactor(factor: string) {
+  const normalized = factor.toLowerCase()
+
+  if (
+    normalized.includes('face') ||
+    normalized.includes('emotional') ||
+    normalized.includes('human') ||
+    normalized.includes('gaze')
+  ) {
+    return 'emotion'
+  }
+
+  if (normalized.includes('cta') || normalized.includes('shop')) {
+    return 'cta'
+  }
+
+  if (normalized.includes('product')) {
+    return 'product'
+  }
+
+  return 'resonance'
+}
+
 function SelectedComparisonPanel({
   anchor,
   targets,
+  selectedSegmentId,
   onBlend,
   onRemixDelta,
   onUseInChat,
+  onInspectFactor,
   onMakeAnchor,
   onRemoveTarget,
   onClose,
 }: {
   anchor: ImageVariant
   targets: ImageVariant[]
+  selectedSegmentId: string
   onBlend: () => void
   onRemixDelta: () => void
   onUseInChat: () => void
+  onInspectFactor: (targetId: string, factor: string) => void
   onMakeAnchor: (targetId: string) => void
   onRemoveTarget: (targetId: string) => void
   onClose: () => void
@@ -3647,7 +3691,16 @@ function SelectedComparisonPanel({
               </div>
               <div className="selection-factor-list">
                 {factors.map((factor) => (
-                  <span key={`${target.id}-${factor}`}>{factor}</span>
+                  <button
+                    key={`${target.id}-${factor}`}
+                    className={
+                      segmentIdForComparisonFactor(factor) === selectedSegmentId ? 'selected' : ''
+                    }
+                    type="button"
+                    onClick={() => onInspectFactor(target.id, factor)}
+                  >
+                    {factor}
+                  </button>
                 ))}
               </div>
             </div>

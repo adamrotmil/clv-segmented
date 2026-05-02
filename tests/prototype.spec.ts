@@ -296,6 +296,24 @@ test('shift selecting canvas nodes creates an anchored comparison set', async ({
   await expect(page.getByLabel('Selected variant comparison')).toHaveCount(0)
 })
 
+test('comparison factor chips focus the related SAM segment', async ({ page }) => {
+  await page.goto('/')
+
+  const updatedStack = page.locator('.creative-stack').nth(1)
+
+  await page.getByRole('button', { name: 'Original Image', exact: true }).click()
+  await page.getByRole('button', { name: 'Updated Image', exact: true }).click({ modifiers: ['Shift'] })
+  await page.getByRole('button', { name: 'Face visibility' }).click()
+
+  await expect(updatedStack.locator('.segment-hotspot[aria-label="Emotional engagement"]')).toHaveClass(/selected/)
+  await expect(updatedStack.locator('.segment-label-emotion')).toHaveClass(/selected/)
+
+  await page.getByRole('button', { name: 'CTA clarity' }).click()
+  await expect(page.getByRole('button', { name: 'CTA clarity' })).toHaveClass(/selected/)
+  await expect(updatedStack.locator('.segment-hotspot[aria-label="CTA"]')).toHaveClass(/selected/)
+  await expect(updatedStack.locator('.segment-label-cta')).toHaveClass(/selected/)
+})
+
 test('selected comparisons can be used for chat context and delta remixes', async ({ page }) => {
   await page.goto('/')
 
