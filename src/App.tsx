@@ -5,10 +5,12 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronLeft,
+  Copy,
   GitBranch,
   History,
   EyeOff,
   MoreHorizontal,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -2563,12 +2565,25 @@ function AssistantPanel({
   onClose: () => void
 }) {
   const chatLogRef = useRef<HTMLDivElement | null>(null)
+  const chatInputRef = useRef<HTMLInputElement | null>(null)
+  const [copiedMessageId, setCopiedMessageId] = useState('')
 
   useEffect(() => {
     const chatLog = chatLogRef.current
     if (!chatLog) return
     chatLog.scrollTop = chatLog.scrollHeight
   }, [messages.length, chatDraft?.id, chatDraft?.phase, pendingPhase])
+
+  function editMessage(message: ChatMessage) {
+    onChatValueChange(message.content)
+    window.requestAnimationFrame(() => chatInputRef.current?.focus())
+  }
+
+  function copyMessage(message: ChatMessage) {
+    void navigator.clipboard?.writeText(message.content).catch(() => undefined)
+    setCopiedMessageId(message.id)
+    window.setTimeout(() => setCopiedMessageId((id) => (id === message.id ? '' : id)), 1200)
+  }
 
   return (
     <aside className="assistant-panel">
@@ -2592,12 +2607,19 @@ function AssistantPanel({
           onCombineIdeas={onCombineIdeas}
         />
         {messages.map((message) => (
-          <AssistantChatMessage key={message.id} message={message} />
+          <AssistantChatMessage
+            key={message.id}
+            message={message}
+            copied={copiedMessageId === message.id}
+            onCopy={copyMessage}
+            onEdit={editMessage}
+          />
         ))}
         {chatDraft ? <ChatThinkingBubble draft={chatDraft} /> : null}
       </div>
       <form className="chat-input" onSubmit={onSubmit}>
         <input
+          ref={chatInputRef}
           value={chatValue}
           onChange={(event) => onChatValueChange(event.target.value)}
           placeholder="Ask anything..."
@@ -2611,8 +2633,19 @@ function AssistantPanel({
   )
 }
 
-function AssistantChatMessage({ message }: { message: ChatMessage }) {
+function AssistantChatMessage({
+  message,
+  copied,
+  onCopy,
+  onEdit,
+}: {
+  message: ChatMessage
+  copied: boolean
+  onCopy: (message: ChatMessage) => void
+  onEdit: (message: ChatMessage) => void
+}) {
   const showActivity = message.role === 'assistant' && message.activity
+  const isUser = message.role === 'user'
 
   return (
     <div className={`chat-message ${message.role}`}>
@@ -2623,6 +2656,27 @@ function AssistantChatMessage({ message }: { message: ChatMessage }) {
         </>
       ) : null}
       <div className="message-content">{message.content}</div>
+      {isUser ? (
+        <div className="message-actions" aria-label="Message actions">
+          <button
+            type="button"
+            aria-label={copied ? 'Copied message' : 'Copy message'}
+            title={copied ? 'Copied' : 'Copy'}
+            className={copied ? 'is-copied' : ''}
+            onClick={() => onCopy(message)}
+          >
+            <Copy size={15} />
+          </button>
+          <button
+            type="button"
+            aria-label="Edit message"
+            title="Edit"
+            onClick={() => onEdit(message)}
+          >
+            <Pencil size={15} />
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }

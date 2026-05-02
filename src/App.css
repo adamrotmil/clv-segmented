@@ -1439,20 +1439,56 @@ button {
 }
 
 .chat-message.user {
-  width: auto;
-  max-width: 270px;
-  margin: 0 4px 20px auto;
-  padding: 13px 14px;
-  border: 1px solid #111217;
-  border-radius: 9px;
-  background: #111217;
-  color: #fff;
-  font-size: 14px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  display: grid;
+  justify-items: end;
+  width: 100%;
+  margin: 0 4px 24px auto;
+  color: #202127;
+  font-size: 14.5px;
+  line-height: 1.42;
 }
 
 .message-content {
   white-space: pre-wrap;
+}
+
+.chat-message.user .message-content {
+  max-width: min(286px, calc(100% - 22px));
+  padding: 13px 15px;
+  border: 0;
+  border-radius: 18px;
+  background: #f1f1f3;
+  box-shadow: none;
+}
+
+.message-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  min-height: 22px;
+  margin: 7px 10px 0 0;
+  color: #8e9197;
+}
+
+.message-actions button {
+  display: grid;
+  width: 21px;
+  height: 21px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+}
+
+.message-actions button:hover,
+.message-actions button:focus-visible {
+  background: #f2f3f5;
+  color: #555960;
+}
+
+.message-actions button.is-copied {
+  color: #1e6e3f;
 }
 
 .assistant-activity {

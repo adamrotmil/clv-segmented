@@ -333,6 +333,10 @@ test('chat and failure states stay state-aware without exposed agent activity', 
   await expect(page.getByText(/Staged: Staging staged/)).toBeVisible()
   await expect(page.getByText('Worked for 1s >')).toBeVisible()
   await expect(page.getByTestId('chat-thinking')).toBeHidden()
+  await page.getByRole('button', { name: 'Edit message' }).last().click()
+  await expect(page.getByLabel('Ask anything')).toHaveValue('make the face more candid')
+  await page.getByRole('button', { name: 'Copy message' }).last().click()
+  await expect(page.getByRole('button', { name: 'Copied message' })).toBeVisible()
   await expect(page.getByLabel('Interaction trace').first()).toContainText('Staging staged')
   await expect(page.getByLabel('Pending remix actions')).toBeVisible()
 
