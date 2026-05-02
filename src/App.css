@@ -1905,7 +1905,7 @@ button {
 }
 
 .score-scalar {
-  margin-bottom: 6px;
+  margin-bottom: 7px;
 }
 
 .score-scalar-row {
@@ -1913,14 +1913,15 @@ button {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  min-height: 24px;
+  min-height: 31px;
   padding: 0;
   border: 0;
   background: transparent;
   color: #14151b;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 15.5px;
   font-weight: 500;
+  letter-spacing: -0.006em;
   text-align: left;
 }
 
@@ -1928,7 +1929,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 5px;
+  gap: 8px;
   min-width: 132px;
 }
 
@@ -1936,50 +1937,65 @@ button {
 .score-scalar-row b {
   display: inline-flex;
   align-items: center;
-  height: 19px;
+  height: 28px;
   border-radius: 999px;
   font-style: normal;
   line-height: 1;
 }
 
 .score-scalar-row em {
-  max-width: 106px;
-  padding: 0 7px;
+  max-width: 126px;
+  padding: 0 8px;
   overflow: hidden;
-  background: #e6e6e7;
+  border: 1px solid #e4e4e7;
+  background: #fff;
   color: #202126;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .score-scalar-row b {
-  min-width: 30px;
+  gap: 7px;
+  min-width: 58px;
   justify-content: center;
+  padding: 0 9px 0 12px;
   background: #111217;
   color: #fff;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.score-scalar.expanded .score-scalar-row b {
+  box-shadow: 0 0 0 4px #eeeeef;
+}
+
+.score-value-chevron {
+  transition: transform 130ms ease;
+}
+
+.score-scalar.expanded .score-value-chevron {
+  transform: rotate(180deg);
 }
 
 .score-row-slider {
   position: relative;
-  margin-top: 6px;
-  margin-bottom: 11px;
-  padding: 7px 8px 6px;
+  margin: 7px -2px 13px;
+  padding: 12px 12px 10px;
   border: 1px solid #e7e7ea;
-  border-radius: 8px;
+  border-radius: 13px;
   background: #fff;
-  box-shadow: 0 8px 18px rgba(18, 20, 28, 0.08);
+  box-shadow: 0 16px 34px rgba(18, 20, 28, 0.12);
 }
 
 .score-expanded-value {
   display: block;
-  margin-bottom: 5px;
+  margin-bottom: 9px;
   color: #1d1e24;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 500;
+  line-height: 20px;
   text-align: center;
 }
 

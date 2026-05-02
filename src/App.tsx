@@ -2729,6 +2729,7 @@ function ScoreScalarRow({
   onChange: (value: number) => void
 }) {
   const sliderId = `score-scalar-${scalar.id}`
+  const anchorValue = 50
 
   return (
     <div className={`score-scalar ${expanded ? 'expanded' : ''}`}>
@@ -2743,13 +2744,17 @@ function ScoreScalarRow({
         <span>{scalar.label}</span>
         <div>
           {scalar.marker ? <em>{scalar.marker.replace(/^> /, '')}</em> : null}
-          <b>{formatScalarValue(scalar.value)}</b>
+          <b>
+            {formatScalarValue(scalar.value)}
+            <ChevronDown className="score-value-chevron" size={15} />
+          </b>
         </div>
       </button>
       {expanded ? (
         <div className="score-row-slider" id={sliderId}>
           <span className="score-expanded-value">{formatScalarValue(scalar.value)}</span>
-          <div className="range-wrap" style={sliderVars(scalar.value)}>
+          <div className="range-wrap is-staged active-range" style={sliderVars(scalar.value, anchorValue)}>
+            <span className="range-commit-dot" aria-hidden="true" />
             <input
               aria-label={`${scalar.label} score`}
               type="range"
