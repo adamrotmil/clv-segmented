@@ -274,7 +274,10 @@ button {
   padding: 29px 16px 14px;
   border-right: 1px solid #ededf0;
   background: #fff;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(19, 19, 22, 0.16) transparent;
 }
 
 .asset-select {
@@ -568,34 +571,112 @@ button {
   white-space: nowrap;
 }
 
-.range-wrap input {
-  --fill: 50%;
-  width: 100%;
-  height: 18px;
-  appearance: none;
+.range-wrap {
+  --range-value: 50%;
+  --range-commit: var(--range-value);
+  --range-start: var(--range-value);
+  --range-end: var(--range-value);
+  position: relative;
+  height: 30px;
+  overflow: visible;
+}
+
+.range-wrap::before,
+.range-wrap::after {
+  position: absolute;
+  top: 50%;
+  height: 17px;
   border-radius: 999px;
-  background:
-    linear-gradient(to right, transparent 0, transparent calc(var(--fill) - 12px), #111217 calc(var(--fill) - 12px), #111217 calc(var(--fill) + 12px), transparent calc(var(--fill) + 12px)),
-    #e1e1e2;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+  transform: translateY(-50%);
+  content: "";
+}
+
+.range-wrap::before {
+  right: 0;
+  left: 0;
+  z-index: 0;
+  border: 1px solid #d2d3d6;
+  background: #e3e3e4;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.11);
+}
+
+.range-wrap::after {
+  right: calc(100% - var(--range-end));
+  left: var(--range-start);
+  z-index: 1;
+  min-width: 0;
+  background: #111217;
+  opacity: 0;
+}
+
+.range-wrap.is-staged::after {
+  opacity: 1;
+}
+
+.range-commit-dot {
+  position: absolute;
+  top: 50%;
+  left: var(--range-commit);
+  z-index: 3;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #f6f6f7;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.range-wrap input {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  width: 100%;
+  height: 30px;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.range-wrap input:focus {
+  outline: 0;
+}
+
+.range-wrap:focus-within::before {
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.11),
+    0 0 0 1px rgba(18, 18, 23, 0.08);
+}
+
+.range-wrap input::-webkit-slider-runnable-track {
+  height: 30px;
+  border: 0;
+  background: transparent;
 }
 
 .range-wrap input::-webkit-slider-thumb {
-  width: 20px;
-  height: 20px;
+  width: 25px;
+  height: 25px;
+  margin-top: 2px;
   appearance: none;
-  border: 5px solid #111217;
+  border: 3px solid #111217;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+  background: radial-gradient(circle, #111217 0 4px, #fff 4.5px 100%);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
 }
 
 .range-wrap input::-moz-range-thumb {
-  width: 11px;
-  height: 11px;
-  border: 5px solid #111217;
+  width: 19px;
+  height: 19px;
+  border: 3px solid #111217;
   border-radius: 50%;
-  background: #fff;
+  background: radial-gradient(circle, #111217 0 4px, #fff 4.5px 100%);
+}
+
+.range-wrap input::-moz-range-track {
+  height: 30px;
+  border: 0;
+  background: transparent;
 }
 
 .scale-labels {
@@ -2122,34 +2203,47 @@ button {
   margin-top: 28px;
 }
 
-.hybrid-actions {
+.canvas-remix-actions {
   position: absolute;
-  right: 16px;
-  bottom: 10px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 12;
   display: flex;
   align-items: center;
-  gap: 14px;
+  justify-content: flex-end;
+  gap: 22px;
+  height: 64px;
+  padding: 0 28px;
+  border-top: 1px solid #e5e6ea;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 -1px 0 rgba(18, 18, 23, 0.02);
+  backdrop-filter: blur(8px);
 }
 
-.hybrid-actions button {
+.canvas-remix-actions button {
   border: 0;
   background: transparent;
   color: #101116;
-  font-size: 14px;
+  font-size: 14.5px;
   font-weight: 500;
 }
 
-.hybrid-actions button:last-child {
+.canvas-remix-actions button:last-child {
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  height: 34px;
-  padding: 0 12px;
+  height: 40px;
+  padding: 0 14px;
   border: 1px solid #dedfe5;
   border-radius: 8px;
   background: #fff;
   font-weight: 600;
   box-shadow: var(--shadow-sm);
+}
+
+.canvas-remix-actions button:disabled {
+  opacity: 0.58;
 }
 
 .chat-input {

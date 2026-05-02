@@ -190,6 +190,14 @@ function scalarValue(scalars: AestheticScalar[], id: string) {
   return scalars.find((scalar) => scalar.id === id)?.value ?? 0
 }
 
+function scalarWithValue(scalars: AestheticScalar[], id: string, value: number) {
+  return scalars.map((scalar) => (scalar.id === id ? { ...scalar, value } : scalar))
+}
+
+function scalarValuesEqual(left: AestheticScalar[], right: AestheticScalar[]) {
+  return left.every((scalar) => scalar.value === scalarValue(right, scalar.id))
+}
+
 function projectedDelta(scalars: AestheticScalar[]) {
   const delta = Math.round(
     (scalarValue(scalars, 'staging') - 78) / 8 +
@@ -275,6 +283,18 @@ function formatTraceValue(scalar: AestheticScalar, value: number) {
   return `${scalar.label} ${Math.round(value)}`
 }
 
+function sliderVars(value: number, committedValue = value) {
+  const start = Math.min(value, committedValue)
+  const end = Math.max(value, committedValue)
+
+  return {
+    '--range-value': `${value}%`,
+    '--range-commit': `${committedValue}%`,
+    '--range-start': `${start}%`,
+    '--range-end': `${end}%`,
+  } as CSSProperties
+}
+
 function scoreTabLabel(tab: ScoreTab) {
   if (tab === 'scenes') return 'Scenes'
   if (tab === 'insights') return 'Insights'
@@ -352,6 +372,7 @@ function App() {
   const [annotationsVisible, setAnnotationsVisible] = useState(true)
   const [zoom, setZoom] = useState(78)
   const [scalars, setScalars] = useState(initialScalars)
+  const [draftScalars, setDraftScalars] = useState(initialScalars)
   const [scoreScalars, setScoreScalars] = useState(() => applyScorePreset(initialScalars))
   const [variants, setVariants] = useState(initialVariants)
   const [messages, setMessages] = useState(initialMessages)
@@ -375,6 +396,8 @@ function App() {
   )
   const selectedSegment = segments.find((segment) => segment.id === selectedSegmentId) ?? null
   const activeSegment = selectedSegment ?? segments[0]
+  const hasPendingScalarChanges = !scalarValuesEqual(scalars, draftScalars)
+  const promptScalars = hasPendingScalarChanges ? draftScalars : scalars
   const workingScore = projectedScore(scalars)
   const workingVariants = useMemo(
     () =>
@@ -392,7 +415,7 @@ function App() {
   )
 
   function updateScalar(id: string, value: number) {
-    applyScalarChange(id, value, 'edit')
+    stageScalarChange(id, value)
   }
 
   function updateScoreScalar(id: string, value: number) {
@@ -455,15 +478,17 @@ function App() {
   }
 
   function addAsset() {
+    const assetScalars = promptScalars
+    const assetScore = projectedScore(assetScalars)
     const nextId = `asset-draft-${Date.now()}`
     const assetDraft: ImageVariant = {
       id: nextId,
       title: 'Asset draft',
       kind: 'generated',
       image: initialVariants[1].image,
-      score: workingScore,
-      delta: Math.max(1, projectedDelta(scalars)),
-      filter: `${imageFilterForScalars(scalars)} brightness(1.01)`,
+      score: assetScore,
+      delta: Math.max(1, projectedDelta(assetScalars)),
+      filter: `${imageFilterForScalars(assetScalars)} brightness(1.01)`,
       ingredients: ['Imported asset', selectedAsset.channel, selectedVersion],
       sourceIds: [selectedVariantId],
     }
@@ -550,10 +575,66 @@ function App() {
       setScoreScalars(nextScoreScalars)
     } else {
       setScalars(nextScalars)
+      setDraftScalars(nextScalars)
     }
     setLastChange(trace)
     setHistory((current) => [entry, ...current].slice(0, 6))
     startWork('analyzing', trace)
+    return trace
+  }
+
+  function stageScalarChange(id: string, value: number) {
+    const draftScalar = draftScalars.find((item) => item.id === id)
+    const committedScalar = scalars.find((item) => item.id === id)
+    if (!draftScalar || !committedScalar || draftScalar.value === value) return undefined
+
+    window.clearTimeout(workTimer.current)
+    const nextDraftScalars = scalarWithValue(draftScalars, id, value)
+    const scoreAfter = projectedScore(nextDraftScalars)
+    const trace: ChangeTrace = {
+      id: `stage-${id}-${Date.now()}`,
+      control: draftScalar.label,
+      what: `${draftScalar.label} staged from ${Math.round(committedScalar.value)} to ${Math.round(value)}.`,
+      why: `${scalarReason(committedScalar, value)} Remix Image will commit the staged prompt change to a generated variant.`,
+      before: formatTraceValue(committedScalar, committedScalar.value),
+      after: formatTraceValue(committedScalar, value),
+      scoreBefore: workingScore,
+      scoreAfter,
+      segment: activeSegment.label,
+      ingredients: [
+        `${draftScalar.label} ${value > committedScalar.value ? '+' : ''}${Math.round(value - committedScalar.value)}`,
+        'Pending remix',
+        `Projected ES ${scoreAfter}%`,
+      ],
+    }
+
+    setDraftScalars(nextDraftScalars)
+    setWorkError('')
+    setPendingPhase('idle')
+    setLastChange(trace)
+    setAgentTasks((current) =>
+      current.map((task) => {
+        if (task.id === 'prompt') {
+          return {
+            ...task,
+            status: agentPaused ? 'paused' : 'queued',
+            input: trace.what,
+            output: 'Prompt patch staged',
+            test: 'Awaiting Remix Image',
+          }
+        }
+        if (task.id === 'variant') {
+          return {
+            ...task,
+            status: agentPaused ? 'paused' : 'queued',
+            input: 'Pending scalar changes',
+            output: 'Waiting for commit',
+            test: 'Remix action visible',
+          }
+        }
+        return task
+      }),
+    )
     return trace
   }
 
@@ -616,10 +697,94 @@ function App() {
   }
 
   function remixImage() {
-    combineIdeas()
+    if (!hasPendingScalarChanges) {
+      combineIdeas()
+      return
+    }
+
+    const beforeScalars = scalars
+    const beforeScoreScalars = scoreScalars
+    const nextScalars = draftScalars
+    const nextScore = projectedScore(nextScalars)
+    const changedScalars = nextScalars.filter(
+      (scalar) => scalar.value !== scalarValue(beforeScalars, scalar.id),
+    )
+    const nextId = `remix-${Date.now()}`
+    const remix: ImageVariant = {
+      id: nextId,
+      title: `Remix ${variants.length}`,
+      kind: 'generated',
+      image: initialVariants[1].image,
+      score: Math.min(96, nextScore + 1),
+      delta: Math.max(1, nextScore - workingScore),
+      filter: `${imageFilterForScalars(nextScalars)} contrast(1.04)`,
+      ingredients: [
+        ...changedScalars.slice(0, 2).map((scalar) => scalar.label),
+        activeSegment.label,
+        `Projected ES ${nextScore}%`,
+      ],
+      sourceIds: [selectedVariantId],
+    }
+    const trace: ChangeTrace = {
+      id: `${nextId}-trace`,
+      control: 'Remix',
+      what: `Remix generated from ${changedScalars.length} staged scalar ${changedScalars.length === 1 ? 'change' : 'changes'}.`,
+      why: 'The provisional slider values were committed as prompt constraints, then rendered as a new image variant.',
+      before: `ES ${workingScore}%`,
+      after: `ES ${remix.score}%`,
+      scoreBefore: workingScore,
+      scoreAfter: remix.score,
+      segment: activeSegment.label,
+      ingredients: remix.ingredients ?? [],
+    }
+
+    setScalars(nextScalars)
+    setDraftScalars(nextScalars)
+    setVariants((current) => [...current, remix])
+    setSelectedVariantId(nextId)
+    setLastChange(trace)
+    setHistory((current) =>
+      [
+        {
+          ...trace,
+          scalarsBefore: beforeScalars,
+          scalarsAfter: nextScalars,
+          scoreScalarsBefore: beforeScoreScalars,
+          scoreScalarsAfter: beforeScoreScalars,
+          variantIdBefore: selectedVariantId,
+          variantIdAfter: nextId,
+        },
+        ...current,
+      ].slice(0, 6),
+    )
+    startWork('remixing', trace)
+    setToast('Remix generated')
+    window.setTimeout(() => setToast(''), 1800)
   }
 
   function resetChanges() {
+    if (hasPendingScalarChanges) {
+      const trace: ChangeTrace = {
+        id: `reset-draft-${Date.now()}`,
+        control: 'Reset',
+        what: 'Reset staged slider changes.',
+        why: 'The draft scalar positions returned to the currently committed image recipe.',
+        before: `Draft ES ${projectedScore(draftScalars)}%`,
+        after: `ES ${workingScore}%`,
+        scoreBefore: projectedScore(draftScalars),
+        scoreAfter: workingScore,
+        segment: activeSegment.label,
+        ingredients: ['Reset staged sliders', 'Committed image recipe'],
+      }
+      window.clearTimeout(workTimer.current)
+      setDraftScalars(scalars)
+      setPendingPhase('idle')
+      setLastChange(trace)
+      setToast('Changes reset')
+      window.setTimeout(() => setToast(''), 1400)
+      return
+    }
+
     const resetScoreScalars = applyScorePreset(initialScalars)
     const trace: ChangeTrace = {
       id: `reset-${Date.now()}`,
@@ -634,6 +799,7 @@ function App() {
       ingredients: ['Current style', 'Baseline scalars', 'Updated image'],
     }
     setScalars(initialScalars)
+    setDraftScalars(initialScalars)
     setScoreScalars(resetScoreScalars)
     setSelectedVariantId('updated')
     setLastChange(trace)
@@ -658,12 +824,13 @@ function App() {
 
   function saveIdea(slot: 'idea-a' | 'idea-b') {
     const label = slot === 'idea-a' ? 'Variant A' : 'Variant B'
+    const ideaScalars = promptScalars
     const idea: SavedIdea = {
       id: slot,
       label,
-      score: workingScore,
+      score: projectedScore(ideaScalars),
       ingredients: lastChange.ingredients,
-      scalars,
+      scalars: ideaScalars,
     }
     setSavedIdeas((current) => [idea, ...current.filter((item) => item.id !== slot)])
     setToast(`${label} saved`)
@@ -674,6 +841,8 @@ function App() {
     const ideaA = savedIdeas.find((idea) => idea.id === 'idea-a')
     const ideaB = savedIdeas.find((idea) => idea.id === 'idea-b')
     const sources = [ideaA, ideaB].filter(Boolean) as SavedIdea[]
+    const remixScalars = promptScalars
+    const remixScore = projectedScore(remixScalars)
     const ingredients =
       sources.length === 2
         ? [...sources[0].ingredients.slice(0, 2), ...sources[1].ingredients.slice(0, 2)]
@@ -684,9 +853,9 @@ function App() {
       title: sources.length === 2 ? 'Remix A+B' : `Remix ${variants.length}`,
       kind: 'generated',
       image: initialVariants[1].image,
-      score: Math.min(96, workingScore + (sources.length === 2 ? 3 : 1)),
-      delta: sources.length === 2 ? 6 : Math.max(1, projectedDelta(scalars)),
-      filter: `${imageFilterForScalars(scalars)} contrast(1.05)`,
+      score: Math.min(96, remixScore + (sources.length === 2 ? 3 : 1)),
+      delta: sources.length === 2 ? 6 : Math.max(1, projectedDelta(remixScalars)),
+      filter: `${imageFilterForScalars(remixScalars)} contrast(1.05)`,
       ingredients,
       sourceIds: sources.map((source) => source.id),
     }
@@ -703,12 +872,14 @@ function App() {
           : 'The generator used the latest scalar changes and segment delta as prompt constraints.',
       before: sources.length === 2 ? `${sources[0].label} + ${sources[1].label}` : selectedVariantId,
       after: remix.title,
-      scoreBefore: workingScore,
+      scoreBefore: hasPendingScalarChanges ? projectedScore(scalars) : workingScore,
       scoreAfter: remix.score,
       segment: activeSegment.label,
       ingredients,
     }
     setVariants((current) => [...current, remix])
+    setScalars(remixScalars)
+    setDraftScalars(remixScalars)
     setSelectedVariantId(nextId)
     setLastChange(trace)
     setHistory((current) =>
@@ -716,7 +887,7 @@ function App() {
         {
           ...trace,
           scalarsBefore: scalars,
-          scalarsAfter: scalars,
+          scalarsAfter: remixScalars,
           scoreScalarsBefore: scoreScalars,
           scoreScalarsAfter: scoreScalars,
           variantIdBefore: selectedVariantId,
@@ -778,6 +949,7 @@ function App() {
       sourceIds: [selectedVariantId],
     }
     setScalars(nextScalars)
+    setDraftScalars(nextScalars)
     setVariants((current) => [...current, segmentVariant])
     setSelectedVariantId(nextId)
     setLastChange(trace)
@@ -827,6 +999,7 @@ function App() {
     const [entry] = history
     if (!entry) return
     setScalars(entry.scalarsBefore)
+    setDraftScalars(entry.scalarsBefore)
     setScoreScalars(entry.scoreScalarsBefore)
     setSelectedVariantId(entry.variantIdBefore)
     const trace: ChangeTrace = {
@@ -847,6 +1020,7 @@ function App() {
 
   function restoreHistory(entry: HistoryEntry) {
     setScalars(entry.scalarsAfter)
+    setDraftScalars(entry.scalarsAfter)
     setScoreScalars(entry.scoreScalarsAfter)
     setSelectedVariantId(entry.variantIdAfter)
     const trace: ChangeTrace = {
@@ -924,22 +1098,19 @@ function App() {
     }
     let appliedTrace: ChangeTrace | undefined
     if (lower.includes('candid') || lower.includes('face')) {
-      appliedTrace = applyScalarChange(
+      appliedTrace = stageScalarChange(
         'staging',
-        Math.min(100, scalarValue(scalars, 'staging') + 8),
-        'edit',
+        Math.min(100, scalarValue(draftScalars, 'staging') + 8),
       )
     } else if (lower.includes('literal') || lower.includes('abstraction')) {
-      appliedTrace = applyScalarChange(
+      appliedTrace = stageScalarChange(
         'abstraction',
-        Math.max(0, scalarValue(scalars, 'abstraction') - 8),
-        'edit',
+        Math.max(0, scalarValue(draftScalars, 'abstraction') - 8),
       )
     } else if (lower.includes('warmer') || lower.includes('warmth')) {
-      appliedTrace = applyScalarChange(
+      appliedTrace = stageScalarChange(
         'materiality',
-        Math.min(100, scalarValue(scalars, 'materiality') + 8),
-        'edit',
+        Math.min(100, scalarValue(draftScalars, 'materiality') + 8),
       )
     } else {
       startWork('applying', lastChange)
@@ -954,8 +1125,10 @@ function App() {
     const reply =
       lower.includes('what should i do next') || lower.includes('next')
         ? `Next: ${nextStep} Current focus is ${activeSegment.label}; latest change is ${lastChange.control}.`
-        : `Applied state-aware guidance to ${activeSegment.label}. ${stateNote}`
-    queueAssistantReply(reply, appliedTrace ? `Applying ${appliedTrace.control}` : 'Reading latest trace')
+        : appliedTrace
+          ? `Staged: ${appliedTrace.what} Use Remix Image to generate the committed image.`
+          : `Applied state-aware guidance to ${activeSegment.label}. ${stateNote}`
+    queueAssistantReply(reply, appliedTrace ? `Staging ${appliedTrace.control}` : 'Reading latest trace')
   }
 
   return (
@@ -973,7 +1146,8 @@ function App() {
             <LeftInspector
               selectedAssetId={selectedAssetId}
               onSelectAsset={selectAsset}
-              scalars={scalars.slice(0, 3)}
+              scalars={draftScalars.slice(0, 4)}
+              committedScalars={scalars}
               onScalarChange={updateScalar}
               onSaveCurrentStyle={saveCurrentStyle}
               onDismissSuggestion={dismissSuggestion}
@@ -993,6 +1167,9 @@ function App() {
               onSelectSegment={chooseSegment}
               onOpenScoreSegment={openScoreMode}
               onApplySegmentSuggestion={applySegmentSuggestion}
+              hasPendingChanges={hasPendingScalarChanges}
+              onResetChanges={resetChanges}
+              onRemix={remixImage}
               lastChange={lastChange}
               pendingPhase={pendingPhase}
             />
@@ -1118,13 +1295,15 @@ function App() {
               mode="hybrid"
               onReset={resetChanges}
               onRemix={remixImage}
+              hasPendingChanges={hasPendingScalarChanges}
               pendingPhase={pendingPhase}
               lastChange={lastChange}
             />
             <HybridInsightsPanel
               segment={activeSegment}
               scoreScalars={scoreScalars}
-              editScalars={scalars}
+              editScalars={draftScalars}
+              committedScalars={scalars}
               onScalarChange={updateScalar}
               trace={lastChange}
               pendingPhase={pendingPhase}
@@ -1211,6 +1390,7 @@ function LeftInspector({
   selectedAssetId,
   onSelectAsset,
   scalars,
+  committedScalars,
   onScalarChange,
   onSaveCurrentStyle,
   onDismissSuggestion,
@@ -1218,6 +1398,7 @@ function LeftInspector({
   selectedAssetId: string
   onSelectAsset: (id: string) => void
   scalars: AestheticScalar[]
+  committedScalars: AestheticScalar[]
   onScalarChange: (id: string, value: number) => void
   onSaveCurrentStyle: () => void
   onDismissSuggestion: () => void
@@ -1228,6 +1409,7 @@ function LeftInspector({
   const [intentOpen, setIntentOpen] = useState(true)
   const [suggestionVisible, setSuggestionVisible] = useState(true)
   const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0]
+  const committedScalarMap = new Map(committedScalars.map((scalar) => [scalar.id, scalar]))
 
   return (
     <aside className="left-panel">
@@ -1355,6 +1537,7 @@ function LeftInspector({
               <ScalarSlider
                 key={scalar.id}
                 scalar={scalar}
+                committedValue={committedScalarMap.get(scalar.id)?.value}
                 onChange={(value) => onScalarChange(scalar.id, value)}
               />
             ))}
@@ -1420,18 +1603,23 @@ function PresetRow({
 
 function ScalarSlider({
   scalar,
+  committedValue = scalar.value,
   onChange,
 }: {
   scalar: AestheticScalar
+  committedValue?: number
   onChange: (value: number) => void
 }) {
+  const staged = scalar.value !== committedValue
+
   return (
-    <div className="scalar">
+    <div className={`scalar ${staged ? 'staged' : ''}`}>
       <div className="scalar-top">
         <span>{scalar.label}</span>
         {scalar.marker ? <b>{scalar.marker}</b> : null}
       </div>
-      <div className="range-wrap">
+      <div className={`range-wrap ${staged ? 'is-staged' : ''}`} style={sliderVars(scalar.value, committedValue)}>
+        {staged ? <span className="range-commit-dot" aria-hidden="true" /> : null}
         <input
           aria-label={scalar.label}
           type="range"
@@ -1439,7 +1627,6 @@ function ScalarSlider({
           max="100"
           value={scalar.value}
           onChange={(event) => onChange(Number(event.target.value))}
-          style={{ '--fill': `${scalar.value}%` } as CSSProperties}
         />
       </div>
       <div className="scale-labels">
@@ -1508,6 +1695,9 @@ function CanvasWorkspace({
   onSelectSegment,
   onOpenScoreSegment,
   onApplySegmentSuggestion,
+  hasPendingChanges,
+  onResetChanges,
+  onRemix,
   lastChange,
   pendingPhase,
 }: {
@@ -1528,6 +1718,9 @@ function CanvasWorkspace({
     segment: SegmentAnnotation,
     suggestion: SegmentSuggestion,
   ) => void
+  hasPendingChanges: boolean
+  onResetChanges: () => void
+  onRemix: () => void
   lastChange: ChangeTrace
   pendingPhase: PendingPhase
 }) {
@@ -1608,7 +1801,39 @@ function CanvasWorkspace({
           </div>
         ) : null}
       </div>
+      <CanvasRemixActions
+        visible={hasPendingChanges}
+        pending={pendingPhase === 'remixing'}
+        onReset={onResetChanges}
+        onRemix={onRemix}
+      />
     </section>
+  )
+}
+
+function CanvasRemixActions({
+  visible,
+  pending,
+  onReset,
+  onRemix,
+}: {
+  visible: boolean
+  pending: boolean
+  onReset: () => void
+  onRemix: () => void
+}) {
+  if (!visible) return null
+
+  return (
+    <div className="canvas-remix-actions" aria-label="Pending remix actions">
+      <button type="button" onClick={onReset}>
+        Reset Changes
+      </button>
+      <button type="button" onClick={onRemix} disabled={pending}>
+        <RefreshCw size={18} />
+        Remix Image
+      </button>
+    </div>
   )
 }
 
@@ -2299,7 +2524,7 @@ function ScoreScalarRow({
       {expanded ? (
         <div className="score-row-slider" id={sliderId}>
           <span className="score-expanded-value">{formatScalarValue(scalar.value)}</span>
-          <div className="range-wrap">
+          <div className="range-wrap" style={sliderVars(scalar.value)}>
             <input
               aria-label={`${scalar.label} score`}
               type="range"
@@ -2307,7 +2532,6 @@ function ScoreScalarRow({
               max="100"
               value={scalar.value}
               onChange={(event) => onChange(Number(event.target.value))}
-              style={{ '--fill': `${scalar.value}%` } as CSSProperties}
             />
           </div>
           <div className="scale-labels">
@@ -2336,6 +2560,7 @@ function ScoreWorkspace({
   mode,
   onReset,
   onRemix,
+  hasPendingChanges = false,
   pendingPhase,
   lastChange,
 }: {
@@ -2354,6 +2579,7 @@ function ScoreWorkspace({
   mode: 'score' | 'hybrid'
   onReset?: () => void
   onRemix?: () => void
+  hasPendingChanges?: boolean
   pendingPhase: PendingPhase
   lastChange: ChangeTrace
 }) {
@@ -2415,17 +2641,12 @@ function ScoreWorkspace({
           />
         </div>
       </div>
-      {mode === 'hybrid' ? (
-        <div className="hybrid-actions">
-          <button type="button" onClick={onReset}>
-            Reset Changes
-          </button>
-          <button type="button" onClick={onRemix}>
-            <RefreshCw size={18} />
-            Remix Image
-          </button>
-        </div>
-      ) : null}
+      <CanvasRemixActions
+        visible={mode === 'hybrid' && hasPendingChanges}
+        pending={pendingPhase === 'remixing'}
+        onReset={onReset ?? (() => undefined)}
+        onRemix={onRemix ?? (() => undefined)}
+      />
     </section>
   )
 }
@@ -2506,6 +2727,7 @@ function HybridInsightsPanel({
   segment,
   scoreScalars,
   editScalars,
+  committedScalars,
   onScalarChange,
   trace,
   pendingPhase,
@@ -2524,6 +2746,7 @@ function HybridInsightsPanel({
   segment: SegmentAnnotation
   scoreScalars: AestheticScalar[]
   editScalars: AestheticScalar[]
+  committedScalars: AestheticScalar[]
   onScalarChange: (id: string, value: number) => void
   trace: ChangeTrace
   pendingPhase: PendingPhase
@@ -2541,6 +2764,7 @@ function HybridInsightsPanel({
 }) {
   const [intentOpen, setIntentOpen] = useState(true)
   const [suggestionVisible, setSuggestionVisible] = useState(true)
+  const committedScalarMap = new Map(committedScalars.map((scalar) => [scalar.id, scalar]))
 
   return (
     <aside className="hybrid-panel">
@@ -2589,6 +2813,7 @@ function HybridInsightsPanel({
               <ScalarSlider
                 key={scalar.id}
                 scalar={scalar}
+                committedValue={committedScalarMap.get(scalar.id)?.value}
                 onChange={(value) => onScalarChange(scalar.id, value)}
               />
             ))}
