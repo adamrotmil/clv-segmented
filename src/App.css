@@ -362,6 +362,23 @@ button {
   font-weight: 500;
 }
 
+.accordion-trigger {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.accordion-icon {
+  flex: 0 0 auto;
+  transition: transform 120ms ease;
+}
+
+.accordion-trigger[aria-expanded="false"] .accordion-icon {
+  transform: rotate(-90deg);
+}
+
 .section-title.compact {
   margin-bottom: 24px;
 }
@@ -375,6 +392,7 @@ button {
   border-radius: 50%;
 }
 
+.section-title-label,
 .section-title span:nth-child(2) {
   flex: 1;
 }
@@ -460,6 +478,14 @@ button {
   color: #191a20;
   font-size: 15px;
   font-weight: 500;
+}
+
+.show-styles svg {
+  transition: transform 120ms ease;
+}
+
+.show-styles.open svg {
+  transform: rotate(180deg);
 }
 
 .suggestion-card {
@@ -1514,9 +1540,12 @@ button {
 }
 
 .agent-task summary {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   min-height: 28px;
   color: #202126;
+  cursor: pointer;
   font-size: 11px;
   font-weight: 500;
   list-style: none;
@@ -1679,9 +1708,13 @@ button {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 9px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: #777982;
   font-size: 15px;
   font-weight: 500;
+  text-align: left;
 }
 
 .score-scalar {
@@ -1692,10 +1725,16 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: #14151b;
+  cursor: pointer;
   font-size: 14px;
   font-weight: 500;
+  text-align: left;
 }
 
 .score-scalar-row div {

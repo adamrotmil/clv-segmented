@@ -65,6 +65,38 @@ test('editor chrome hover states do not move controls', async ({ page }) => {
   await expectStableHover(page.locator('.preset-row.active').first())
 })
 
+test('accordion controls collapse and restore inspector and score sections', async ({ page }) => {
+  await page.goto('/')
+
+  await expect(page.getByLabel('Staging')).toBeVisible()
+  await page.getByRole('button', { name: /Intent & Style/ }).first().click()
+  await expect(page.getByLabel('Staging')).toBeHidden()
+  await page.getByRole('button', { name: /Intent & Style/ }).first().click()
+  await expect(page.getByLabel('Staging')).toBeVisible()
+
+  await expect(page.getByText('Current style')).toBeVisible()
+  await page.getByRole('button', { name: /Pre-set styles/ }).click()
+  await expect(page.getByText('Current style')).toBeHidden()
+  await page.getByRole('button', { name: /Pre-set styles/ }).click()
+  await expect(page.getByText('Current style')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Show All Styles' }).click()
+  await expect(page.getByText('TikTok - Creator prospecting')).toBeVisible()
+  await page.getByRole('button', { name: 'Show Less Styles' }).click()
+  await expect(page.getByText('TikTok - Creator prospecting')).toBeHidden()
+
+  await page.getByRole('button', { name: 'Product placement' }).last().click()
+  await page.getByRole('button', { name: 'Score' }).click()
+  await expect(page.getByText('Hardness')).toBeVisible()
+  await page.getByRole('button', { name: /Lighting & Tone/ }).click()
+  await expect(page.getByText('Hardness')).toBeHidden()
+  await page.getByRole('button', { name: /Lighting & Tone/ }).click()
+  await page.getByRole('button', { name: 'Hardness parameters' }).click()
+  await expect(page.getByLabel('Hardness score')).toBeVisible()
+  await page.getByRole('button', { name: 'Hardness parameters' }).click()
+  await expect(page.getByLabel('Hardness score')).toBeHidden()
+})
+
 test('saved ideas can be combined into an inspectable remix', async ({ page }) => {
   await page.goto('/')
 

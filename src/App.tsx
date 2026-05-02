@@ -156,6 +156,14 @@ const initialAgentTasks: AgentTask[] = [
   },
 ]
 
+const scoreControlGroups = [
+  { title: 'Intent & Style', ids: ['staging', 'abstraction', 'novelty', 'materiality'] },
+  { title: 'Lighting & Tone', ids: ['hardness', 'key', 'chromatics'] },
+  { title: 'Composition', ids: ['complexity', 'balance', 'depth', 'groundedness'] },
+  { title: 'Subject', ids: ['presence', 'gaze'] },
+  { title: 'Psychology', ids: ['valence', 'arousal', 'stopping-power'] },
+]
+
 function scalarValue(scalars: AestheticScalar[], id: string) {
   return scalars.find((scalar) => scalar.id === id)?.value ?? 0
 }
@@ -927,6 +935,9 @@ function LeftInspector({
   onScalarChange: (id: string, value: number) => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [stylesOpen, setStylesOpen] = useState(true)
+  const [showAllStyles, setShowAllStyles] = useState(false)
+  const [intentOpen, setIntentOpen] = useState(true)
   const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0]
 
   return (
@@ -962,28 +973,53 @@ function LeftInspector({
       </div>
 
       <section className="styles-section">
-        <div className="section-title">
-          <span className="spin-mark" />
-          <span>Pre-set styles</span>
-          <ChevronDown size={17} />
-        </div>
-        <div className="preset-list">
-          <PresetRow active title="Current style" detail="Updated just now" />
-          <PresetRow
-            title="Meta - Campaign 12-Dec-202..."
-            detail="Created 13 Dec 2025"
-            onClick={() => onSelectAsset('meta-b')}
-          />
-          <PresetRow
-            title="Original pre-set for Reddit ca..."
-            detail="Created 27 Nov 2025"
-            onClick={() => onSelectAsset('reddit-c')}
-          />
-        </div>
-        <button className="show-styles" type="button">
-          Show All Styles
-          <ChevronDown size={17} />
-        </button>
+        <AccordionHeader
+          id="preset-styles-panel"
+          title="Pre-set styles"
+          open={stylesOpen}
+          onToggle={() => setStylesOpen((open) => !open)}
+          leading={<span className="spin-mark" />}
+        />
+        {stylesOpen ? (
+          <div id="preset-styles-panel">
+            <div className="preset-list">
+              <PresetRow active title="Current style" detail="Updated just now" />
+              <PresetRow
+                title="Meta - Campaign 12-Dec-202..."
+                detail="Created 13 Dec 2025"
+                onClick={() => onSelectAsset('meta-b')}
+              />
+              <PresetRow
+                title="Original pre-set for Reddit ca..."
+                detail="Created 27 Nov 2025"
+                onClick={() => onSelectAsset('reddit-c')}
+              />
+              {showAllStyles ? (
+                <>
+                  <PresetRow
+                    title="TikTok - Creator prospecting"
+                    detail="Created 22 Nov 2025"
+                    onClick={() => onSelectAsset('tiktok-a')}
+                  />
+                  <PresetRow
+                    title="Shopify - Retargeting lift"
+                    detail="Created 18 Nov 2025"
+                    onClick={() => onSelectAsset('meta-b')}
+                  />
+                </>
+              ) : null}
+            </div>
+            <button
+              className={`show-styles ${showAllStyles ? 'open' : ''}`}
+              type="button"
+              aria-expanded={showAllStyles}
+              onClick={() => setShowAllStyles((open) => !open)}
+            >
+              {showAllStyles ? 'Show Less Styles' : 'Show All Styles'}
+              <ChevronDown size={17} />
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section className="suggestion-card">
@@ -1001,19 +1037,56 @@ function LeftInspector({
       </div>
 
       <section className="intent-section">
-        <div className="section-title compact">
-          <span>Intent &amp; Style</span>
-          <ChevronDown size={17} />
-        </div>
-        {scalars.map((scalar) => (
-          <ScalarSlider
-            key={scalar.id}
-            scalar={scalar}
-            onChange={(value) => onScalarChange(scalar.id, value)}
-          />
-        ))}
+        <AccordionHeader
+          id="intent-style-panel"
+          title="Intent & Style"
+          open={intentOpen}
+          onToggle={() => setIntentOpen((open) => !open)}
+          compact
+        />
+        {intentOpen ? (
+          <div id="intent-style-panel">
+            {scalars.map((scalar) => (
+              <ScalarSlider
+                key={scalar.id}
+                scalar={scalar}
+                onChange={(value) => onScalarChange(scalar.id, value)}
+              />
+            ))}
+          </div>
+        ) : null}
       </section>
     </aside>
+  )
+}
+
+function AccordionHeader({
+  id,
+  title,
+  open,
+  onToggle,
+  compact = false,
+  leading,
+}: {
+  id: string
+  title: string
+  open: boolean
+  onToggle: () => void
+  compact?: boolean
+  leading?: ReactNode
+}) {
+  return (
+    <button
+      className={`section-title accordion-trigger ${compact ? 'compact' : ''}`}
+      type="button"
+      aria-expanded={open}
+      aria-controls={id}
+      onClick={onToggle}
+    >
+      {leading}
+      <span className="section-title-label">{title}</span>
+      <ChevronDown className="accordion-icon" size={17} />
+    </button>
   )
 }
 
@@ -1669,14 +1742,11 @@ function ScoreControlsPanel({
   variant?: 'score' | 'hybrid'
   trace: ChangeTrace
 }) {
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(scoreControlGroups.map((group) => [group.title, true])),
+  )
+  const [expandedScalarId, setExpandedScalarId] = useState(variant === 'score' ? 'novelty' : '')
   const scalarMap = new Map(scalars.map((scalar) => [scalar.id, scalar]))
-  const groups = [
-    { title: 'Intent & Style', ids: ['staging', 'abstraction', 'novelty', 'materiality'] },
-    { title: 'Lighting & Tone', ids: ['hardness', 'key', 'chromatics'] },
-    { title: 'Composition', ids: ['complexity', 'balance', 'depth', 'groundedness'] },
-    { title: 'Subject', ids: ['presence', 'gaze'] },
-    { title: 'Psychology', ids: ['valence', 'arousal', 'stopping-power'] },
-  ]
 
   return (
     <aside className={`score-left-panel ${variant === 'hybrid' ? 'hybrid' : ''}`}>
@@ -1695,24 +1765,42 @@ function ScoreControlsPanel({
       ) : null}
       {variant === 'score' ? <TraceInline trace={trace} /> : null}
       <div className="score-groups">
-        {groups.map((group) => (
+        {scoreControlGroups.map((group) => (
           <section className="score-group" key={group.title}>
-            <div className="score-group-title">
-              <span>{group.title}</span>
-              <ChevronDown size={15} />
-            </div>
-            {group.ids.map((id) => {
-              const scalar = scalarMap.get(id)
-              if (!scalar) return null
-              return (
-                <ScoreScalarRow
-                  key={scalar.id}
-                  scalar={scalar}
-                  expanded={variant === 'score' && scalar.id === 'novelty'}
-                  onChange={(value) => onScalarChange(scalar.id, value)}
-                />
-              )
-            })}
+            <button
+              className="score-group-title accordion-trigger"
+              type="button"
+              aria-expanded={openGroups[group.title]}
+              aria-controls={`score-group-${group.title.replace(/\W+/g, '-').toLowerCase()}`}
+              onClick={() =>
+                setOpenGroups((current) => ({
+                  ...current,
+                  [group.title]: !current[group.title],
+                }))
+              }
+            >
+              <span className="section-title-label">{group.title}</span>
+              <ChevronDown className="accordion-icon" size={15} />
+            </button>
+            {openGroups[group.title] ? (
+              <div id={`score-group-${group.title.replace(/\W+/g, '-').toLowerCase()}`}>
+                {group.ids.map((id) => {
+                  const scalar = scalarMap.get(id)
+                  if (!scalar) return null
+                  return (
+                    <ScoreScalarRow
+                      key={scalar.id}
+                      scalar={scalar}
+                      expanded={expandedScalarId === scalar.id}
+                      onToggle={() =>
+                        setExpandedScalarId((current) => (current === scalar.id ? '' : scalar.id))
+                      }
+                      onChange={(value) => onScalarChange(scalar.id, value)}
+                    />
+                  )
+                })}
+              </div>
+            ) : null}
           </section>
         ))}
       </div>
@@ -1723,23 +1811,34 @@ function ScoreControlsPanel({
 function ScoreScalarRow({
   scalar,
   expanded,
+  onToggle,
   onChange,
 }: {
   scalar: AestheticScalar
   expanded?: boolean
+  onToggle: () => void
   onChange: (value: number) => void
 }) {
+  const sliderId = `score-scalar-${scalar.id}`
+
   return (
     <div className={`score-scalar ${expanded ? 'expanded' : ''}`}>
-      <div className="score-scalar-row">
+      <button
+        className="score-scalar-row"
+        type="button"
+        aria-expanded={expanded}
+        aria-controls={sliderId}
+        aria-label={`${scalar.label} parameters`}
+        onClick={onToggle}
+      >
         <span>{scalar.label}</span>
         <div>
           {scalar.marker ? <em>{scalar.marker.replace(/^> /, '')}</em> : null}
           <b>{formatScalarValue(scalar.value)}</b>
         </div>
-      </div>
+      </button>
       {expanded ? (
-        <div className="score-row-slider">
+        <div className="score-row-slider" id={sliderId}>
           <span className="score-expanded-value">{formatScalarValue(scalar.value)}</span>
           <div className="range-wrap">
             <input
@@ -1964,6 +2063,8 @@ function HybridInsightsPanel({
   agentPaused: boolean
   onToggleAgentPaused: () => void
 }) {
+  const [intentOpen, setIntentOpen] = useState(true)
+
   return (
     <aside className="hybrid-panel">
       <ScoreInsights
@@ -1987,17 +2088,24 @@ function HybridInsightsPanel({
         <span>Search...</span>
       </div>
       <section className="intent-section hybrid-sliders">
-        <div className="section-title compact">
-          <span>Intent &amp; Style</span>
-          <ChevronDown size={17} />
-        </div>
-        {editScalars.slice(0, 4).map((scalar) => (
-          <ScalarSlider
-            key={scalar.id}
-            scalar={scalar}
-            onChange={(value) => onScalarChange(scalar.id, value)}
-          />
-        ))}
+        <AccordionHeader
+          id="hybrid-intent-style-panel"
+          title="Intent & Style"
+          open={intentOpen}
+          onToggle={() => setIntentOpen((open) => !open)}
+          compact
+        />
+        {intentOpen ? (
+          <div id="hybrid-intent-style-panel">
+            {editScalars.slice(0, 4).map((scalar) => (
+              <ScalarSlider
+                key={scalar.id}
+                scalar={scalar}
+                onChange={(value) => onScalarChange(scalar.id, value)}
+              />
+            ))}
+          </div>
+        ) : null}
       </section>
       <InteractionTrace
         trace={trace}
