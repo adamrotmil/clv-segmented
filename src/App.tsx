@@ -1,15 +1,22 @@
 import { useMemo, useState } from 'react'
 import type { CSSProperties, FormEvent, ReactNode } from 'react'
 import {
+  ArrowUp,
+  Bell,
   Bot,
+  Bookmark,
+  Building2,
+  ChartNoAxesColumn,
   ChevronDown,
   ChevronLeft,
+  CirclePlus,
   EyeOff,
+  LogIn,
   MoreHorizontal,
   Plus,
   RefreshCw,
   Search,
-  Send,
+  Settings,
   Sparkles,
   X,
 } from 'lucide-react'
@@ -26,8 +33,21 @@ import type {
   ChatMessage,
   ImageVariant,
   SegmentAnnotation,
-  SegmentSuggestion,
 } from './types'
+
+type EditorMode = 'edit' | 'score' | 'hybrid'
+
+const scoreScalarPreset: Record<string, Pick<AestheticScalar, 'value' | 'marker'>> = {
+  staging: { value: 50, marker: 'Constructed' },
+  abstraction: { value: 30, marker: 'Literal' },
+  novelty: { value: 80, marker: 'Surreal' },
+}
+
+function applyScorePreset(scalars: AestheticScalar[]) {
+  return scalars.map((scalar) =>
+    scoreScalarPreset[scalar.id] ? { ...scalar, ...scoreScalarPreset[scalar.id] } : scalar,
+  )
+}
 
 function App() {
   const [selectedAssetId, setSelectedAssetId] = useState(assets[0].id)
@@ -36,14 +56,17 @@ function App() {
   const [annotationsVisible, setAnnotationsVisible] = useState(true)
   const [zoom, setZoom] = useState(78)
   const [scalars, setScalars] = useState(initialScalars)
+  const [scoreScalars, setScoreScalars] = useState(() => applyScorePreset(initialScalars))
   const [variants, setVariants] = useState(initialVariants)
   const [messages, setMessages] = useState(initialMessages)
   const [chatValue, setChatValue] = useState('')
   const [isGenerating, setIsGenerating] = useState(true)
   const [toast, setToast] = useState('')
+  const [mode, setMode] = useState<EditorMode>('edit')
 
   const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0]
   const selectedSegment = segments.find((segment) => segment.id === selectedSegmentId) ?? null
+  const activeSegment = selectedSegment ?? segments[0]
   const totalLift = useMemo(
     () =>
       Math.max(
@@ -64,35 +87,10 @@ function App() {
     setIsGenerating(true)
   }
 
-  function applySuggestion(segment: SegmentAnnotation, suggestion: SegmentSuggestion) {
-    const nextId = `variant-${Date.now()}`
-    const nextVariant: ImageVariant = {
-      id: nextId,
-      title: `Variant ${String.fromCharCode(65 + variants.length - 1)}`,
-      kind: 'generated',
-      image: initialVariants[1].image,
-      score: Math.min(94, 83 + suggestion.impact + totalLift),
-      delta: suggestion.impact,
-      filter:
-        suggestion.id === 'sat'
-          ? 'saturate(.84) contrast(1.04)'
-          : suggestion.id === 'tone' || suggestion.id === 'warmth'
-            ? 'sepia(.14) saturate(1.16) brightness(1.04)'
-            : 'contrast(1.08) brightness(1.03)',
-    }
-    setVariants((current) => [...current, nextVariant])
-    setSelectedVariantId(nextId)
-    setToast(`${segment.label} updated`)
-    setMessages((current) => [
-      ...current,
-      {
-        id: `assistant-${nextId}`,
-        role: 'assistant',
-        content: `${suggestion.label} applied to ${segment.label.toLowerCase()}. I generated a new variant on the canvas.`,
-      },
-    ])
-    setIsGenerating(false)
-    window.setTimeout(() => setToast(''), 1800)
+  function updateScoreScalar(id: string, value: number) {
+    setScoreScalars((current) =>
+      current.map((scalar) => (scalar.id === id ? { ...scalar, value } : scalar)),
+    )
   }
 
   function remixImage() {
@@ -111,6 +109,18 @@ function App() {
     setIsGenerating(false)
     setToast('Remix generated')
     window.setTimeout(() => setToast(''), 1800)
+  }
+
+  function openScoreMode(segmentId: string) {
+    setSelectedSegmentId(segmentId)
+    setMode('score')
+    setZoom(100)
+  }
+
+  function openHybridMode() {
+    if (!selectedSegmentId) setSelectedSegmentId('emotion')
+    setMode('hybrid')
+    setZoom(100)
   }
 
   function sendChat(event: FormEvent<HTMLFormElement>) {
@@ -142,40 +152,78 @@ function App() {
     <main className="portfolio-frame">
       <BackgroundChrome />
       <section className="editor-window" aria-label="Edit creative">
-        <EditorHeader />
-        <div className="editor-body">
-          <LeftInspector
-            selectedAssetId={selectedAssetId}
-            onSelectAsset={setSelectedAssetId}
-            scalars={scalars.slice(0, 3)}
-            onScalarChange={updateScalar}
-          />
-          <CanvasWorkspace
-            selectedAsset={selectedAsset}
-            variants={variants}
-            selectedVariantId={selectedVariantId}
-            onSelectVariant={setSelectedVariantId}
-            annotationsVisible={annotationsVisible}
-            onToggleAnnotations={() => setAnnotationsVisible((visible) => !visible)}
-            zoom={zoom}
-            onZoomChange={setZoom}
-            selectedSegment={selectedSegment}
-            selectedSegmentId={selectedSegmentId}
-            onSelectSegment={setSelectedSegmentId}
-            onApplySuggestion={applySuggestion}
-            totalLift={totalLift}
-          />
-          <AssistantPanel
-            messages={messages}
-            isGenerating={isGenerating}
-            chatValue={chatValue}
-            onChatValueChange={setChatValue}
-            onSubmit={sendChat}
-            selectedSegment={selectedSegment}
-            scalars={scalars}
-            onRemix={remixImage}
-          />
-        </div>
+        <EditorHeader mode={mode} />
+        {mode === 'edit' ? (
+          <div className="editor-body">
+            <LeftInspector
+              selectedAssetId={selectedAssetId}
+              onSelectAsset={setSelectedAssetId}
+              scalars={scalars.slice(0, 3)}
+              onScalarChange={updateScalar}
+            />
+            <CanvasWorkspace
+              selectedAsset={selectedAsset}
+              variants={variants}
+              selectedVariantId={selectedVariantId}
+              onSelectVariant={setSelectedVariantId}
+              annotationsVisible={annotationsVisible}
+              onToggleAnnotations={() => setAnnotationsVisible((visible) => !visible)}
+              zoom={zoom}
+              onZoomChange={setZoom}
+              selectedSegmentId={selectedSegmentId}
+              onSelectSegment={openScoreMode}
+            />
+            <AssistantPanel
+              messages={messages}
+              isGenerating={isGenerating}
+              chatValue={chatValue}
+              onChatValueChange={setChatValue}
+              onSubmit={sendChat}
+            />
+          </div>
+        ) : mode === 'score' ? (
+          <div className="editor-body score-editor-body">
+            <ScoreControlsPanel scalars={scoreScalars} onScalarChange={updateScoreScalar} />
+            <ScoreWorkspace
+              selectedAsset={selectedAsset}
+              variant={initialVariants[0]}
+              selectedSegmentId={activeSegment.id}
+              annotationsVisible={annotationsVisible}
+              onToggleAnnotations={() => setAnnotationsVisible((visible) => !visible)}
+              onSelectSegment={setSelectedSegmentId}
+              onOpenHybrid={openHybridMode}
+              onZoomChange={setZoom}
+              mode="score"
+            />
+          </div>
+        ) : (
+          <div className="editor-body hybrid-editor-body">
+            <ScoreControlsPanel
+              scalars={scoreScalars}
+              onScalarChange={updateScoreScalar}
+              variant="hybrid"
+            />
+            <ScoreWorkspace
+              selectedAsset={selectedAsset}
+              variant={initialVariants[0]}
+              selectedSegmentId={activeSegment.id}
+              annotationsVisible={annotationsVisible}
+              onToggleAnnotations={() => setAnnotationsVisible((visible) => !visible)}
+              onSelectSegment={setSelectedSegmentId}
+              onOpenHybrid={openHybridMode}
+              onZoomChange={setZoom}
+              mode="hybrid"
+              onReset={() => setMode('score')}
+              onRemix={remixImage}
+            />
+            <HybridInsightsPanel
+              segment={activeSegment}
+              scoreScalars={scoreScalars}
+              editScalars={scalars}
+              onScalarChange={updateScalar}
+            />
+          </div>
+        )}
         {toast ? <div className="toast">{toast}</div> : null}
       </section>
     </main>
@@ -186,10 +234,16 @@ function BackgroundChrome() {
   return (
     <div className="background-chrome" aria-hidden="true">
       <div className="left-rail">
-        <span />
-        <span />
-        <span />
-        <span />
+        <LogIn className="rail-top" size={17} strokeWidth={2.1} />
+        <CirclePlus className="rail-plus" size={22} strokeWidth={2.4} fill="currentColor" />
+        <span className="rail-active">
+          <Building2 size={18} strokeWidth={2.2} fill="currentColor" />
+        </span>
+        <Bookmark className="rail-bookmark" size={17} strokeWidth={2.1} />
+        <ChartNoAxesColumn className="rail-chart" size={18} strokeWidth={2.1} />
+        <Bell className="rail-bell" size={17} strokeWidth={2.1} />
+        <Settings className="rail-settings" size={18} strokeWidth={2.1} />
+        <span className="rail-avatar">S</span>
       </div>
       <div className="background-title">Welcome, Sidia. Let's grow your brand.</div>
       <div className="background-button">+ New Campaign</div>
@@ -197,7 +251,7 @@ function BackgroundChrome() {
   )
 }
 
-function EditorHeader() {
+function EditorHeader({ mode }: { mode: EditorMode }) {
   return (
     <header className="editor-header">
       <div className="breadcrumbs">
@@ -210,7 +264,7 @@ function EditorHeader() {
       </div>
       <div className="header-actions">
         <Button variant="secondary">Close</Button>
-        <Button variant="secondary" icon={<Plus size={20} />}>
+        <Button variant="secondary" icon={mode === 'edit' ? <Plus size={20} /> : undefined}>
           Add Asset
         </Button>
         <Button>Save Changes</Button>
@@ -357,11 +411,8 @@ function CanvasWorkspace({
   onToggleAnnotations,
   zoom,
   onZoomChange,
-  selectedSegment,
   selectedSegmentId,
   onSelectSegment,
-  onApplySuggestion,
-  totalLift,
 }: {
   selectedAsset: { version: string }
   variants: ImageVariant[]
@@ -371,11 +422,8 @@ function CanvasWorkspace({
   onToggleAnnotations: () => void
   zoom: number
   onZoomChange: (value: number) => void
-  selectedSegment: SegmentAnnotation | null
   selectedSegmentId: string
   onSelectSegment: (id: string) => void
-  onApplySuggestion: (segment: SegmentAnnotation, suggestion: SegmentSuggestion) => void
-  totalLift: number
 }) {
   const comparisonVariants = variants.slice(0, 2)
   const generatedVariants = variants.slice(2)
@@ -415,19 +463,12 @@ function CanvasWorkspace({
               selectedSegmentId={selectedSegmentId}
               onSelect={() => onSelectVariant(variant.id)}
               onSelectSegment={onSelectSegment}
-              totalLift={totalLift}
               focus={index === 1}
+              showScore
+              showDeltas={index === 1}
             />
           ))}
         </div>
-
-        {selectedSegment && annotationsVisible ? (
-          <SegmentFlyout
-            segment={selectedSegment}
-            onClose={() => onSelectSegment('')}
-            onApply={(suggestion) => onApplySuggestion(selectedSegment, suggestion)}
-          />
-        ) : null}
 
         {generatedVariants.length > 0 ? (
           <div className="variant-strip">
@@ -457,8 +498,11 @@ function CreativeArtboard({
   selectedSegmentId,
   onSelect,
   onSelectSegment,
-  totalLift,
   focus,
+  size = 'normal',
+  showScore = false,
+  showDeltas = false,
+  titleOverride,
 }: {
   variant: ImageVariant
   selected: boolean
@@ -466,19 +510,22 @@ function CreativeArtboard({
   selectedSegmentId: string
   onSelect: () => void
   onSelectSegment: (id: string) => void
-  totalLift: number
   focus: boolean
+  size?: 'normal' | 'large'
+  showScore?: boolean
+  showDeltas?: boolean
+  titleOverride?: string
 }) {
   return (
-    <div className="creative-stack">
-      <div className="creative-title">{variant.title}</div>
+    <div className={`creative-stack ${size === 'large' ? 'large' : ''}`}>
+      <div className="creative-title">{titleOverride ?? variant.title}</div>
       <button
         className={`creative-card ${selected ? 'selected' : ''}`}
         type="button"
         onClick={onSelect}
       >
         <img src={variant.image} alt="" style={{ filter: variant.filter }} />
-        <ScoreBadge score={variant.score + (focus ? totalLift : 0)} delta={variant.delta} />
+        {showScore ? <ScoreBadge score={variant.score} /> : null}
         {annotationsVisible ? (
           <div className="segment-hit-layer" aria-label="Image segments">
             {segments.map((segment) => (
@@ -520,7 +567,7 @@ function CreativeArtboard({
                 ) : (
                   segment.label
                 )}
-                {focus && segment.delta >= 0 ? <b>+{segment.delta}%</b> : null}
+                {showDeltas && segment.delta >= 0 ? <b>+{segment.delta}%</b> : null}
               </span>
             ))}
           </div>
@@ -539,61 +586,18 @@ function ScoreBadge({ score, delta }: { score: number; delta?: number }) {
   )
 }
 
-function SegmentFlyout({
-  segment,
-  onClose,
-  onApply,
-}: {
-  segment: SegmentAnnotation
-  onClose: () => void
-  onApply: (suggestion: SegmentSuggestion) => void
-}) {
-  return (
-    <aside className="segment-flyout">
-      <div className="flyout-head">
-        <div>
-          <strong>{segment.label}</strong>
-          <small>Projected score {segment.delta >= 0 ? '+' : ''}{segment.delta}%</small>
-        </div>
-        <button type="button" onClick={onClose} aria-label="Close segment flyout">
-          <X size={16} />
-        </button>
-      </div>
-      <div className="suggestion-list">
-        {segment.suggestions.map((suggestion) => (
-          <div className="suggestion-row" key={suggestion.id}>
-            <span>{suggestion.label}</span>
-            <button type="button" onClick={() => onApply(suggestion)}>
-              Apply
-            </button>
-          </div>
-        ))}
-      </div>
-      <button className="apply-segment" type="button" onClick={() => onApply(segment.suggestions[0])}>
-        Apply to segment
-      </button>
-    </aside>
-  )
-}
-
 function AssistantPanel({
   messages,
   isGenerating,
   chatValue,
   onChatValueChange,
   onSubmit,
-  selectedSegment,
-  scalars,
-  onRemix,
 }: {
   messages: ChatMessage[]
   isGenerating: boolean
   chatValue: string
   onChatValueChange: (value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
-  selectedSegment: SegmentAnnotation | null
-  scalars: AestheticScalar[]
-  onRemix: () => void
 }) {
   return (
     <aside className="assistant-panel">
@@ -608,9 +612,6 @@ function AssistantPanel({
       </header>
       <div className="chat-log">
         <div className="chat-spacer" />
-        {selectedSegment ? (
-          <ScoreInsights segment={selectedSegment} scalars={scalars} onRemix={onRemix} />
-        ) : null}
         {messages.map((message) => (
           <div key={message.id} className={`chat-message ${message.role}`}>
             {message.content}
@@ -619,7 +620,7 @@ function AssistantPanel({
         <div className="assistant-status">
           <Bot size={21} />
           <div>
-            <strong>AI Asssistant</strong>
+            <strong>AI Assistant</strong>
             <span>{isGenerating ? 'Generating image...' : 'Ready'}</span>
             {isGenerating ? (
               <i>
@@ -639,10 +640,195 @@ function AssistantPanel({
           aria-label="Ask anything"
         />
         <button type="submit" aria-label="Send message">
-          <Send size={19} />
+          <ArrowUp size={22} strokeWidth={2.5} />
         </button>
       </form>
     </aside>
+  )
+}
+
+function ScoreControlsPanel({
+  scalars,
+  onScalarChange,
+  variant = 'score',
+}: {
+  scalars: AestheticScalar[]
+  onScalarChange: (id: string, value: number) => void
+  variant?: 'score' | 'hybrid'
+}) {
+  const scalarMap = new Map(scalars.map((scalar) => [scalar.id, scalar]))
+  const groups = [
+    { title: 'Intent & Style', ids: ['staging', 'abstraction', 'novelty', 'materiality'] },
+    { title: 'Lighting & Tone', ids: ['hardness', 'key', 'chromatics'] },
+    { title: 'Composition', ids: ['complexity', 'balance', 'depth', 'groundedness'] },
+    { title: 'Subject', ids: ['presence', 'gaze'] },
+    { title: 'Psychology', ids: ['valence', 'arousal', 'stopping-power'] },
+  ]
+
+  return (
+    <aside className={`score-left-panel ${variant === 'hybrid' ? 'hybrid' : ''}`}>
+      <button className="asset-select score-title" type="button">
+        <span>TikTok - Variant A</span>
+        <ChevronDown size={18} />
+      </button>
+      {variant === 'score' ? (
+        <div className="score-tabs" aria-label="Creative tabs">
+          <button type="button">Scenes</button>
+          <button className="active" type="button">
+            Engagement Score
+          </button>
+          <button type="button">Insights</button>
+        </div>
+      ) : null}
+      <div className="score-groups">
+        {groups.map((group) => (
+          <section className="score-group" key={group.title}>
+            <div className="score-group-title">
+              <span>{group.title}</span>
+              <ChevronDown size={15} />
+            </div>
+            {group.ids.map((id) => {
+              const scalar = scalarMap.get(id)
+              if (!scalar) return null
+              return (
+                <ScoreScalarRow
+                  key={scalar.id}
+                  scalar={scalar}
+                  expanded={variant === 'score' && scalar.id === 'novelty'}
+                  onChange={(value) => onScalarChange(scalar.id, value)}
+                />
+              )
+            })}
+          </section>
+        ))}
+      </div>
+    </aside>
+  )
+}
+
+function ScoreScalarRow({
+  scalar,
+  expanded,
+  onChange,
+}: {
+  scalar: AestheticScalar
+  expanded?: boolean
+  onChange: (value: number) => void
+}) {
+  return (
+    <div className={`score-scalar ${expanded ? 'expanded' : ''}`}>
+      <div className="score-scalar-row">
+        <span>{scalar.label}</span>
+        <div>
+          {scalar.marker ? <em>{scalar.marker.replace(/^> /, '')}</em> : null}
+          <b>{formatScalarValue(scalar.value)}</b>
+        </div>
+      </div>
+      {expanded ? (
+        <div className="score-row-slider">
+          <span className="score-expanded-value">{formatScalarValue(scalar.value)}</span>
+          <div className="range-wrap">
+            <input
+              aria-label={`${scalar.label} score`}
+              type="range"
+              min="0"
+              max="100"
+              value={scalar.value}
+              onChange={(event) => onChange(Number(event.target.value))}
+              style={{ '--fill': `${scalar.value}%` } as CSSProperties}
+            />
+          </div>
+          <div className="scale-labels">
+            <span>{scalar.lowLabel}</span>
+            <span>{scalar.highLabel}</span>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function ScoreWorkspace({
+  selectedAsset,
+  variant,
+  selectedSegmentId,
+  annotationsVisible,
+  onToggleAnnotations,
+  onSelectSegment,
+  onOpenHybrid,
+  onZoomChange,
+  mode,
+  onReset,
+  onRemix,
+}: {
+  selectedAsset: { version: string }
+  variant: ImageVariant
+  selectedSegmentId: string
+  annotationsVisible: boolean
+  onToggleAnnotations: () => void
+  onSelectSegment: (id: string) => void
+  onOpenHybrid: () => void
+  onZoomChange: (value: number) => void
+  mode: 'score' | 'hybrid'
+  onReset?: () => void
+  onRemix?: () => void
+}) {
+  return (
+    <section className={`canvas-panel score-canvas-panel ${mode}`}>
+      <div className="canvas-toolbar score-toolbar">
+        <button className="version-select" type="button">
+          {selectedAsset.version}
+          <ChevronDown size={18} />
+        </button>
+        <div className="canvas-tools">
+          <button className="tool-button" type="button" onClick={onToggleAnnotations}>
+            <EyeOff size={18} />
+            {annotationsVisible ? 'Hide Annotations' : 'Show Annotations'}
+          </button>
+          <div className="zoom-control">
+            <button type="button" onClick={() => onZoomChange(95)}>
+              -
+            </button>
+            <span>100%</span>
+            <button type="button" onClick={() => onZoomChange(105)}>
+              +
+            </button>
+          </div>
+          {mode === 'score' ? (
+            <button className="tool-button ai-trigger" type="button" onClick={onOpenHybrid}>
+              <Sparkles size={15} fill="currentColor" />
+              Edit Image with AI
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <div className="score-canvas-scroll">
+        <div className="single-artboard-row">
+          <CreativeArtboard
+            variant={variant}
+            selected
+            annotationsVisible={annotationsVisible}
+            selectedSegmentId={selectedSegmentId}
+            onSelect={() => undefined}
+            onSelectSegment={onSelectSegment}
+            focus
+            size="large"
+            titleOverride="325×325 px"
+          />
+        </div>
+      </div>
+      {mode === 'hybrid' ? (
+        <div className="hybrid-actions">
+          <button type="button" onClick={onReset}>
+            Reset Changes
+          </button>
+          <button type="button" onClick={onRemix}>
+            <RefreshCw size={18} />
+            Remix Image
+          </button>
+        </div>
+      ) : null}
+    </section>
   )
 }
 
@@ -650,10 +836,14 @@ function ScoreInsights({
   segment,
   scalars,
   onRemix,
+  showRemix = true,
+  showLabels = false,
 }: {
   segment: SegmentAnnotation
   scalars: AestheticScalar[]
   onRemix: () => void
+  showRemix?: boolean
+  showLabels?: boolean
 }) {
   const plotScalars = scalars.slice(0, 12)
   const points = plotScalars
@@ -670,30 +860,103 @@ function ScoreInsights({
         <strong>{segment.label}</strong>
         <span>ES: {74 + Math.max(segment.delta, 0)}%</span>
       </div>
-      <svg className="radar" viewBox="0 0 180 180" aria-hidden="true">
-        {[28, 46, 64, 82].map((radius) => (
-          <circle key={radius} cx="90" cy="90" r={radius} />
-        ))}
-        {plotScalars.map((_, index) => {
-          const angle = (Math.PI * 2 * index) / plotScalars.length - Math.PI / 2
-          return (
-            <line
-              key={index}
-              x1="90"
-              y1="90"
-              x2={90 + Math.cos(angle) * 82}
-              y2={90 + Math.sin(angle) * 82}
-            />
-          )
-        })}
-        <polygon points={points} />
-      </svg>
-      <button className="remix-button" type="button" onClick={onRemix}>
-        <RefreshCw size={18} />
-        Remix Image
-      </button>
+      <div className="radar-shell">
+        <svg className="radar" viewBox="0 0 180 180" aria-hidden="true">
+          {[28, 46, 64, 82].map((radius) => (
+            <circle key={radius} cx="90" cy="90" r={radius} />
+          ))}
+          {plotScalars.map((_, index) => {
+            const angle = (Math.PI * 2 * index) / plotScalars.length - Math.PI / 2
+            return (
+              <line
+                key={index}
+                x1="90"
+                y1="90"
+                x2={90 + Math.cos(angle) * 82}
+                y2={90 + Math.sin(angle) * 82}
+              />
+            )
+          })}
+          <polygon points={points} />
+        </svg>
+        {showLabels ? (
+          <div className="radar-labels" aria-hidden="true">
+            <span style={{ left: '50%', top: '0%' }}>Staging</span>
+            <span style={{ left: '78%', top: '9%' }}>Abstraction</span>
+            <span style={{ left: '96%', top: '28%' }}>Novelty</span>
+            <span style={{ left: '96%', top: '53%' }}>Hardness</span>
+            <span style={{ left: '78%', top: '82%' }}>Key</span>
+            <span style={{ left: '48%', top: '96%' }}>Balance</span>
+            <span style={{ left: '13%', top: '82%' }}>Groundedness</span>
+            <span style={{ left: '0%', top: '54%' }}>Gaze</span>
+            <span style={{ left: '5%', top: '30%' }}>Arousal</span>
+            <span style={{ left: '18%', top: '10%' }}>Stopping Power</span>
+          </div>
+        ) : null}
+      </div>
+      {showRemix ? (
+        <button className="remix-button" type="button" onClick={onRemix}>
+          <RefreshCw size={18} />
+          Remix Image
+        </button>
+      ) : null}
     </section>
   )
+}
+
+function HybridInsightsPanel({
+  segment,
+  scoreScalars,
+  editScalars,
+  onScalarChange,
+}: {
+  segment: SegmentAnnotation
+  scoreScalars: AestheticScalar[]
+  editScalars: AestheticScalar[]
+  onScalarChange: (id: string, value: number) => void
+}) {
+  return (
+    <aside className="hybrid-panel">
+      <ScoreInsights
+        segment={segment}
+        scalars={scoreScalars}
+        onRemix={() => undefined}
+        showRemix={false}
+        showLabels
+      />
+      <section className="suggestion-card hybrid-suggestion">
+        <div className="suggestion-head">
+          <Sparkles size={18} />
+          <strong>Suggestions</strong>
+          <X size={19} />
+        </div>
+        <p>Increase process materiality and reduce abstraction to create a more authentic look and feel.</p>
+      </section>
+      <div className="search-box hybrid-search">
+        <Search size={18} />
+        <span>Search...</span>
+      </div>
+      <section className="intent-section hybrid-sliders">
+        <div className="section-title compact">
+          <span>Intent &amp; Style</span>
+          <ChevronDown size={17} />
+        </div>
+        {editScalars.slice(0, 4).map((scalar) => (
+          <ScalarSlider
+            key={scalar.id}
+            scalar={scalar}
+            onChange={(value) => onScalarChange(scalar.id, value)}
+          />
+        ))}
+      </section>
+    </aside>
+  )
+}
+
+function formatScalarValue(value: number) {
+  if (value === 100) return '1'
+  if (value === 0) return '0'
+  return (value / 100).toFixed(1)
 }
 
 function Button({

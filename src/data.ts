@@ -52,7 +52,7 @@ export const initialScalars: AestheticScalar[] = [
   {
     id: 'novelty',
     label: 'Novelty',
-    lowLabel: 'Cliche',
+    lowLabel: 'Cliché',
     highLabel: 'Surreal',
     value: 58,
     marker: 'Balanced',
@@ -227,6 +227,6 @@ export const initialMessages: ChatMessage[] = [
     id: 'assistant-1',
     role: 'assistant',
     content:
-      "Think of ways this can really trend on social media. Try showing people's face in the image.",
+      "Think of ways this can really trend on social media. Try showing people’s face in the image.",
   },
 ]
