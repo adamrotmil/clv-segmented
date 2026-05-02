@@ -342,7 +342,7 @@ test('segment labels attach to their SAM frames', async ({ page }) => {
 
     const aboveAttachment = Math.abs((labelBox?.y ?? 0) + (labelBox?.height ?? 0) - (frameBox?.y ?? 0))
     const insideAttachment = Math.abs((labelBox?.y ?? 0) - (frameBox?.y ?? 0))
-    expect(Math.min(aboveAttachment, insideAttachment)).toBeLessThanOrEqual(13.5)
+    expect(Math.min(aboveAttachment, insideAttachment)).toBeLessThanOrEqual(18)
   }
 })
 

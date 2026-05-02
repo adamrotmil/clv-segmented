@@ -585,7 +585,7 @@ function App() {
   const [selectedVariantId, setSelectedVariantId] = useState('updated')
   const [selectedSegmentId, setSelectedSegmentId] = useState('')
   const [annotationsVisible, setAnnotationsVisible] = useState(true)
-  const [zoom, setZoom] = useState(78)
+  const [zoom, setZoom] = useState(100)
   const [scalars, setScalars] = useState(initialScalars)
   const [draftScalars, setDraftScalars] = useState(initialScalars)
   const [scoreScalars, setScoreScalars] = useState(() => applyScorePreset(initialScalars))
