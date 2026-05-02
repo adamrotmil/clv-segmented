@@ -32,10 +32,12 @@ import {
 import type {
   AestheticScalar,
   ChatMessage,
+  CreativeGenerationRequest,
   ImageVariant,
   SegmentAnnotation,
   SegmentSuggestion,
 } from './types'
+import { requestCreativeGeneration } from './generation'
 
 type EditorMode = 'edit' | 'score' | 'hybrid'
 type PendingPhase = 'idle' | 'analyzing' | 'applying' | 'remixing' | 'failed'
@@ -693,7 +695,11 @@ function App() {
     return trace
   }
 
-  function startWork(phase: Exclude<PendingPhase, 'idle' | 'failed'>, trace: ChangeTrace) {
+  function startWork(
+    phase: Exclude<PendingPhase, 'idle' | 'failed'>,
+    trace: ChangeTrace,
+    autoComplete = true,
+  ) {
     window.clearTimeout(workTimer.current)
     setWorkError('')
     setPendingPhase(phase)
@@ -721,21 +727,33 @@ function App() {
         return task
       }),
     )
+    if (!autoComplete) return
+
     workTimer.current = window.setTimeout(() => {
-      setPendingPhase('idle')
-      setAgentTasks((current) =>
-        current.map((task) =>
-          task.status === 'running'
-            ? {
-                ...task,
-                status: 'done',
-                output: task.id === 'prompt' ? 'Prompt patch ready' : task.output,
-                test: 'Passed',
-              }
-            : task,
-        ),
-      )
+      completeWork()
     }, 760)
+  }
+
+  function completeWork(variantOutput = 'Generated variant ready') {
+    window.clearTimeout(workTimer.current)
+    setPendingPhase('idle')
+    setAgentTasks((current) =>
+      current.map((task) =>
+        task.status === 'running'
+          ? {
+              ...task,
+              status: 'done',
+              output:
+                task.id === 'prompt'
+                  ? 'Prompt patch ready'
+                  : task.id === 'variant'
+                    ? variantOutput
+                    : task.output,
+              test: 'Passed',
+            }
+          : task,
+      ),
+    )
   }
 
   function failWork() {
@@ -751,9 +769,105 @@ function App() {
     )
   }
 
-  function remixImage() {
+  function scalarChangesBetween(beforeScalars: AestheticScalar[], afterScalars: AestheticScalar[]) {
+    return afterScalars
+      .map((scalar) => {
+        const before = scalarValue(beforeScalars, scalar.id)
+        if (before === scalar.value) return undefined
+
+        return {
+          id: scalar.id,
+          label: scalar.label,
+          before,
+          after: scalar.value,
+          lowLabel: scalar.lowLabel,
+          highLabel: scalar.highLabel,
+          marker: scalar.marker,
+        }
+      })
+      .filter(Boolean) as CreativeGenerationRequest['scalarChanges']
+  }
+
+  function buildGenerationRequest({
+    id,
+    intent,
+    outputTitle,
+    sourceIds,
+    beforeScalars,
+    nextScalars,
+    projectedScoreValue,
+    scoreLift,
+    baseFilter,
+    trace,
+    promptHints,
+  }: {
+    id: string
+    intent: CreativeGenerationRequest['intent']
+    outputTitle: string
+    sourceIds: string[]
+    beforeScalars: AestheticScalar[]
+    nextScalars: AestheticScalar[]
+    projectedScoreValue: number
+    scoreLift: number
+    baseFilter: string
+    trace: ChangeTrace
+    promptHints: string[]
+  }): CreativeGenerationRequest {
+    const sourceVariant =
+      workingVariants.find((variant) => variant.id === selectedVariantId) ??
+      workingVariants.find((variant) => variant.id === 'updated') ??
+      initialVariants[1]
+
+    return {
+      id,
+      intent,
+      outputTitle,
+      createdAt: new Date().toISOString(),
+      asset: activeCanvasAsset,
+      sourceVariant,
+      sourceIds,
+      selectedSegment: activeSegment,
+      scalars: nextScalars,
+      scalarChanges: scalarChangesBetween(beforeScalars, nextScalars),
+      chatContext: messages.slice(-8),
+      latestTrace: {
+        control: trace.control,
+        what: trace.what,
+        why: trace.why,
+        ingredients: trace.ingredients,
+      },
+      savedIdeas: savedIdeas.map((idea) => ({
+        label: idea.label,
+        score: idea.score,
+        ingredients: idea.ingredients,
+      })),
+      projectedScore: projectedScoreValue,
+      scoreLift,
+      baseFilter,
+      fallbackImage: sourceVariant.image,
+      promptHints: Array.from(new Set(promptHints.filter(Boolean))),
+    }
+  }
+
+  function setVariantGenerationTask(input: string, output = 'Calling generation model') {
+    setAgentTasks((current) =>
+      current.map((task) =>
+        task.id === 'variant'
+          ? {
+              ...task,
+              status: agentPaused ? 'paused' : 'running',
+              input,
+              output,
+              test: 'Waiting for generated image',
+            }
+          : task,
+      ),
+    )
+  }
+
+  async function remixImage() {
     if (!hasPendingScalarChanges) {
-      combineIdeas()
+      await combineIdeas()
       return
     }
 
@@ -765,34 +879,65 @@ function App() {
       (scalar) => scalar.value !== scalarValue(beforeScalars, scalar.id),
     )
     const nextId = `remix-${Date.now()}`
-    const remix: ImageVariant = {
-      id: nextId,
-      title: `Remix ${variants.length}`,
-      kind: 'generated',
-      image: initialVariants[1].image,
-      score: Math.min(96, nextScore + 1),
-      delta: Math.max(1, nextScore - workingScore),
-      filter: `${imageFilterForScalars(nextScalars)} contrast(1.04)`,
+    const predictedScore = Math.min(96, nextScore + 1)
+    const pendingTrace: ChangeTrace = {
+      id: `${nextId}-trace`,
+      control: 'Remix',
+      what: `Remix generated from ${changedScalars.length} staged scalar ${changedScalars.length === 1 ? 'change' : 'changes'}.`,
+      why: 'The provisional slider values were packaged with chat context and sent as prompt constraints for the next generated variant.',
+      before: `ES ${workingScore}%`,
+      after: `ES ${predictedScore}%`,
+      scoreBefore: workingScore,
+      scoreAfter: predictedScore,
+      segment: activeSegment.label,
       ingredients: [
         ...changedScalars.slice(0, 2).map((scalar) => scalar.label),
         activeSegment.label,
         `Projected ES ${nextScore}%`,
       ],
+    }
+    const generationRequest = buildGenerationRequest({
+      id: nextId,
+      intent: 'scalar-remix',
+      outputTitle: `Remix ${variants.length}`,
       sourceIds: [selectedVariantId],
+      beforeScalars,
+      nextScalars,
+      projectedScoreValue: nextScore,
+      scoreLift: 1,
+      baseFilter: imageFilterForScalars(nextScalars),
+      trace: pendingTrace,
+      promptHints: [
+        pendingTrace.what,
+        pendingTrace.why,
+        ...messages.slice(-4).map((message) => `${message.role}: ${message.content}`),
+      ],
+    })
+
+    setLastChange(pendingTrace)
+    setVariantGenerationTask(
+      generationRequest.chatContext.length ? 'Scalar remix + chat context' : 'Scalar remix',
+    )
+    startWork('remixing', pendingTrace, false)
+    const generation = await requestCreativeGeneration(generationRequest)
+    const remix: ImageVariant = {
+      id: nextId,
+      title: generation.title,
+      kind: 'generated',
+      image: generation.image,
+      score: generation.score,
+      delta: generation.delta,
+      filter: generation.filter,
+      ingredients: generation.ingredients,
+      sourceIds: generation.sourceIds,
     }
     const trace: ChangeTrace = {
-      id: `${nextId}-trace`,
-      control: 'Remix',
-      what: `Remix generated from ${changedScalars.length} staged scalar ${changedScalars.length === 1 ? 'change' : 'changes'}.`,
-      why: 'The provisional slider values were committed as prompt constraints, then rendered as a new image variant.',
-      before: `ES ${workingScore}%`,
-      after: `ES ${remix.score}%`,
-      scoreBefore: workingScore,
-      scoreAfter: remix.score,
-      segment: activeSegment.label,
-      ingredients: remix.ingredients ?? [],
+      ...pendingTrace,
+      why: 'The generation request included the staged photographic aesthetics, selected segment, recent chat direction, and latest trace.',
+      after: `ES ${generation.score}%`,
+      scoreAfter: generation.score,
+      ingredients: generation.ingredients,
     }
-
     setScalars(nextScalars)
     setDraftScalars(nextScalars)
     setVariants((current) => [...current, remix])
@@ -812,7 +957,7 @@ function App() {
         ...current,
       ].slice(0, 6),
     )
-    startWork('remixing', trace)
+    completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock image response ready')
     setToast('Remix generated')
     window.setTimeout(() => setToast(''), 1800)
   }
@@ -892,7 +1037,7 @@ function App() {
     window.setTimeout(() => setToast(''), 1600)
   }
 
-  function combineIdeas() {
+  async function combineIdeas() {
     const ideaA = savedIdeas.find((idea) => idea.id === 'idea-a')
     const ideaB = savedIdeas.find((idea) => idea.id === 'idea-b')
     const sources = [ideaA, ideaB].filter(Boolean) as SavedIdea[]
@@ -903,18 +1048,9 @@ function App() {
         ? [...sources[0].ingredients.slice(0, 2), ...sources[1].ingredients.slice(0, 2)]
         : lastChange.ingredients
     const nextId = `remix-${Date.now()}`
-    const remix: ImageVariant = {
-      id: nextId,
-      title: sources.length === 2 ? 'Remix A+B' : `Remix ${variants.length}`,
-      kind: 'generated',
-      image: initialVariants[1].image,
-      score: Math.min(96, remixScore + (sources.length === 2 ? 3 : 1)),
-      delta: sources.length === 2 ? 6 : Math.max(1, projectedDelta(remixScalars)),
-      filter: `${imageFilterForScalars(remixScalars)} contrast(1.05)`,
-      ingredients,
-      sourceIds: sources.map((source) => source.id),
-    }
-    const trace: ChangeTrace = {
+    const outputTitle = sources.length === 2 ? 'Remix A+B' : `Remix ${variants.length}`
+    const predictedScore = Math.min(96, remixScore + (sources.length === 2 ? 3 : 1))
+    const pendingTrace: ChangeTrace = {
       id: `${nextId}-trace`,
       control: 'Remix',
       what:
@@ -926,11 +1062,51 @@ function App() {
           ? 'The remix keeps the strongest saved prompt ingredients from both sources instead of overwriting either idea.'
           : 'The generator used the latest scalar changes and segment delta as prompt constraints.',
       before: sources.length === 2 ? `${sources[0].label} + ${sources[1].label}` : selectedVariantId,
-      after: remix.title,
+      after: outputTitle,
       scoreBefore: hasPendingScalarChanges ? projectedScore(scalars) : workingScore,
-      scoreAfter: remix.score,
+      scoreAfter: predictedScore,
       segment: activeSegment.label,
       ingredients,
+    }
+    const generationRequest = buildGenerationRequest({
+      id: nextId,
+      intent: 'idea-combine',
+      outputTitle,
+      sourceIds: sources.length ? sources.map((source) => source.id) : [selectedVariantId],
+      beforeScalars: scalars,
+      nextScalars: remixScalars,
+      projectedScoreValue: remixScore,
+      scoreLift: sources.length === 2 ? 3 : 1,
+      baseFilter: imageFilterForScalars(remixScalars),
+      trace: pendingTrace,
+      promptHints: [
+        ...ingredients,
+        ...messages.slice(-4).map((message) => `${message.role}: ${message.content}`),
+      ],
+    })
+    setLastChange(pendingTrace)
+    setVariantGenerationTask(
+      sources.length === 2 ? 'Variant A + Variant B + chat context' : 'Current trace + chat context',
+      'Waiting for generated remix',
+    )
+    startWork('remixing', pendingTrace, false)
+    const generation = await requestCreativeGeneration(generationRequest)
+    const remix: ImageVariant = {
+      id: nextId,
+      title: generation.title,
+      kind: 'generated',
+      image: generation.image,
+      score: generation.score,
+      delta: generation.delta,
+      filter: generation.filter,
+      ingredients: generation.ingredients,
+      sourceIds: generation.sourceIds,
+    }
+    const trace: ChangeTrace = {
+      ...pendingTrace,
+      after: remix.title,
+      scoreAfter: remix.score,
+      ingredients: generation.ingredients,
     }
     setVariants((current) => [...current, remix])
     setScalars(remixScalars)
@@ -951,36 +1127,23 @@ function App() {
         ...current,
       ].slice(0, 6),
     )
-    setAgentTasks((current) =>
-      current.map((task) =>
-        task.id === 'variant'
-          ? {
-              ...task,
-              status: 'running',
-              input: sources.length === 2 ? 'Variant A + Variant B' : 'Current trace',
-              output: 'Generating remix candidate',
-              test: 'Pending shimmer visible',
-            }
-          : task,
-      ),
-    )
-    startWork('remixing', trace)
+    completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock image response ready')
     setToast(sources.length === 2 ? 'Ideas combined' : 'Remix generated')
     window.setTimeout(() => setToast(''), 1800)
   }
 
-  function applySegmentSuggestion(segment: SegmentAnnotation, suggestion: SegmentSuggestion) {
+  async function applySegmentSuggestion(segment: SegmentAnnotation, suggestion: SegmentSuggestion) {
     const beforeScalars = scalars
     const beforeScoreScalars = scoreScalars
     const beforeScore = projectedScore(scalars)
     const nextScalars = applySegmentScalarNudge(scalars, suggestion)
     const scoreAfter = Math.min(96, projectedScore(nextScalars) + Math.ceil(suggestion.impact / 3))
     const nextId = `segment-${segment.id}-${suggestion.id}-${Date.now()}`
-    const trace: ChangeTrace = {
+    const pendingTrace: ChangeTrace = {
       id: `${nextId}-trace`,
       control: suggestion.label,
       what: `${suggestion.label} applied to ${segment.label}.`,
-      why: `The edit targets the selected segment while preserving the surrounding creative, so the prompt can lift ${segment.label.toLowerCase()} without rewriting the full image.`,
+      why: `The edit targets the selected segment while preserving the surrounding creative, then sends the local change to the generation request.`,
       before: `${segment.label} +${segment.delta}%`,
       after: `${segment.label} +${segment.delta + suggestion.impact}%`,
       scoreBefore: beforeScore,
@@ -992,16 +1155,57 @@ function App() {
         `Local lift +${suggestion.impact}%`,
       ],
     }
+    const generationRequest = buildGenerationRequest({
+      id: nextId,
+      intent: 'segment-edit',
+      outputTitle: `${segment.label.split(' ')[0]} edit`,
+      sourceIds: [selectedVariantId],
+      beforeScalars,
+      nextScalars,
+      projectedScoreValue: projectedScore(nextScalars),
+      scoreLift: Math.ceil(suggestion.impact / 3),
+      baseFilter: imageFilterForScalars(nextScalars),
+      trace: pendingTrace,
+      promptHints: [
+        suggestion.label,
+        segment.label,
+        ...messages.slice(-4).map((message) => `${message.role}: ${message.content}`),
+      ],
+    })
+    setLastChange(pendingTrace)
+    setAgentTasks((current) =>
+      current.map((task) => {
+        if (task.id === 'segment') {
+          return {
+            ...task,
+            status: agentPaused ? 'paused' : 'running',
+            input: `${segment.label}: ${suggestion.label}`,
+            output: `Applying local lift +${suggestion.impact}%`,
+            test: 'Segment generation pending',
+          }
+        }
+        return task
+      }),
+    )
+    setVariantGenerationTask(selectedVariantId, 'Creating segment-specific variant')
+    startWork('applying', pendingTrace, false)
+    const generation = await requestCreativeGeneration(generationRequest)
     const segmentVariant: ImageVariant = {
       id: nextId,
-      title: `${segment.label.split(' ')[0]} edit`,
+      title: generation.title,
       kind: 'generated',
-      image: initialVariants[1].image,
-      score: scoreAfter,
-      delta: Math.max(1, scoreAfter - beforeScore),
-      filter: `${imageFilterForScalars(nextScalars)} brightness(1.02)`,
-      ingredients: trace.ingredients,
-      sourceIds: [selectedVariantId],
+      image: generation.image,
+      score: generation.score,
+      delta: generation.delta,
+      filter: generation.filter,
+      ingredients: generation.ingredients,
+      sourceIds: generation.sourceIds,
+    }
+    const trace: ChangeTrace = {
+      ...pendingTrace,
+      why: `The generated variant used the ${segment.label.toLowerCase()} mask, the suggestion, current aesthetics, and recent chat direction.`,
+      scoreAfter: generation.score,
+      ingredients: generation.ingredients,
     }
     setScalars(nextScalars)
     setDraftScalars(nextScalars)
@@ -1022,30 +1226,7 @@ function App() {
         ...current,
       ].slice(0, 6),
     )
-    setAgentTasks((current) =>
-      current.map((task) => {
-        if (task.id === 'segment') {
-          return {
-            ...task,
-            status: 'running',
-            input: `${segment.label}: ${suggestion.label}`,
-            output: `Applying local lift +${suggestion.impact}%`,
-            test: 'Segment variant pending',
-          }
-        }
-        if (task.id === 'variant') {
-          return {
-            ...task,
-            status: 'running',
-            input: selectedVariantId,
-            output: 'Creating segment-specific variant',
-            test: 'Variant added to strip',
-          }
-        }
-        return task
-      }),
-    )
-    startWork('applying', trace)
+    completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock segment response ready')
     setToast('Segment edit applied')
     window.setTimeout(() => setToast(''), 1600)
   }

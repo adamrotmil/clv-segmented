@@ -288,6 +288,21 @@ test('chat, failure, and agent loop status are state-aware and inspectable', asy
   await expect(page.getByLabel('Agent activity').first()).toContainText('Variant generator')
 })
 
+test('remix generation request includes recent chat and scalar context', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByPlaceholder('Ask anything...').fill('make the face more candid')
+  await page.getByRole('button', { name: 'Send message' }).click()
+  await expect(page.getByLabel('Staging')).toHaveValue('86')
+  await expect(page.getByLabel('Pending remix actions')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Remix Image' }).click()
+  await expect(page.getByTestId('pending-shimmer').first()).toBeVisible()
+  await expect(page.getByLabel('Agent activity').first()).toContainText('Scalar remix + chat context')
+  await expect(page.locator('.variant-strip').getByText(/Remix/)).toBeVisible()
+  await expect(page.getByLabel('Interaction trace').first()).toContainText('recent chat direction')
+})
+
 test('segment score and hybrid paths keep the interaction workbench visible', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Product placement' }).last().click()
