@@ -321,7 +321,7 @@ test('saved ideas can be combined into an inspectable remix', async ({ page }) =
   await expect(page.getByText(/Sources:/)).toBeVisible()
 })
 
-test('chat, failure, and agent loop status are state-aware and inspectable', async ({ page }) => {
+test('chat and failure states stay state-aware without exposed agent activity', async ({ page }) => {
   await page.goto('/')
 
   await page.getByPlaceholder('Ask anything...').fill('make the face more candid')
@@ -339,13 +339,10 @@ test('chat, failure, and agent loop status are state-aware and inspectable', asy
   await expect(page.getByText(/Next:/)).toBeVisible()
   await expect(page.getByText(/Current focus is/)).toBeVisible()
 
-  await page.getByRole('button', { name: 'Pause loop' }).click()
-  await expect(page.getByRole('button', { name: 'Resume loop' })).toBeVisible()
-
   await page.getByPlaceholder('Ask anything...').fill('simulate failure')
   await page.getByRole('button', { name: 'Send message' }).click()
   await expect(page.getByRole('alert')).toContainText('Critic pass')
-  await expect(page.getByLabel('Agent activity').first()).toContainText('Variant generator')
+  await expect(page.getByLabel('Agent activity')).toHaveCount(0)
 })
 
 test('remix generation request includes recent chat and scalar context', async ({ page }) => {
@@ -358,7 +355,7 @@ test('remix generation request includes recent chat and scalar context', async (
 
   await page.getByRole('button', { name: 'Remix Image' }).click()
   await expect(page.getByTestId('pending-shimmer').first()).toBeVisible()
-  await expect(page.getByLabel('Agent activity').first()).toContainText('Scalar remix + chat context')
+  await expect(page.getByLabel('Agent activity')).toHaveCount(0)
   await expect(page.locator('.variant-strip').getByText(/Remix/)).toBeVisible()
   await expect(page.getByLabel('Interaction trace').first()).toContainText('recent chat direction')
 })
@@ -380,7 +377,7 @@ test('segment score and hybrid paths keep the interaction workbench visible', as
 
   await page.getByRole('button', { name: 'Edit Image with AI' }).click()
   await expect(page.getByLabel('Interaction trace')).toBeVisible()
-  await expect(page.getByLabel('Agent activity')).toBeVisible()
+  await expect(page.getByLabel('Agent activity')).toHaveCount(0)
   await expect(page.getByLabel('Pending remix actions')).toBeHidden()
   await page.getByRole('slider', { name: 'Materiality' }).fill('66')
   await expect(page.getByLabel('Pending remix actions')).toBeVisible()

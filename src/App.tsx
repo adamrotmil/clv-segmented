@@ -4,15 +4,12 @@ import {
   AlertTriangle,
   ArrowUp,
   Bot,
-  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   GitBranch,
   History,
   EyeOff,
   MoreHorizontal,
-  Pause,
-  Play,
   Plus,
   RefreshCw,
   Search,
@@ -527,7 +524,7 @@ function App() {
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [savedIdeas, setSavedIdeas] = useState<SavedIdea[]>([])
   const [agentTasks, setAgentTasks] = useState<AgentTask[]>(initialAgentTasks)
-  const [agentPaused, setAgentPaused] = useState(false)
+  const [agentPaused] = useState(false)
   const [assistantMinimized, setAssistantMinimized] = useState(false)
 
   const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0]
@@ -1607,9 +1604,6 @@ function App() {
                 savedIdeas={savedIdeas}
                 onSaveIdea={saveIdea}
                 onCombineIdeas={combineIdeas}
-                agentTasks={agentTasks}
-                agentPaused={agentPaused}
-                onToggleAgentPaused={() => setAgentPaused((paused) => !paused)}
                 onClose={closeAssistant}
               />
             )}
@@ -1732,7 +1726,6 @@ function App() {
               onCombineIdeas={combineIdeas}
               agentTasks={agentTasks}
               agentPaused={agentPaused}
-              onToggleAgentPaused={() => setAgentPaused((paused) => !paused)}
               onDismissSuggestion={dismissSuggestion}
             />
           </div>
@@ -2546,9 +2539,6 @@ function AssistantPanel({
   savedIdeas,
   onSaveIdea,
   onCombineIdeas,
-  agentTasks,
-  agentPaused,
-  onToggleAgentPaused,
   onClose,
 }: {
   messages: ChatMessage[]
@@ -2565,9 +2555,6 @@ function AssistantPanel({
   savedIdeas: SavedIdea[]
   onSaveIdea: (slot: 'idea-a' | 'idea-b') => void
   onCombineIdeas: () => void
-  agentTasks: AgentTask[]
-  agentPaused: boolean
-  onToggleAgentPaused: () => void
   onClose: () => void
 }) {
   const chatLogRef = useRef<HTMLDivElement | null>(null)
@@ -2605,11 +2592,6 @@ function AssistantPanel({
           </div>
         ))}
         {chatDraft ? <ChatThinkingBubble draft={chatDraft} /> : null}
-        <AgentActivity
-          tasks={agentTasks}
-          paused={agentPaused}
-          onTogglePaused={onToggleAgentPaused}
-        />
         <div className="assistant-status">
           <Bot size={21} />
           <div>
@@ -2792,47 +2774,6 @@ function InteractionTrace({
           ))}
         </div>
       ) : null}
-    </section>
-  )
-}
-
-function AgentActivity({
-  tasks,
-  paused,
-  onTogglePaused,
-  compact = false,
-}: {
-  tasks: AgentTask[]
-  paused: boolean
-  onTogglePaused: () => void
-  compact?: boolean
-}) {
-  return (
-    <section className={`agent-panel ${compact ? 'compact' : ''}`} aria-label="Agent activity">
-      <div className="agent-head">
-        <span>Agent activity</span>
-        <button type="button" onClick={onTogglePaused}>
-          {paused ? <Play size={13} /> : <Pause size={13} />}
-          {paused ? 'Resume loop' : 'Pause loop'}
-        </button>
-      </div>
-      {tasks.slice(0, compact ? 2 : 4).map((task) => (
-        <details className={`agent-task ${task.status}`} key={task.id}>
-          <summary>
-            <span>
-              {task.status === 'done' ? <CheckCircle2 size={13} /> : <Sparkles size={13} />}
-              {task.label}
-            </span>
-            <b>{task.kind}</b>
-          </summary>
-          <div className="agent-artifact">
-            <span>Goal: {task.goal}</span>
-            <span>Input: {task.input}</span>
-            <span>Output: {task.output}</span>
-            <span>Latest test: {task.test}</span>
-          </div>
-        </details>
-      ))}
     </section>
   )
 }
@@ -3227,7 +3168,6 @@ function HybridInsightsPanel({
   onCombineIdeas,
   agentTasks,
   agentPaused,
-  onToggleAgentPaused,
   onDismissSuggestion,
 }: {
   segment: SegmentAnnotation
@@ -3246,7 +3186,6 @@ function HybridInsightsPanel({
   onCombineIdeas: () => void
   agentTasks: AgentTask[]
   agentPaused: boolean
-  onToggleAgentPaused: () => void
   onDismissSuggestion: () => void
 }) {
   const [intentOpen, setIntentOpen] = useState(true)
@@ -3332,12 +3271,6 @@ function HybridInsightsPanel({
         savedIdeas={savedIdeas}
         onSaveIdea={onSaveIdea}
         onCombineIdeas={onCombineIdeas}
-        compact
-      />
-      <AgentActivity
-        tasks={agentTasks}
-        paused={agentPaused}
-        onTogglePaused={onToggleAgentPaused}
         compact
       />
     </aside>
