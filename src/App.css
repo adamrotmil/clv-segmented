@@ -801,14 +801,13 @@ button {
 .segment-flyout {
   position: absolute;
   z-index: 8;
-  left: calc(50% - 92px);
-  top: 438px;
-  width: 158px;
+  width: 164px;
   padding: 12px 12px 10px;
   border: 1px solid #e0e1e6;
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 7px 22px rgba(0, 0, 0, 0.12);
+  cursor: default;
 }
 
 .flyout-head {
@@ -822,7 +821,7 @@ button {
 }
 
 .flyout-head strong {
-  max-width: 112px;
+  max-width: 94px;
   font-size: 12px;
   font-weight: 700;
 }
@@ -834,11 +833,15 @@ button {
 }
 
 .flyout-head button {
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  background: transparent;
+  height: 23px;
+  padding: 0 8px;
+  border: 1px solid rgba(19, 19, 22, 0.12);
+  border-radius: 6px;
+  background: #fff;
+  color: #131316;
+  font-size: 10px;
+  font-weight: 740;
+  box-shadow: var(--shadow-static);
 }
 
 .suggestion-list {
@@ -853,11 +856,6 @@ button {
   margin-bottom: 5px;
   color: #62646e;
   font-size: 9.5px;
-}
-
-.suggestion-row::before {
-  content: "*";
-  color: #777984;
 }
 
 .suggestion-row span {

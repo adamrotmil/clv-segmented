@@ -40,6 +40,7 @@ import type {
   ChatMessage,
   ImageVariant,
   SegmentAnnotation,
+  SegmentSuggestion,
 } from './types'
 
 type EditorMode = 'edit' | 'score' | 'hybrid'
@@ -204,6 +205,42 @@ function scalarReason(scalar: AestheticScalar, value: number) {
   return `${scalar.label} moved, so the prompt weighting and projected image treatment were recomputed.`
 }
 
+function applySegmentScalarNudge(scalars: AestheticScalar[], suggestion: SegmentSuggestion) {
+  const label = suggestion.label.toLowerCase()
+  const nudges: Record<string, number> = {}
+
+  if (label.includes('expression') || label.includes('face')) {
+    nudges.staging = 7
+    nudges.presence = 12
+    nudges.gaze = 8
+  } else if (label.includes('warm') || label.includes('lighting')) {
+    nudges.materiality = 9
+    nudges.key = 6
+    nudges.chromatics = 5
+  } else if (label.includes('contrast') || label.includes('sharpen')) {
+    nudges.abstraction = -8
+    nudges.hardness = 8
+  } else if (label.includes('saturation')) {
+    nudges.chromatics = -7
+    nudges.novelty = -5
+  } else if (label.includes('cta') || label.includes('button')) {
+    nudges.complexity = -6
+    nudges['stopping-power'] = 9
+  } else if (label.includes('product') || label.includes('brightness')) {
+    nudges.key = 7
+    nudges.groundedness = 5
+  } else {
+    nudges.novelty = 4
+    nudges.materiality = 4
+  }
+
+  return scalars.map((scalar) => {
+    const delta = nudges[scalar.id]
+    if (!delta) return scalar
+    return { ...scalar, value: Math.max(0, Math.min(100, scalar.value + delta)) }
+  })
+}
+
 function formatTraceValue(scalar: AestheticScalar, value: number) {
   return `${scalar.label} ${Math.round(value)}`
 }
@@ -255,6 +292,10 @@ function App() {
 
   function updateScoreScalar(id: string, value: number) {
     applyScalarChange(id, value, 'score')
+  }
+
+  function chooseSegment(segmentId: string) {
+    setSelectedSegmentId(segmentId)
   }
 
   function applyScalarChange(id: string, value: number, target: 'edit' | 'score') {
@@ -452,6 +493,86 @@ function App() {
     window.setTimeout(() => setToast(''), 1800)
   }
 
+  function applySegmentSuggestion(segment: SegmentAnnotation, suggestion: SegmentSuggestion) {
+    const beforeScalars = scalars
+    const beforeScoreScalars = scoreScalars
+    const beforeScore = projectedScore(scalars)
+    const nextScalars = applySegmentScalarNudge(scalars, suggestion)
+    const scoreAfter = Math.min(96, projectedScore(nextScalars) + Math.ceil(suggestion.impact / 3))
+    const nextId = `segment-${segment.id}-${suggestion.id}-${Date.now()}`
+    const trace: ChangeTrace = {
+      id: `${nextId}-trace`,
+      control: suggestion.label,
+      what: `${suggestion.label} applied to ${segment.label}.`,
+      why: `The edit targets the selected segment while preserving the surrounding creative, so the prompt can lift ${segment.label.toLowerCase()} without rewriting the full image.`,
+      before: `${segment.label} +${segment.delta}%`,
+      after: `${segment.label} +${segment.delta + suggestion.impact}%`,
+      scoreBefore: beforeScore,
+      scoreAfter,
+      segment: segment.label,
+      ingredients: [
+        suggestion.label,
+        segment.label,
+        `Local lift +${suggestion.impact}%`,
+      ],
+    }
+    const segmentVariant: ImageVariant = {
+      id: nextId,
+      title: `${segment.label.split(' ')[0]} edit`,
+      kind: 'generated',
+      image: initialVariants[1].image,
+      score: scoreAfter,
+      delta: Math.max(1, scoreAfter - beforeScore),
+      filter: `${imageFilterForScalars(nextScalars)} brightness(1.02)`,
+      ingredients: trace.ingredients,
+      sourceIds: [selectedVariantId],
+    }
+    setScalars(nextScalars)
+    setVariants((current) => [...current, segmentVariant])
+    setSelectedVariantId(nextId)
+    setLastChange(trace)
+    setHistory((current) =>
+      [
+        {
+          ...trace,
+          scalarsBefore: beforeScalars,
+          scalarsAfter: nextScalars,
+          scoreScalarsBefore: beforeScoreScalars,
+          scoreScalarsAfter: beforeScoreScalars,
+          variantIdBefore: selectedVariantId,
+          variantIdAfter: nextId,
+        },
+        ...current,
+      ].slice(0, 6),
+    )
+    setAgentTasks((current) =>
+      current.map((task) => {
+        if (task.id === 'segment') {
+          return {
+            ...task,
+            status: 'running',
+            input: `${segment.label}: ${suggestion.label}`,
+            output: `Applying local lift +${suggestion.impact}%`,
+            test: 'Segment variant pending',
+          }
+        }
+        if (task.id === 'variant') {
+          return {
+            ...task,
+            status: 'running',
+            input: selectedVariantId,
+            output: 'Creating segment-specific variant',
+            test: 'Variant added to strip',
+          }
+        }
+        return task
+      }),
+    )
+    startWork('applying', trace)
+    setToast('Segment edit applied')
+    window.setTimeout(() => setToast(''), 1600)
+  }
+
   function undoLastChange() {
     const [entry] = history
     if (!entry) return
@@ -571,7 +692,9 @@ function App() {
               zoom={zoom}
               onZoomChange={setZoom}
               selectedSegmentId={selectedSegmentId}
-              onSelectSegment={openScoreMode}
+              onSelectSegment={chooseSegment}
+              onOpenScoreSegment={openScoreMode}
+              onApplySegmentSuggestion={applySegmentSuggestion}
               lastChange={lastChange}
               pendingPhase={pendingPhase}
             />
@@ -855,6 +978,8 @@ function CanvasWorkspace({
   onZoomChange,
   selectedSegmentId,
   onSelectSegment,
+  onOpenScoreSegment,
+  onApplySegmentSuggestion,
   lastChange,
   pendingPhase,
 }: {
@@ -868,6 +993,11 @@ function CanvasWorkspace({
   onZoomChange: (value: number) => void
   selectedSegmentId: string
   onSelectSegment: (id: string) => void
+  onOpenScoreSegment: (id: string) => void
+  onApplySegmentSuggestion: (
+    segment: SegmentAnnotation,
+    suggestion: SegmentSuggestion,
+  ) => void
   lastChange: ChangeTrace
   pendingPhase: PendingPhase
 }) {
@@ -909,6 +1039,8 @@ function CanvasWorkspace({
               selectedSegmentId={selectedSegmentId}
               onSelect={() => onSelectVariant(variant.id)}
               onSelectSegment={onSelectSegment}
+              onOpenScoreSegment={onOpenScoreSegment}
+              onApplySegmentSuggestion={onApplySegmentSuggestion}
               focus={index === 1}
               showScore
               showDeltas={index === 1}
@@ -949,6 +1081,8 @@ function CreativeArtboard({
   selectedSegmentId,
   onSelect,
   onSelectSegment,
+  onOpenScoreSegment,
+  onApplySegmentSuggestion,
   focus,
   size = 'normal',
   showScore = false,
@@ -963,6 +1097,11 @@ function CreativeArtboard({
   selectedSegmentId: string
   onSelect: () => void
   onSelectSegment: (id: string) => void
+  onOpenScoreSegment?: (id: string) => void
+  onApplySegmentSuggestion?: (
+    segment: SegmentAnnotation,
+    suggestion: SegmentSuggestion,
+  ) => void
   focus: boolean
   size?: 'normal' | 'large'
   showScore?: boolean
@@ -972,6 +1111,7 @@ function CreativeArtboard({
   pendingPhase?: PendingPhase
 }) {
   const isPending = pendingPhase !== 'idle' && pendingPhase !== 'failed'
+  const activeSegment = segments.find((segment) => segment.id === selectedSegmentId) ?? null
   const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
@@ -1043,6 +1183,15 @@ function CreativeArtboard({
                 {showDeltas && segment.delta >= 0 ? <b>+{segment.delta}%</b> : null}
               </span>
             ))}
+            {focus && activeSegment && onOpenScoreSegment && onApplySegmentSuggestion ? (
+              <SegmentFlyout
+                segment={activeSegment}
+                onOpenScore={() => onOpenScoreSegment(activeSegment.id)}
+                onApplySuggestion={(suggestion) =>
+                  onApplySegmentSuggestion(activeSegment, suggestion)
+                }
+              />
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -1056,6 +1205,48 @@ function ScoreBadge({ score, delta }: { score: number; delta?: number }) {
       {delta !== undefined ? <span className="delta-badge">+{delta}%</span> : null}
       <span className="score-badge">ES: {score}%</span>
     </span>
+  )
+}
+
+function SegmentFlyout({
+  segment,
+  onOpenScore,
+  onApplySuggestion,
+}: {
+  segment: SegmentAnnotation
+  onOpenScore: () => void
+  onApplySuggestion: (suggestion: SegmentSuggestion) => void
+}) {
+  const left = Math.min(42, Math.max(4, segment.x + segment.width - 44))
+  const top = Math.min(72, Math.max(4, segment.y + segment.height - 10))
+
+  return (
+    <section
+      className="segment-flyout"
+      aria-label="Segment suggestions"
+      style={{ left: `${left}%`, top: `${top}%` }}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="flyout-head">
+        <div>
+          <strong>{segment.label}</strong>
+          <small>ES +{Math.max(segment.delta, 0)}%</small>
+        </div>
+        <button type="button" onClick={onOpenScore}>
+          Score
+        </button>
+      </div>
+      <div className="suggestion-list">
+        {segment.suggestions.slice(0, 3).map((suggestion) => (
+          <div className="suggestion-row" key={suggestion.id}>
+            <span>{suggestion.label}</span>
+            <button type="button" onClick={() => onApplySuggestion(suggestion)}>
+              Apply
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 

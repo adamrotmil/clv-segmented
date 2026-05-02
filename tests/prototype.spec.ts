@@ -56,7 +56,13 @@ test('chat, failure, and agent loop status are state-aware and inspectable', asy
 
 test('segment score and hybrid paths keep the interaction workbench visible', async ({ page }) => {
   await page.goto('/')
-  await page.getByText('Product placement').nth(1).click()
+  await page.getByRole('button', { name: 'Product placement' }).last().click()
+
+  await expect(page.getByLabel('Segment suggestions')).toBeVisible()
+  await page.getByRole('button', { name: 'Apply' }).first().click()
+  await expect(page.locator('.variant-strip').getByText('Product edit')).toBeVisible()
+  await expect(page.getByLabel('Interaction trace').first()).toContainText('applied to Product placement')
+  await page.getByRole('button', { name: 'Score' }).click()
 
   await expect(page.getByText('Engagement Score')).toBeVisible()
   await expect(page.getByText('325×325 px')).toBeVisible()
