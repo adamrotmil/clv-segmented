@@ -1653,6 +1653,113 @@ function App() {
     window.setTimeout(() => setToast(''), 1800)
   }
 
+  async function remixFromComparison(anchorId: string, targetIds: string[]) {
+    const anchorVariant = workingVariants.find((variant) => variant.id === anchorId)
+    const targetVariants = targetIds
+      .map((id) => workingVariants.find((variant) => variant.id === id))
+      .filter(Boolean) as ImageVariant[]
+    if (!anchorVariant || targetVariants.length === 0) return
+
+    const remixScalars = promptScalars
+    const remixScore = projectedScore(remixScalars)
+    const nextId = `delta-remix-${Date.now()}`
+    const outputTitle = `Delta remix ${variants.length}`
+    const targetScore = Math.max(...targetVariants.map((variant) => variant.score))
+    const predictedScore = Math.min(96, Math.max(targetScore + 2, remixScore + 2))
+    const targetTitles = targetVariants.map((variant) => variant.title)
+    const targetSignals = targetVariants.flatMap((variant) => variant.ingredients ?? [])
+    const ingredients = Array.from(
+      new Set([
+        ...targetSignals,
+        anchorVariant.title,
+        ...targetTitles,
+        activeSegment.label,
+      ]),
+    ).slice(0, 4)
+    const pendingTrace: ChangeTrace = {
+      id: `${nextId}-trace`,
+      control: 'Remix delta',
+      what: `Generated a remix from ${anchorVariant.title} compared with ${targetTitles.join(', ')}.`,
+      why: 'The selected comparison set was converted into a generation request, preserving the anchor while steering toward the strongest differences in the selected variants.',
+      before: anchorVariant.title,
+      after: outputTitle,
+      scoreBefore: anchorVariant.score,
+      scoreAfter: predictedScore,
+      segment: activeSegment.label,
+      ingredients,
+    }
+    const generationRequest = buildGenerationRequest({
+      id: nextId,
+      intent: 'idea-combine',
+      outputTitle,
+      sourceIds: [anchorVariant.id, ...targetVariants.map((variant) => variant.id)],
+      beforeScalars: scalars,
+      nextScalars: remixScalars,
+      projectedScoreValue: remixScore,
+      scoreLift: Math.max(1, predictedScore - remixScore),
+      baseFilter: `${imageFilterForScalars(remixScalars)} contrast(1.04)`,
+      trace: pendingTrace,
+      promptHints: [
+        `Anchor: ${anchorVariant.title}`,
+        `Targets: ${targetTitles.join(', ')}`,
+        pendingTrace.why,
+        ...ingredients,
+        ...messages.slice(-4).map((message) => `${message.role}: ${message.content}`),
+      ],
+      sourceVariantOverride: targetVariants[0],
+    })
+
+    setLastChange(pendingTrace)
+    queueGeneratingVariant(generationRequest, predictedScore)
+    setVariantGenerationTask(
+      `${anchorVariant.title} -> ${targetTitles.join(' + ')}`,
+      'Generating comparison remix',
+    )
+    startWork('remixing', pendingTrace, false)
+    const generation = await requestCreativeGeneration(generationRequest)
+    const remix: ImageVariant = {
+      id: nextId,
+      title: generation.title,
+      kind: 'generated',
+      image: generation.image,
+      score: generation.score,
+      delta: generation.delta,
+      filter: generation.filter,
+      ingredients: generation.ingredients,
+      sourceIds: generation.sourceIds,
+      status: 'ready',
+    }
+    const trace: ChangeTrace = {
+      ...pendingTrace,
+      after: remix.title,
+      scoreAfter: remix.score,
+      ingredients: generation.ingredients,
+    }
+
+    setScalars(remixScalars)
+    setDraftScalars(remixScalars)
+    resolveGeneratedVariant(remix)
+    setSelectedVariantId(nextId)
+    setLastChange(trace)
+    setHistory((current) =>
+      [
+        {
+          ...trace,
+          scalarsBefore: scalars,
+          scalarsAfter: remixScalars,
+          scoreScalarsBefore: scoreScalars,
+          scoreScalarsAfter: scoreScalars,
+          variantIdBefore: anchorVariant.id,
+          variantIdAfter: nextId,
+        },
+        ...current,
+      ].slice(0, 6),
+    )
+    completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock delta response ready')
+    setToast('Delta remix generated')
+    window.setTimeout(() => setToast(''), 1800)
+  }
+
   function useVariantAsChatContext(variantId: string) {
     const variant = workingVariants.find((item) => item.id === variantId)
     if (!variant) return
@@ -1669,6 +1776,33 @@ function App() {
       'Variant in context',
       `${variant.title} added to the assistant context.`,
       'The next generation request can use this canvas node as part of the recent conversation context.',
+    )
+  }
+
+  function useComparisonAsChatContext(anchorId: string, targetIds: string[]) {
+    const anchorVariant = workingVariants.find((variant) => variant.id === anchorId)
+    const targetVariants = targetIds
+      .map((id) => workingVariants.find((variant) => variant.id === id))
+      .filter(Boolean) as ImageVariant[]
+    if (!anchorVariant || targetVariants.length === 0) return
+
+    const targetSummary = targetVariants
+      .map((variant) => {
+        const scoreDelta = variant.score - anchorVariant.score
+        return `${variant.title} (${scoreDelta >= 0 ? '+' : ''}${scoreDelta} ES)`
+      })
+      .join(', ')
+    const contextMessage: ChatMessage = {
+      id: `comparison-context-${Date.now()}`,
+      role: 'assistant',
+      activity: 'Added comparison >',
+      content: `Comparison added: ${anchorVariant.title} is the anchor. Selected differences: ${targetSummary}. I will use those deltas when discussing or remixing the image.`,
+    }
+    setMessages((current) => [...current, contextMessage])
+    recordPrototypeAction(
+      'Comparison in context',
+      `Comparison added for ${anchorVariant.title}.`,
+      'The selected canvas differences were added to the recent assistant context for the next generation request.',
     )
   }
 
@@ -2128,8 +2262,10 @@ function App() {
               onResetChanges={resetChanges}
               onRemix={remixImage}
               onRemixFromVariant={remixFromVariant}
+              onRemixFromComparison={remixFromComparison}
               onBlendVariants={blendCanvasVariants}
               onUseVariantAsChatContext={useVariantAsChatContext}
+              onUseComparisonAsChatContext={useComparisonAsChatContext}
               onRemoveVariant={removeCanvasVariant}
               lastChange={lastChange}
               pendingPhase={pendingPhase}
@@ -2863,8 +2999,10 @@ function CanvasWorkspace({
   onResetChanges,
   onRemix,
   onRemixFromVariant,
+  onRemixFromComparison,
   onBlendVariants,
   onUseVariantAsChatContext,
+  onUseComparisonAsChatContext,
   onRemoveVariant,
   lastChange,
   pendingPhase,
@@ -2890,8 +3028,10 @@ function CanvasWorkspace({
   onResetChanges: () => void
   onRemix: () => void
   onRemixFromVariant: (variantId: string) => void
+  onRemixFromComparison: (anchorId: string, targetIds: string[]) => void
   onBlendVariants: (sourceId: string, targetId: string) => void
   onUseVariantAsChatContext: (variantId: string) => void
+  onUseComparisonAsChatContext: (anchorId: string, targetIds: string[]) => void
   onRemoveVariant: (variantId: string) => void
   lastChange: ChangeTrace
   pendingPhase: PendingPhase
@@ -3191,6 +3331,19 @@ function CanvasWorkspace({
               const [target] = comparisonTargets
               if (target) onBlendVariants(comparisonAnchor.id, target.id)
             }}
+            onRemixDelta={() => {
+              onRemixFromComparison(
+                comparisonAnchor.id,
+                comparisonTargets.map((target) => target.id),
+              )
+              setComparisonIds([])
+            }}
+            onUseInChat={() =>
+              onUseComparisonAsChatContext(
+                comparisonAnchor.id,
+                comparisonTargets.map((target) => target.id),
+              )
+            }
             onClose={() => setComparisonIds(comparisonAnchor ? [comparisonAnchor.id] : [])}
           />
         ) : null}
@@ -3422,11 +3575,15 @@ function SelectedComparisonPanel({
   anchor,
   targets,
   onBlend,
+  onRemixDelta,
+  onUseInChat,
   onClose,
 }: {
   anchor: ImageVariant
   targets: ImageVariant[]
   onBlend: () => void
+  onRemixDelta: () => void
+  onUseInChat: () => void
   onClose: () => void
 }) {
   return (
@@ -3466,6 +3623,14 @@ function SelectedComparisonPanel({
         })}
       </div>
       <div className="selection-compare-actions">
+        <button type="button" onClick={onUseInChat} disabled={targets.length === 0}>
+          <Copy size={14} />
+          Chat
+        </button>
+        <button type="button" onClick={onRemixDelta} disabled={targets.length === 0}>
+          <RefreshCw size={14} />
+          Remix delta
+        </button>
         <button type="button" onClick={onBlend} disabled={targets.length === 0}>
           <Sparkles size={14} />
           Blend first pair

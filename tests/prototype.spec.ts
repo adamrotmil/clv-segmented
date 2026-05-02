@@ -296,6 +296,27 @@ test('shift selecting canvas nodes creates an anchored comparison set', async ({
   await expect(page.getByLabel('Selected variant comparison')).toHaveCount(0)
 })
 
+test('selected comparisons can be used for chat context and delta remixes', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Original Image', exact: true }).click()
+  await page.getByRole('button', { name: 'Updated Image', exact: true }).click({ modifiers: ['Shift'] })
+
+  await page.getByRole('button', { name: 'Chat' }).click()
+  await expect(page.getByText('Comparison added: Original Image is the anchor')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Remix delta' }).click()
+  const deltaStack = page
+    .locator('.artboard-row .creative-stack')
+    .filter({ hasText: /Delta remix/ })
+    .first()
+  await expect(deltaStack).toBeVisible()
+  await expect(deltaStack).toHaveClass(/generating/)
+  await expect(deltaStack.getByTestId('pending-shimmer')).toBeVisible()
+  await expect(page.getByText('Delta remix generated', { exact: true })).toBeVisible()
+  await expect(page.locator('.variant-strip').getByText(/Delta remix/)).toBeVisible()
+})
+
 test('dragging empty canvas pans the viewport like a canvas tool', async ({ page }) => {
   await page.goto('/')
 

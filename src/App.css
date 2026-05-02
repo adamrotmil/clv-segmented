@@ -2015,6 +2015,8 @@ button {
 }
 
 .selection-compare-actions {
+  gap: 7px;
+  flex-wrap: wrap;
   justify-content: flex-end;
   padding-top: 11px;
 }
