@@ -1,4 +1,18 @@
 import { expect, test } from '@playwright/test'
+import type { Locator } from '@playwright/test'
+
+async function expectStableHover(locator: Locator) {
+  const before = await locator.boundingBox()
+  expect(before).not.toBeNull()
+  await locator.hover()
+  const after = await locator.boundingBox()
+  expect(after).not.toBeNull()
+
+  expect(Math.abs((after?.x ?? 0) - (before?.x ?? 0))).toBeLessThan(0.25)
+  expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(0.25)
+  expect(Math.abs((after?.width ?? 0) - (before?.width ?? 0))).toBeLessThan(0.25)
+  expect(Math.abs((after?.height ?? 0) - (before?.height ?? 0))).toBeLessThan(0.25)
+}
 
 test('interaction trace shows slider effect, shimmer, explanation, and undo', async ({ page }) => {
   await page.goto('/')
@@ -37,6 +51,18 @@ test('asset and version selectors update the active editor context', async ({ pa
     .getByRole('button', { name: 'v 1.0.0' })
     .click()
   await expect(page.getByRole('button', { name: /v 1.0.0/ }).first()).toBeVisible()
+})
+
+test('editor chrome hover states do not move controls', async ({ page }) => {
+  await page.goto('/')
+
+  await expectStableHover(page.getByRole('button', { name: 'Close', exact: true }))
+  await expectStableHover(page.getByRole('button', { name: 'Add Asset', exact: true }))
+  await expectStableHover(page.getByRole('button', { name: 'Save Changes', exact: true }))
+  await expectStableHover(page.locator('.asset-select').first())
+  await expectStableHover(page.locator('.version-select').first())
+  await expectStableHover(page.getByRole('button', { name: 'Hide Annotations' }))
+  await expectStableHover(page.locator('.preset-row.active').first())
 })
 
 test('saved ideas can be combined into an inspectable remix', async ({ page }) => {

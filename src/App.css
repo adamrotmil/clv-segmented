@@ -225,7 +225,7 @@ button {
   font-weight: 700;
   line-height: 1;
   transition:
-    transform 120ms ease,
+    background-color 120ms ease,
     box-shadow 120ms ease,
     border-color 120ms ease;
 }
@@ -236,7 +236,15 @@ button {
 .zoom-control button:hover,
 .preset-row:hover,
 .asset-select:hover {
-  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.button.secondary:hover,
+.tool-button:hover,
+.version-select:hover,
+.zoom-control button:hover,
+.preset-row:hover {
+  background-color: #fbfbfc;
 }
 
 .button.primary {
