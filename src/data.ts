@@ -1,5 +1,5 @@
-import originalTile from './assets/creative/image-1.png'
-import updatedTile from './assets/creative/image-2.png'
+import originalTile from './assets/creative/image-1.jpg'
+import updatedTile from './assets/creative/image-2.jpg'
 import type {
   AestheticScalar,
   ChatMessage,
