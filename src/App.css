@@ -172,11 +172,81 @@ button {
 }
 
 .editor-body {
+  --left-panel-width: 320px;
+  --right-panel-width: 360px;
+  position: relative;
   display: grid;
-  grid-template-columns: 320px minmax(520px, 1fr) 360px;
+  grid-template-columns: var(--left-panel-width) minmax(520px, 1fr) var(--right-panel-width);
   height: calc(100% - 64px);
   min-height: 0;
   overflow: hidden;
+}
+
+.editor-body.is-resizing,
+.editor-body.is-resizing * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 12;
+  display: grid;
+  width: 12px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.sidebar-resize-handle.left {
+  left: var(--left-panel-width);
+  transform: translateX(-50%);
+}
+
+.sidebar-resize-handle.right {
+  right: var(--right-panel-width);
+  transform: translateX(50%);
+}
+
+.sidebar-resize-handle::before {
+  position: absolute;
+  inset: 0;
+  background: rgba(47, 107, 255, 0);
+  content: "";
+  transition: background-color 120ms ease;
+}
+
+.sidebar-resize-handle::after {
+  width: 1px;
+  height: 100%;
+  background: #dedfe5;
+  content: "";
+  transition:
+    width 120ms ease,
+    background-color 120ms ease,
+    opacity 120ms ease;
+}
+
+.sidebar-resize-handle:hover::before,
+.sidebar-resize-handle:focus-visible::before,
+.sidebar-resize-handle.active::before {
+  background: rgba(47, 107, 255, 0.05);
+}
+
+.sidebar-resize-handle:hover::after,
+.sidebar-resize-handle:focus-visible::after,
+.sidebar-resize-handle.active::after {
+  width: 2px;
+  background: rgba(47, 107, 255, 0.68);
+}
+
+.sidebar-resize-handle:focus-visible {
+  outline: none;
 }
 
 .left-panel {
@@ -2102,11 +2172,11 @@ button {
 }
 
 .score-editor-body {
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: var(--left-panel-width) minmax(0, 1fr);
 }
 
 .hybrid-editor-body {
-  grid-template-columns: 320px minmax(0, 1fr) 360px;
+  grid-template-columns: var(--left-panel-width) minmax(0, 1fr) var(--right-panel-width);
 }
 
 .score-left-panel,

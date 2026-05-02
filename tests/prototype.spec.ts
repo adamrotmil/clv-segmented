@@ -234,6 +234,54 @@ test('canvas background click clears selection and enables trackpad panning', as
   expect((firstAfter?.y ?? 0) - (firstBefore?.y ?? 0)).toBeGreaterThan(34)
 })
 
+test('sidebars resize to expose more canvas', async ({ page }) => {
+  await page.goto('/')
+
+  const canvas = page.locator('.canvas-scroll')
+  const leftPanel = page.locator('.left-panel')
+  const rightPanel = page.locator('.assistant-panel')
+
+  const leftHandle = page.getByLabel('Resize left sidebar')
+  const leftHandleBox = await leftHandle.boundingBox()
+  const leftBefore = await leftPanel.boundingBox()
+  const canvasBefore = await canvas.boundingBox()
+  expect(leftHandleBox).not.toBeNull()
+  expect(leftBefore).not.toBeNull()
+  expect(canvasBefore).not.toBeNull()
+
+  await page.mouse.move((leftHandleBox?.x ?? 0) + 6, (leftHandleBox?.y ?? 0) + 210)
+  await page.mouse.down()
+  await page.mouse.move((leftHandleBox?.x ?? 0) - 58, (leftHandleBox?.y ?? 0) + 210, { steps: 6 })
+  await page.mouse.up()
+
+  const leftAfter = await leftPanel.boundingBox()
+  const canvasAfterLeft = await canvas.boundingBox()
+  expect(leftAfter).not.toBeNull()
+  expect(canvasAfterLeft).not.toBeNull()
+  expect((leftBefore?.width ?? 0) - (leftAfter?.width ?? 0)).toBeGreaterThan(45)
+  expect((canvasAfterLeft?.width ?? 0) - (canvasBefore?.width ?? 0)).toBeGreaterThan(45)
+
+  const rightHandle = page.getByLabel('Resize right sidebar')
+  const rightHandleBox = await rightHandle.boundingBox()
+  const rightBefore = await rightPanel.boundingBox()
+  const canvasBeforeRight = await canvas.boundingBox()
+  expect(rightHandleBox).not.toBeNull()
+  expect(rightBefore).not.toBeNull()
+  expect(canvasBeforeRight).not.toBeNull()
+
+  await page.mouse.move((rightHandleBox?.x ?? 0) + 6, (rightHandleBox?.y ?? 0) + 210)
+  await page.mouse.down()
+  await page.mouse.move((rightHandleBox?.x ?? 0) + 70, (rightHandleBox?.y ?? 0) + 210, { steps: 6 })
+  await page.mouse.up()
+
+  const rightAfter = await rightPanel.boundingBox()
+  const canvasAfterRight = await canvas.boundingBox()
+  expect(rightAfter).not.toBeNull()
+  expect(canvasAfterRight).not.toBeNull()
+  expect((rightBefore?.width ?? 0) - (rightAfter?.width ?? 0)).toBeGreaterThan(45)
+  expect((canvasAfterRight?.width ?? 0) - (canvasBeforeRight?.width ?? 0)).toBeGreaterThan(45)
+})
+
 test('dragging one artboard onto another creates a blended variant', async ({ page }) => {
   await page.goto('/')
 

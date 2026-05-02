@@ -114,6 +114,20 @@ type CanvasPanState = {
   originY: number
 }
 
+type SidebarSide = 'left' | 'right'
+
+type SidebarResizeState = {
+  side: SidebarSide
+  pointerId: number
+  startX: number
+  startWidth: number
+}
+
+const sidebarWidthBounds: Record<SidebarSide, { min: number; max: number }> = {
+  left: { min: 260, max: 440 },
+  right: { min: 300, max: 520 },
+}
+
 const scoreScalarPreset: Record<string, Pick<AestheticScalar, 'value' | 'marker'>> = {
   staging: { value: 50, marker: 'Constructed' },
   abstraction: { value: 30, marker: 'Literal' },
@@ -360,6 +374,11 @@ function scoreTabLabel(tab: ScoreTab) {
   return 'Engagement Score'
 }
 
+function clampSidebarWidth(side: SidebarSide, width: number) {
+  const bounds = sidebarWidthBounds[side]
+  return Math.max(bounds.min, Math.min(bounds.max, Math.round(width)))
+}
+
 function clampDragOffset(value: number, limit: number) {
   return Math.max(-limit, Math.min(limit, value))
 }
@@ -583,6 +602,10 @@ function App() {
   const [agentTasks, setAgentTasks] = useState<AgentTask[]>(initialAgentTasks)
   const [agentPaused] = useState(false)
   const [assistantMinimized, setAssistantMinimized] = useState(false)
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(320)
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(360)
+  const [activeResizeSide, setActiveResizeSide] = useState<SidebarSide | null>(null)
+  const sidebarResize = useRef<SidebarResizeState | null>(null)
 
   useEffect(
     () => () => {
@@ -618,6 +641,57 @@ function App() {
       ),
     [scalars, variants, workingScore],
   )
+  const editorLayoutStyle = {
+    '--left-panel-width': `${leftSidebarWidth}px`,
+    '--right-panel-width': `${rightSidebarWidth}px`,
+  } as CSSProperties
+
+  function setSidebarWidth(side: SidebarSide, width: number) {
+    const nextWidth = clampSidebarWidth(side, width)
+    if (side === 'left') {
+      setLeftSidebarWidth(nextWidth)
+    } else {
+      setRightSidebarWidth(nextWidth)
+    }
+  }
+
+  function beginSidebarResize(side: SidebarSide, event: PointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0) return
+
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    sidebarResize.current = {
+      side,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: side === 'left' ? leftSidebarWidth : rightSidebarWidth,
+    }
+    setActiveResizeSide(side)
+  }
+
+  function moveSidebarResize(event: PointerEvent<HTMLButtonElement>) {
+    const resize = sidebarResize.current
+    if (!resize || resize.pointerId !== event.pointerId) return
+
+    const delta = event.clientX - resize.startX
+    const nextWidth = resize.side === 'left' ? resize.startWidth + delta : resize.startWidth - delta
+    setSidebarWidth(resize.side, nextWidth)
+  }
+
+  function endSidebarResize(event: PointerEvent<HTMLButtonElement>) {
+    if (sidebarResize.current?.pointerId === event.pointerId) {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      }
+      sidebarResize.current = null
+      setActiveResizeSide(null)
+    }
+  }
+
+  function nudgeSidebar(side: SidebarSide, direction: -1 | 1) {
+    const delta = 16 * direction
+    setSidebarWidth(side, side === 'left' ? leftSidebarWidth + delta : rightSidebarWidth - delta)
+  }
 
   function updateScalar(id: string, value: number) {
     stageScalarChange(id, value)
@@ -1715,7 +1789,10 @@ function App() {
           onSave={saveChanges}
         />
         {mode === 'edit' ? (
-          <div className="editor-body">
+          <div
+            className={`editor-body ${activeResizeSide ? 'is-resizing' : ''}`}
+            style={editorLayoutStyle}
+          >
             <LeftInspector
               selectedAssetId={selectedAssetId}
               onSelectAsset={selectAsset}
@@ -1726,6 +1803,14 @@ function App() {
               onSelectStylePreset={selectStylePreset}
               onSaveCurrentStyle={saveCurrentStyle}
               onDismissSuggestion={dismissSuggestion}
+            />
+            <SidebarResizeHandle
+              side="left"
+              active={activeResizeSide === 'left'}
+              onPointerDown={beginSidebarResize}
+              onPointerMove={moveSidebarResize}
+              onPointerUp={endSidebarResize}
+              onNudge={nudgeSidebar}
             />
             <CanvasWorkspace
               selectedAsset={activeCanvasAsset}
@@ -1748,6 +1833,14 @@ function App() {
               onBlendVariants={blendCanvasVariants}
               lastChange={lastChange}
               pendingPhase={pendingPhase}
+            />
+            <SidebarResizeHandle
+              side="right"
+              active={activeResizeSide === 'right'}
+              onPointerDown={beginSidebarResize}
+              onPointerMove={moveSidebarResize}
+              onPointerUp={endSidebarResize}
+              onNudge={nudgeSidebar}
             />
             {assistantMinimized ? (
               <AssistantMinimizedPanel onReopen={reopenAssistant} />
@@ -1772,7 +1865,10 @@ function App() {
             )}
           </div>
         ) : mode === 'score' ? (
-          <div className="editor-body score-editor-body">
+          <div
+            className={`editor-body score-editor-body ${activeResizeSide ? 'is-resizing' : ''}`}
+            style={editorLayoutStyle}
+          >
             <ScoreControlsPanel
               scalars={scoreScalars}
               onScalarChange={updateScoreScalar}
@@ -1791,6 +1887,14 @@ function App() {
                   'The tab changes the left-panel context while keeping the score canvas selected.',
                 )
               }
+            />
+            <SidebarResizeHandle
+              side="left"
+              active={activeResizeSide === 'left'}
+              onPointerDown={beginSidebarResize}
+              onPointerMove={moveSidebarResize}
+              onPointerUp={endSidebarResize}
+              onNudge={nudgeSidebar}
             />
             <ScoreWorkspace
               selectedAsset={activeCanvasAsset}
@@ -1821,7 +1925,10 @@ function App() {
             />
           </div>
         ) : (
-          <div className="editor-body hybrid-editor-body">
+          <div
+            className={`editor-body hybrid-editor-body ${activeResizeSide ? 'is-resizing' : ''}`}
+            style={editorLayoutStyle}
+          >
             <ScoreControlsPanel
               scalars={scoreScalars}
               onScalarChange={updateScoreScalar}
@@ -1841,6 +1948,14 @@ function App() {
                   'The right panel keeps the active insights and agent loop connected to this tab state.',
                 )
               }
+            />
+            <SidebarResizeHandle
+              side="left"
+              active={activeResizeSide === 'left'}
+              onPointerDown={beginSidebarResize}
+              onPointerMove={moveSidebarResize}
+              onPointerUp={endSidebarResize}
+              onNudge={nudgeSidebar}
             />
             <ScoreWorkspace
               selectedAsset={activeCanvasAsset}
@@ -1871,6 +1986,14 @@ function App() {
               hasPendingChanges={hasPendingScalarChanges}
               pendingPhase={pendingPhase}
               lastChange={lastChange}
+            />
+            <SidebarResizeHandle
+              side="right"
+              active={activeResizeSide === 'right'}
+              onPointerDown={beginSidebarResize}
+              onPointerMove={moveSidebarResize}
+              onPointerUp={endSidebarResize}
+              onNudge={nudgeSidebar}
             />
             <HybridInsightsPanel
               segment={activeSegment}
@@ -1934,6 +2057,47 @@ function EditorHeader({
         <Button onClick={onSave}>Save Changes</Button>
       </div>
     </header>
+  )
+}
+
+function SidebarResizeHandle({
+  side,
+  active,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onNudge,
+}: {
+  side: SidebarSide
+  active: boolean
+  onPointerDown: (side: SidebarSide, event: PointerEvent<HTMLButtonElement>) => void
+  onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void
+  onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void
+  onNudge: (side: SidebarSide, direction: -1 | 1) => void
+}) {
+  function handleKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      onNudge(side, -1)
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      onNudge(side, 1)
+    }
+  }
+
+  return (
+    <button
+      className={`sidebar-resize-handle ${side} ${active ? 'active' : ''}`}
+      type="button"
+      role="separator"
+      aria-label={`Resize ${side} sidebar`}
+      aria-orientation="vertical"
+      onPointerDown={(event) => onPointerDown(side, event)}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onKeyDown={handleKeyDown}
+    />
   )
 }
 
