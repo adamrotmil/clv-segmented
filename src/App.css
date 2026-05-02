@@ -698,6 +698,43 @@ button {
   line-height: 1.29;
 }
 
+.suggestion-actions {
+  display: flex;
+  margin: 10px 8px 0 30px;
+}
+
+.suggestion-apply {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 27px;
+  padding: 0 7px 0 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #7a7c84;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.suggestion-apply svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.75;
+}
+
+.suggestion-apply:hover,
+.suggestion-apply:focus-visible {
+  background: rgba(44, 22, 116, 0.06);
+  color: #202127;
+}
+
+.suggestion-apply:focus-visible {
+  outline: 1.5px solid rgba(44, 22, 116, 0.22);
+  outline-offset: 1px;
+}
+
 .search-box {
   display: flex;
   align-items: center;

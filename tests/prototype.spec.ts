@@ -120,6 +120,19 @@ test('preset styles select rows and expose saved preset context', async ({ page 
   await expect(popover).toContainText('Asked for more human warmth')
 })
 
+test('suggestion apply stages scalar changes for remix', async ({ page }) => {
+  await page.goto('/')
+
+  await expect(page.getByLabel('Materiality')).toHaveValue('50')
+  await expect(page.getByLabel('Abstraction')).toHaveValue('23')
+
+  await page.getByRole('button', { name: 'Apply suggestion' }).click()
+  await expect(page.getByLabel('Materiality')).toHaveValue('62')
+  await expect(page.getByLabel('Abstraction')).toHaveValue('13')
+  await expect(page.getByLabel('Pending remix actions')).toBeVisible()
+  await expect(page.getByLabel('Interaction trace').first()).toContainText('Suggestion applied')
+})
+
 test('editor chrome hover states do not move controls', async ({ page }) => {
   await page.goto('/')
 
@@ -480,7 +493,7 @@ test('segment score and hybrid paths keep the interaction workbench visible', as
   await page.getByRole('button', { name: 'Product placement' }).last().click()
 
   await expect(page.getByLabel('Segment suggestions')).toBeVisible()
-  await page.getByRole('button', { name: 'Apply' }).first().click()
+  await page.getByLabel('Segment suggestions').getByRole('button', { name: 'Apply' }).first().click()
   await expect(page.locator('.variant-strip').getByText('Product edit')).toBeVisible()
   await expect(page.getByLabel('Interaction trace').first()).toContainText('applied to Product placement')
   await page.getByRole('button', { name: 'Score' }).click()

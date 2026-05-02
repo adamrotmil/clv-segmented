@@ -5,6 +5,7 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronLeft,
+  CornerDownRight,
   Copy,
   GitBranch,
   History,
@@ -833,6 +834,79 @@ function App() {
       'Dismissed the current suggestion card.',
       'The suggestion can return when a new scalar, segment, or chat action creates a fresh recommendation.',
     )
+  }
+
+  function applySuggestion() {
+    window.clearTimeout(workTimer.current)
+    const materialityBefore = scalarValue(draftScalars, 'materiality')
+    const abstractionBefore = scalarValue(draftScalars, 'abstraction')
+    const materialityAfter = Math.min(100, materialityBefore + 12)
+    const abstractionAfter = Math.max(0, abstractionBefore - 10)
+    const scoreBefore = projectedScore(draftScalars)
+    const nextDraftScalars = draftScalars.map((scalar) => {
+      if (scalar.id === 'materiality') {
+        return {
+          ...scalar,
+          value: materialityAfter,
+          marker: materialityAfter >= 58 ? 'Tactile' : scalar.marker,
+        }
+      }
+      if (scalar.id === 'abstraction') {
+        return {
+          ...scalar,
+          value: abstractionAfter,
+          marker: '> Literal',
+        }
+      }
+      return scalar
+    })
+    const scoreAfter = projectedScore(nextDraftScalars)
+    const trace: ChangeTrace = {
+      id: `suggestion-${Date.now()}`,
+      control: 'Suggestions',
+      what: 'Suggestion applied: materiality increased and abstraction reduced.',
+      why: 'The applied suggestion stages a prompt change toward a more authentic, less synthetic image treatment. Remix Image will commit it to a generated variant.',
+      before: `ES ${scoreBefore}%`,
+      after: `ES ${scoreAfter}%`,
+      scoreBefore,
+      scoreAfter,
+      segment: activeSegment.label,
+      ingredients: [
+        `Materiality +${materialityAfter - materialityBefore}`,
+        `Abstraction ${abstractionAfter - abstractionBefore}`,
+        'Pending remix',
+      ],
+    }
+
+    setDraftScalars(nextDraftScalars)
+    setSelectedStylePresetId('current')
+    setWorkError('')
+    setPendingPhase('idle')
+    setLastChange(trace)
+    setAgentTasks((current) =>
+      current.map((task) => {
+        if (task.id === 'prompt') {
+          return {
+            ...task,
+            status: agentPaused ? 'paused' : 'queued',
+            input: trace.what,
+            output: 'Suggestion patch staged',
+            test: 'Awaiting Remix Image',
+          }
+        }
+        if (task.id === 'variant') {
+          return {
+            ...task,
+            status: agentPaused ? 'paused' : 'queued',
+            input: 'Suggestion applied',
+            output: 'Waiting for commit',
+            test: 'Remix action visible',
+          }
+        }
+        return task
+      }),
+    )
+    flashToast('Suggestion applied')
   }
 
   function closeAssistant() {
@@ -1802,6 +1876,7 @@ function App() {
               onScalarChange={updateScalar}
               onSelectStylePreset={selectStylePreset}
               onSaveCurrentStyle={saveCurrentStyle}
+              onApplySuggestion={applySuggestion}
               onDismissSuggestion={dismissSuggestion}
             />
             <SidebarResizeHandle
@@ -2012,6 +2087,7 @@ function App() {
               onCombineIdeas={combineIdeas}
               agentTasks={agentTasks}
               agentPaused={agentPaused}
+              onApplySuggestion={applySuggestion}
               onDismissSuggestion={dismissSuggestion}
             />
           </div>
@@ -2110,6 +2186,7 @@ function LeftInspector({
   onScalarChange,
   onSelectStylePreset,
   onSaveCurrentStyle,
+  onApplySuggestion,
   onDismissSuggestion,
 }: {
   selectedAssetId: string
@@ -2120,6 +2197,7 @@ function LeftInspector({
   onScalarChange: (id: string, value: number) => void
   onSelectStylePreset: (preset: StylePreset) => void
   onSaveCurrentStyle: () => void
+  onApplySuggestion: () => void
   onDismissSuggestion: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -2249,6 +2327,17 @@ function LeftInspector({
             </button>
           </div>
           <p>Increase process materiality and reduce abstraction to create a more authentic look and feel.</p>
+          <div className="suggestion-actions">
+            <button
+              className="suggestion-apply"
+              type="button"
+              aria-label="Apply suggestion"
+              onClick={onApplySuggestion}
+            >
+              <CornerDownRight size={17} />
+              Apply
+            </button>
+          </div>
         </section>
       ) : null}
 
@@ -3704,6 +3793,7 @@ function HybridInsightsPanel({
   onCombineIdeas,
   agentTasks,
   agentPaused,
+  onApplySuggestion,
   onDismissSuggestion,
 }: {
   segment: SegmentAnnotation
@@ -3722,6 +3812,7 @@ function HybridInsightsPanel({
   onCombineIdeas: () => void
   agentTasks: AgentTask[]
   agentPaused: boolean
+  onApplySuggestion: () => void
   onDismissSuggestion: () => void
 }) {
   const [intentOpen, setIntentOpen] = useState(true)
@@ -3760,6 +3851,17 @@ function HybridInsightsPanel({
             </button>
           </div>
           <p>Increase process materiality and reduce abstraction to create a more authentic look and feel.</p>
+          <div className="suggestion-actions">
+            <button
+              className="suggestion-apply"
+              type="button"
+              aria-label="Apply suggestion"
+              onClick={onApplySuggestion}
+            >
+              <CornerDownRight size={17} />
+              Apply
+            </button>
+          </div>
         </section>
       ) : null}
       <label className="search-box hybrid-search">
