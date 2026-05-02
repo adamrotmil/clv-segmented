@@ -141,8 +141,50 @@ test('editor chrome hover states do not move controls', async ({ page }) => {
   await expectStableHover(page.getByRole('button', { name: 'Save Changes', exact: true }))
   await expectStableHover(page.locator('.asset-select').first())
   await expectStableHover(page.locator('.version-select').first())
+  await expectStableHover(page.getByRole('button', { name: 'Tidy up canvas' }))
   await expectStableHover(page.getByRole('button', { name: 'Hide Annotations' }))
   await expectStableHover(page.locator('.preset-row.active').first())
+})
+
+test('generated remixes appear as full-size canvas nodes and tidy back to grid', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByLabel('Staging').fill('92')
+  await page.getByRole('button', { name: 'Remix Image' }).click()
+  await expect(page.locator('.variant-strip').getByText(/Remix/)).toBeVisible()
+
+  const originalStack = page.locator('.artboard-row .creative-stack').first()
+  const updatedStack = page.locator('.artboard-row .creative-stack').nth(1)
+  const remixStack = page.locator('.artboard-row .creative-stack').filter({ hasText: /Remix/ }).first()
+  await expect(remixStack).toBeVisible()
+
+  const originalBox = await originalStack.boundingBox()
+  const updatedBox = await updatedStack.boundingBox()
+  const remixGridBox = await remixStack.boundingBox()
+  expect(originalBox).not.toBeNull()
+  expect(updatedBox).not.toBeNull()
+  expect(remixGridBox).not.toBeNull()
+
+  expect(Math.abs((updatedBox?.x ?? 0) - (originalBox?.x ?? 0))).toBeGreaterThan(300)
+  expect((remixGridBox?.y ?? 0) - (originalBox?.y ?? 0)).toBeGreaterThan(340)
+  expect(Math.abs((remixGridBox?.x ?? 0) - (originalBox?.x ?? 0))).toBeLessThan(12)
+
+  await page.mouse.move((remixGridBox?.x ?? 0) + 24, (remixGridBox?.y ?? 0) + 24)
+  await page.mouse.down()
+  await page.mouse.move((remixGridBox?.x ?? 0) + 92, (remixGridBox?.y ?? 0) + 62, { steps: 5 })
+  await page.mouse.up()
+
+  const movedBox = await remixStack.boundingBox()
+  expect(movedBox).not.toBeNull()
+  expect((movedBox?.x ?? 0) - (remixGridBox?.x ?? 0)).toBeGreaterThan(48)
+  expect((movedBox?.y ?? 0) - (remixGridBox?.y ?? 0)).toBeGreaterThan(24)
+
+  await page.getByRole('button', { name: 'Tidy up canvas' }).click()
+  await page.waitForTimeout(220)
+  const tidiedBox = await remixStack.boundingBox()
+  expect(tidiedBox).not.toBeNull()
+  expect(Math.abs((tidiedBox?.x ?? 0) - (remixGridBox?.x ?? 0))).toBeLessThan(3)
+  expect(Math.abs((tidiedBox?.y ?? 0) - (remixGridBox?.y ?? 0))).toBeLessThan(3)
 })
 
 test('canvas artboards select from title and drag into place', async ({ page }) => {

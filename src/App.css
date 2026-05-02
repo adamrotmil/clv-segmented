@@ -978,6 +978,17 @@ button {
   font-weight: 500;
 }
 
+.tool-button.icon-only {
+  justify-content: center;
+  width: 33px;
+  padding: 0;
+}
+
+.tool-button.icon-only svg {
+  width: 18px;
+  height: 18px;
+}
+
 .version-picker {
   position: relative;
 }
@@ -1057,11 +1068,13 @@ button {
 
 .artboard-row {
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(var(--artboard-columns, 2), 275px);
+  grid-auto-rows: max-content;
+  column-gap: 30px;
+  row-gap: 44px;
   width: max-content;
   margin: 0 auto;
-  left: var(--row-shift-x, 0px);
-  gap: 30px;
   transform: scale(var(--zoom));
   transform-origin: top center;
 }
@@ -1482,6 +1495,7 @@ button {
   right: 34px;
   bottom: 24px;
   display: flex;
+  justify-content: flex-end;
   gap: 12px;
   overflow: hidden;
 }

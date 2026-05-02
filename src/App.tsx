@@ -19,7 +19,7 @@ import {
   Undo2,
   X,
 } from 'lucide-react'
-import { LightbulbPerson20Regular } from '@fluentui/react-icons'
+import { LightbulbPerson20Regular, SubGrid20Regular } from '@fluentui/react-icons'
 import './App.css'
 import {
   assets,
@@ -433,8 +433,8 @@ function useArtboardDrag(scale: number, onSelect: (id: string) => void) {
     const y = dragState.originY + (event.clientY - dragState.startY) / dragScale
 
     updatePosition(dragState.id, {
-      x: clampDragOffset(x, 360),
-      y: clampDragOffset(y, 220),
+      x: clampDragOffset(x, 640),
+      y: clampDragOffset(y, 520),
     })
   }
 
@@ -465,12 +465,18 @@ function useArtboardDrag(scale: number, onSelect: (id: string) => void) {
 const artboardMetrics = {
   size: 275,
   gap: 30,
+  rowGap: 44,
+  stackHeight: 294,
 }
 
-function artboardOrigin(index: number, position?: DragOffset) {
+function artboardOrigin(index: number, position?: DragOffset, columns = Math.max(1, index + 1)) {
+  const safeColumns = Math.max(1, columns)
+  const column = index % safeColumns
+  const row = Math.floor(index / safeColumns)
+
   return {
-    x: index * (artboardMetrics.size + artboardMetrics.gap) + (position?.x ?? 0),
-    y: position?.y ?? 0,
+    x: column * (artboardMetrics.size + artboardMetrics.gap) + (position?.x ?? 0),
+    y: row * (artboardMetrics.stackHeight + artboardMetrics.rowGap) + (position?.y ?? 0),
   }
 }
 
@@ -478,12 +484,13 @@ function findOverlappedArtboard(
   variants: ImageVariant[],
   positions: Record<string, DragOffset>,
   draggingId: string,
+  columns: number,
 ) {
   if (!draggingId) return ''
   const sourceIndex = variants.findIndex((variant) => variant.id === draggingId)
   if (sourceIndex < 0) return ''
 
-  const sourceOrigin = artboardOrigin(sourceIndex, positions[draggingId])
+  const sourceOrigin = artboardOrigin(sourceIndex, positions[draggingId], columns)
   const sourceCenter = {
     x: sourceOrigin.x + artboardMetrics.size / 2,
     y: sourceOrigin.y + artboardMetrics.size / 2,
@@ -492,7 +499,7 @@ function findOverlappedArtboard(
   return (
     variants.find((variant, index) => {
       if (variant.id === draggingId) return false
-      const targetOrigin = artboardOrigin(index, positions[variant.id])
+      const targetOrigin = artboardOrigin(index, positions[variant.id], columns)
       const targetCenter = {
         x: targetOrigin.x + artboardMetrics.size / 2,
         y: targetOrigin.y + artboardMetrics.size / 2,
@@ -503,6 +510,26 @@ function findOverlappedArtboard(
       return overlapRatio > 0.34
     })?.id ?? ''
   )
+}
+
+function useElementWidth<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null)
+  const [width, setWidth] = useState(0)
+
+  useEffect(() => {
+    const node = ref.current
+    if (!node) return undefined
+
+    setWidth(Math.round(node.clientWidth))
+    const observer = new ResizeObserver(([entry]) => {
+      setWidth(Math.round(entry.contentRect.width))
+    })
+    observer.observe(node)
+
+    return () => observer.disconnect()
+  }, [])
+
+  return [ref, width] as const
 }
 
 function canStartCanvasPan(target: EventTarget | null) {
@@ -2671,35 +2698,51 @@ function CanvasWorkspace({
       variant.id === selectedVariantId &&
       !baseComparisonVariants.some((baseVariant) => baseVariant.id === variant.id),
   )
-  const comparisonVariants = selectedGeneratedVariant
-    ? [...baseComparisonVariants, selectedGeneratedVariant]
-    : baseComparisonVariants
+  const canvasVariants = variants
   const generatedVariants = variants.slice(2)
-  const rowFitScale = comparisonVariants.length > 2 ? 0.8 : 1
-  const artboardScale = (zoom / 78) * rowFitScale
+  const artboardScale = zoom / 78
   const artboardDrag = useArtboardDrag(artboardScale, onSelectVariant)
   const canvasPan = useCanvasPan()
+  const [canvasScrollRef, canvasViewportWidth] = useElementWidth<HTMLDivElement>()
+  const gridColumns =
+    canvasViewportWidth > 0
+      ? Math.max(
+          1,
+          Math.min(
+            canvasVariants.length,
+            Math.floor(
+              (canvasViewportWidth / artboardScale + artboardMetrics.gap) /
+                (artboardMetrics.size + artboardMetrics.gap),
+            ),
+          ),
+        )
+      : Math.max(1, Math.min(2, canvasVariants.length))
   const canvasWorldStyle = {
     '--pan-x': `${canvasPan.pan.x}px`,
     '--pan-y': `${canvasPan.pan.y}px`,
     '--zoom': artboardScale,
-    '--row-shift-x': comparisonVariants.length > 2 ? '-44px' : '0px',
+    '--artboard-columns': gridColumns,
   } as CSSProperties
   const dropTargetId = findOverlappedArtboard(
-    comparisonVariants,
+    canvasVariants,
     artboardDrag.positions,
     artboardDrag.draggingId,
+    gridColumns,
   )
 
   function endArtboardDrag(event: PointerEvent<HTMLElement>) {
     const result = artboardDrag.endDrag(event)
     if (!result) return
 
-    const targetId = findOverlappedArtboard(comparisonVariants, result.positions, result.id)
+    const targetId = findOverlappedArtboard(canvasVariants, result.positions, result.id, gridColumns)
     if (!targetId) return
 
     artboardDrag.resetPositions([result.id, targetId])
     onBlendVariants(result.id, targetId)
+  }
+
+  function tidyCanvas() {
+    artboardDrag.resetPositions(canvasVariants.map((variant) => variant.id))
   }
 
   function handleCanvasPointerDown(event: PointerEvent<HTMLDivElement>) {
@@ -2721,6 +2764,14 @@ function CanvasWorkspace({
           onChange={onSelectVersion}
         />
         <div className="canvas-tools">
+          <button
+            className="tool-button icon-only"
+            type="button"
+            aria-label="Tidy up canvas"
+            onClick={tidyCanvas}
+          >
+            <SubGrid20Regular aria-hidden="true" />
+          </button>
           <button className="tool-button" type="button" onClick={onToggleAnnotations}>
             <EyeOff size={18} />
             {annotationsVisible ? 'Hide Annotations' : 'Show Annotations'}
@@ -2741,6 +2792,7 @@ function CanvasWorkspace({
         className={`canvas-scroll ${canvasPan.panning ? 'is-panning' : ''} ${
           canvasPan.wheelFocused ? 'is-wheel-focused' : ''
         }`}
+        ref={canvasScrollRef}
         aria-label="Creative canvas"
         tabIndex={0}
         onPointerDown={handleCanvasPointerDown}
@@ -2756,10 +2808,10 @@ function CanvasWorkspace({
       >
         <div className="canvas-world" style={canvasWorldStyle}>
           <div className="artboard-row">
-            {comparisonVariants.map((variant, index) => {
+            {canvasVariants.map((variant) => {
               const isActiveComparison = selectedGeneratedVariant
                 ? selectedGeneratedVariant.id === variant.id
-                : index === 1
+                : variant.id === 'updated'
 
               return (
                 <CreativeArtboard
