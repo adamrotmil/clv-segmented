@@ -317,6 +317,26 @@ test('selected comparisons can be used for chat context and delta remixes', asyn
   await expect(page.locator('.variant-strip').getByText(/Delta remix/)).toBeVisible()
 })
 
+test('one-to-many comparisons can promote anchors and remove targets', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Add Asset', exact: true }).click()
+  await page.getByRole('button', { name: 'Original Image', exact: true }).click()
+  await page.getByRole('button', { name: 'Updated Image', exact: true }).click({ modifiers: ['Shift'] })
+  await page.getByRole('button', { name: 'Asset draft', exact: true }).click({ modifiers: ['Shift'] })
+
+  await expect(page.getByLabel('Selected variant comparison')).toContainText('Asset draft')
+  await page.getByRole('button', { name: 'Make Asset draft anchor' }).click()
+
+  await expect(page.getByLabel('Selected variant comparison')).toContainText('Anchor')
+  await expect(page.locator('.creative-stack').filter({ hasText: 'Asset draft' })).toHaveClass(/selected/)
+  await expect(page.locator('.creative-stack').filter({ hasText: 'Original Image' })).toHaveClass(/secondary-selected/)
+
+  await page.getByRole('button', { name: 'Remove Updated Image from comparison' }).click()
+  await expect(page.getByLabel('Selected variant comparison')).not.toContainText('Updated Image')
+  await expect(page.getByLabel('Selected variant comparison')).toContainText('Original Image')
+})
+
 test('dragging empty canvas pans the viewport like a canvas tool', async ({ page }) => {
   await page.goto('/')
 

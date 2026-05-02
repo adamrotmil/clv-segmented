@@ -1976,19 +1976,46 @@ button {
   white-space: nowrap;
 }
 
-.selection-target-score span {
+.selection-target-meta {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.selection-target-meta span {
   flex: 0 0 auto;
   color: #777a82;
   font-size: 11px;
   line-height: 15px;
 }
 
-.selection-target-score span.positive {
+.selection-target-meta span.positive {
   color: #17633b;
 }
 
-.selection-target-score span.negative {
+.selection-target-meta span.negative {
   color: #8f2020;
+}
+
+.selection-target-meta button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #858891;
+}
+
+.selection-target-meta button:hover,
+.selection-target-meta button:focus-visible {
+  background: #f1f2f5;
+  color: #17181d;
+  outline: 0;
 }
 
 .selection-factor-list {

@@ -3344,6 +3344,18 @@ function CanvasWorkspace({
                 comparisonTargets.map((target) => target.id),
               )
             }
+            onMakeAnchor={(targetId) =>
+              setComparisonIds((current) => [
+                targetId,
+                ...current.filter((id) => id !== targetId),
+              ])
+            }
+            onRemoveTarget={(targetId) =>
+              setComparisonIds((current) => {
+                const next = current.filter((id) => id !== targetId)
+                return next.length ? next : [comparisonAnchor.id]
+              })
+            }
             onClose={() => setComparisonIds(comparisonAnchor ? [comparisonAnchor.id] : [])}
           />
         ) : null}
@@ -3577,6 +3589,8 @@ function SelectedComparisonPanel({
   onBlend,
   onRemixDelta,
   onUseInChat,
+  onMakeAnchor,
+  onRemoveTarget,
   onClose,
 }: {
   anchor: ImageVariant
@@ -3584,6 +3598,8 @@ function SelectedComparisonPanel({
   onBlend: () => void
   onRemixDelta: () => void
   onUseInChat: () => void
+  onMakeAnchor: (targetId: string) => void
+  onRemoveTarget: (targetId: string) => void
   onClose: () => void
 }) {
   return (
@@ -3608,10 +3624,26 @@ function SelectedComparisonPanel({
             <div className="selection-target-row" key={target.id}>
               <div className="selection-target-score">
                 <b>{target.title}</b>
-                <span className={scoreDelta >= 0 ? 'positive' : 'negative'}>
-                  {scoreDelta >= 0 ? '+' : ''}
-                  {scoreDelta} ES
-                </span>
+                <div className="selection-target-meta">
+                  <span className={scoreDelta >= 0 ? 'positive' : 'negative'}>
+                    {scoreDelta >= 0 ? '+' : ''}
+                    {scoreDelta} ES
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Make ${target.title} anchor`}
+                    onClick={() => onMakeAnchor(target.id)}
+                  >
+                    <ArrowUp size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${target.title} from comparison`}
+                    onClick={() => onRemoveTarget(target.id)}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
               </div>
               <div className="selection-factor-list">
                 {factors.map((factor) => (
