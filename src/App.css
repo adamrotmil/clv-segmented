@@ -595,9 +595,9 @@ button {
   right: 0;
   left: 0;
   z-index: 0;
-  border: 1px solid #d2d3d6;
-  background: #e3e3e4;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.11);
+  border: 1px solid #d0d1d3;
+  background: #e2e2e3;
+  box-shadow: none;
 }
 
 .range-wrap::after {
@@ -643,9 +643,7 @@ button {
 }
 
 .range-wrap:focus-within::before {
-  box-shadow:
-    inset 0 1px 2px rgba(0, 0, 0, 0.11),
-    0 0 0 1px rgba(18, 18, 23, 0.08);
+  box-shadow: none;
 }
 
 .range-wrap input::-webkit-slider-runnable-track {
@@ -659,18 +657,19 @@ button {
   height: 25px;
   margin-top: 2px;
   appearance: none;
-  border: 3px solid #111217;
+  border: 2px solid #111217;
   border-radius: 50%;
-  background: radial-gradient(circle, #111217 0 4px, #fff 4.5px 100%);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
+  background: radial-gradient(circle, #111217 0 3.2px, #fff 3.7px 100%);
+  box-shadow: none;
 }
 
 .range-wrap input::-moz-range-thumb {
-  width: 19px;
-  height: 19px;
-  border: 3px solid #111217;
+  width: 21px;
+  height: 21px;
+  border: 2px solid #111217;
   border-radius: 50%;
-  background: radial-gradient(circle, #111217 0 4px, #fff 4.5px 100%);
+  background: radial-gradient(circle, #111217 0 3.2px, #fff 3.7px 100%);
+  box-shadow: none;
 }
 
 .range-wrap input::-moz-range-track {
