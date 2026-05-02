@@ -250,14 +250,21 @@ button {
 }
 
 .left-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
   padding: 29px 16px 14px;
   border-right: 1px solid #ededf0;
   background: #fff;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(19, 19, 22, 0.16) transparent;
+}
+
+.asset-picker,
+.styles-section,
+.suggestion-card,
+.search-box {
+  flex: 0 0 auto;
 }
 
 .asset-select {
@@ -775,13 +782,21 @@ button {
 }
 
 .intent-section {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
   margin-top: 14px;
   padding-top: 0;
+  overflow: hidden;
 }
 
 .intent-slider-list {
-  max-height: min(410px, calc(100vh - 492px));
+  min-height: 0;
+  flex: 1 1 auto;
+  max-height: none;
   padding-right: 4px;
+  padding-bottom: 12px;
   margin-right: -4px;
   overflow-x: hidden;
   overflow-y: auto;
@@ -791,7 +806,7 @@ button {
 }
 
 .hybrid-sliders .intent-slider-list {
-  max-height: min(430px, calc(100vh - 382px));
+  max-height: none;
 }
 
 .empty-search {

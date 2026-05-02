@@ -69,6 +69,11 @@ test('aesthetic search filters the full star plot slider set', async ({ page }) 
 
   const intentList = page.locator('#intent-style-panel')
   await expect(intentList.locator('.scalar')).toHaveCount(16)
+  const panelBox = await page.locator('.left-panel').boundingBox()
+  const listBox = await page.locator('.intent-slider-list').first().boundingBox()
+  expect(panelBox).not.toBeNull()
+  expect(listBox).not.toBeNull()
+  expect((panelBox?.y ?? 0) + (panelBox?.height ?? 0) - ((listBox?.y ?? 0) + (listBox?.height ?? 0))).toBeLessThan(18)
   const scrollMetrics = await page.locator('.intent-slider-list').first().evaluate((element) => ({
     clientHeight: element.clientHeight,
     scrollHeight: element.scrollHeight,
