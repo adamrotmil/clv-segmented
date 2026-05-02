@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, FormEvent, KeyboardEvent, ReactNode } from 'react'
+import type { CSSProperties, FormEvent, KeyboardEvent, PointerEvent, ReactNode } from 'react'
 import {
   AlertTriangle,
   ArrowUp,
@@ -93,6 +93,21 @@ type ChatDraft = {
   id: string
   phase: string
   lines: string[]
+}
+
+type DragOffset = {
+  x: number
+  y: number
+}
+
+type ArtboardDragState = {
+  id: string
+  pointerId: number
+  startX: number
+  startY: number
+  originX: number
+  originY: number
+  scale: number
 }
 
 const scoreScalarPreset: Record<string, Pick<AestheticScalar, 'value' | 'marker'>> = {
@@ -264,6 +279,66 @@ function scoreTabLabel(tab: ScoreTab) {
   if (tab === 'scenes') return 'Scenes'
   if (tab === 'insights') return 'Insights'
   return 'Engagement Score'
+}
+
+function clampDragOffset(value: number, limit: number) {
+  return Math.max(-limit, Math.min(limit, value))
+}
+
+function useArtboardDrag(scale: number, onSelect: (id: string) => void) {
+  const [positions, setPositions] = useState<Record<string, DragOffset>>({})
+  const [dragState, setDragState] = useState<ArtboardDragState | null>(null)
+
+  function beginDrag(id: string, event: PointerEvent<HTMLElement>) {
+    if (event.button !== 0) return
+
+    const origin = positions[id] ?? { x: 0, y: 0 }
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    onSelect(id)
+    setDragState({
+      id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: origin.x,
+      originY: origin.y,
+      scale: scale || 1,
+    })
+  }
+
+  function moveDrag(event: PointerEvent<HTMLElement>) {
+    if (!dragState || dragState.pointerId !== event.pointerId) return
+
+    const dragScale = dragState.scale || 1
+    const x = dragState.originX + (event.clientX - dragState.startX) / dragScale
+    const y = dragState.originY + (event.clientY - dragState.startY) / dragScale
+
+    setPositions((current) => ({
+      ...current,
+      [dragState.id]: {
+        x: clampDragOffset(x, 115),
+        y: clampDragOffset(y, 88),
+      },
+    }))
+  }
+
+  function endDrag(event: PointerEvent<HTMLElement>) {
+    if (!dragState || dragState.pointerId !== event.pointerId) return
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    setDragState(null)
+  }
+
+  return {
+    draggingId: dragState?.id ?? '',
+    positions,
+    beginDrag,
+    moveDrag,
+    endDrag,
+  }
 }
 
 function App() {
@@ -1458,6 +1533,8 @@ function CanvasWorkspace({
 }) {
   const comparisonVariants = variants.slice(0, 2)
   const generatedVariants = variants.slice(2)
+  const artboardScale = zoom / 78
+  const artboardDrag = useArtboardDrag(artboardScale, onSelectVariant)
 
   return (
     <section className="canvas-panel">
@@ -1485,18 +1562,23 @@ function CanvasWorkspace({
       </div>
 
       <div className="canvas-scroll">
-        <div className="artboard-row" style={{ '--zoom': zoom / 78 } as CSSProperties}>
+        <div className="artboard-row" style={{ '--zoom': artboardScale } as CSSProperties}>
           {comparisonVariants.map((variant, index) => (
             <CreativeArtboard
               key={variant.id}
               variant={variant}
               selected={selectedVariantId === variant.id}
+              position={artboardDrag.positions[variant.id]}
+              dragging={artboardDrag.draggingId === variant.id}
               annotationsVisible={annotationsVisible}
               selectedSegmentId={selectedSegmentId}
               onSelect={() => onSelectVariant(variant.id)}
               onSelectSegment={onSelectSegment}
               onOpenScoreSegment={onOpenScoreSegment}
               onApplySegmentSuggestion={onApplySegmentSuggestion}
+              onDragPointerDown={(event) => artboardDrag.beginDrag(variant.id, event)}
+              onDragPointerMove={artboardDrag.moveDrag}
+              onDragPointerEnd={artboardDrag.endDrag}
               focus={index === 1}
               showScore
               showDeltas={index === 1}
@@ -1533,12 +1615,17 @@ function CanvasWorkspace({
 function CreativeArtboard({
   variant,
   selected,
+  position,
+  dragging = false,
   annotationsVisible,
   selectedSegmentId,
   onSelect,
   onSelectSegment,
   onOpenScoreSegment,
   onApplySegmentSuggestion,
+  onDragPointerDown,
+  onDragPointerMove,
+  onDragPointerEnd,
   focus,
   size = 'normal',
   showScore = false,
@@ -1549,6 +1636,8 @@ function CreativeArtboard({
 }: {
   variant: ImageVariant
   selected: boolean
+  position?: DragOffset
+  dragging?: boolean
   annotationsVisible: boolean
   selectedSegmentId: string
   onSelect: () => void
@@ -1558,6 +1647,9 @@ function CreativeArtboard({
     segment: SegmentAnnotation,
     suggestion: SegmentSuggestion,
   ) => void
+  onDragPointerDown?: (event: PointerEvent<HTMLElement>) => void
+  onDragPointerMove?: (event: PointerEvent<HTMLElement>) => void
+  onDragPointerEnd?: (event: PointerEvent<HTMLElement>) => void
   focus: boolean
   size?: 'normal' | 'large'
   showScore?: boolean
@@ -1566,6 +1658,7 @@ function CreativeArtboard({
   lastChange?: ChangeTrace
   pendingPhase?: PendingPhase
 }) {
+  const title = titleOverride ?? variant.title
   const isPending = pendingPhase !== 'idle' && pendingPhase !== 'failed'
   const activeSegment = segments.find((segment) => segment.id === selectedSegmentId) ?? null
   const hasFocusedSelection = Boolean(activeSegment && focus)
@@ -1575,18 +1668,50 @@ function CreativeArtboard({
       onSelect()
     }
   }
+  const handleDragPointerDown = (event: PointerEvent<HTMLElement>) => {
+    onDragPointerDown?.(event)
+  }
+  const handleDragPointerEnd = (event: PointerEvent<HTMLElement>) => {
+    onDragPointerEnd?.(event)
+  }
+  const stackStyle = {
+    '--drag-x': `${position?.x ?? 0}px`,
+    '--drag-y': `${position?.y ?? 0}px`,
+  } as CSSProperties
 
   return (
-    <div className={`creative-stack ${size === 'large' ? 'large' : ''}`}>
-      <div className="creative-title">{titleOverride ?? variant.title}</div>
+    <div
+      className={`creative-stack ${size === 'large' ? 'large' : ''} ${
+        selected ? 'selected' : ''
+      } ${dragging ? 'dragging' : ''}`}
+      style={stackStyle}
+    >
+      <button
+        className="creative-title"
+        type="button"
+        aria-pressed={selected}
+        onClick={onSelect}
+        onPointerDown={handleDragPointerDown}
+        onPointerMove={onDragPointerMove}
+        onPointerUp={handleDragPointerEnd}
+        onPointerCancel={handleDragPointerEnd}
+      >
+        {title}
+      </button>
       <div
         className={`creative-card ${selected ? 'selected' : ''}`}
         role="button"
         tabIndex={0}
+        aria-label={`Select ${title}`}
+        aria-pressed={selected}
         onClick={onSelect}
         onKeyDown={handleCardKeyDown}
+        onPointerDown={handleDragPointerDown}
+        onPointerMove={onDragPointerMove}
+        onPointerUp={handleDragPointerEnd}
+        onPointerCancel={handleDragPointerEnd}
       >
-        <img src={variant.image} alt="" style={{ filter: variant.filter }} />
+        <img src={variant.image} alt="" style={{ filter: variant.filter }} draggable={false} />
         {showScore ? <ScoreBadge score={variant.score} /> : null}
         {lastChange && focus ? (
           <span className="last-applied">
@@ -1612,6 +1737,7 @@ function CreativeArtboard({
                 }}
                 type="button"
                 aria-label={segment.label}
+                onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => {
                   event.stopPropagation()
                   onSelect()
@@ -1684,6 +1810,7 @@ function SegmentFlyout({
       className="segment-flyout"
       aria-label="Segment suggestions"
       style={{ left: `${left}%`, top: `${top}%` }}
+      onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
     >
       <div className="flyout-head">
@@ -2230,6 +2357,9 @@ function ScoreWorkspace({
   pendingPhase: PendingPhase
   lastChange: ChangeTrace
 }) {
+  const scoreScale = zoom / 100
+  const artboardDrag = useArtboardDrag(scoreScale, () => onSelectCreative())
+
   return (
     <section className={`canvas-panel score-canvas-panel ${mode}`}>
       <div className="canvas-toolbar score-toolbar">
@@ -2263,15 +2393,20 @@ function ScoreWorkspace({
       <div className="score-canvas-scroll">
         <div
           className="single-artboard-row"
-          style={{ '--score-zoom': zoom / 100 } as CSSProperties}
+          style={{ '--score-zoom': scoreScale } as CSSProperties}
         >
           <CreativeArtboard
             variant={variant}
             selected
+            position={artboardDrag.positions[variant.id]}
+            dragging={artboardDrag.draggingId === variant.id}
             annotationsVisible={annotationsVisible}
             selectedSegmentId={selectedSegmentId}
             onSelect={onSelectCreative}
             onSelectSegment={onSelectSegment}
+            onDragPointerDown={(event) => artboardDrag.beginDrag(variant.id, event)}
+            onDragPointerMove={artboardDrag.moveDrag}
+            onDragPointerEnd={artboardDrag.endDrag}
             focus
             size="large"
             titleOverride="325×325 px"

@@ -65,6 +65,40 @@ test('editor chrome hover states do not move controls', async ({ page }) => {
   await expectStableHover(page.locator('.preset-row.active').first())
 })
 
+test('canvas artboards select from title and drag into place', async ({ page }) => {
+  await page.goto('/')
+
+  const originalStack = page.locator('.creative-stack').first()
+  const updatedStack = page.locator('.creative-stack').nth(1)
+
+  await page.getByRole('button', { name: 'Original Image', exact: true }).click()
+  await expect(originalStack).toHaveClass(/selected/)
+  const selectedLine = await originalStack
+    .locator('.creative-card')
+    .evaluate((element) => getComputedStyle(element, '::after').boxShadow)
+  expect(selectedLine).toContain('47, 107, 255')
+
+  await page.getByRole('button', { name: 'Updated Image', exact: true }).click()
+  await expect(updatedStack).toHaveClass(/selected/)
+
+  const card = updatedStack.locator('.creative-card')
+  const before = await card.boundingBox()
+  expect(before).not.toBeNull()
+
+  await page.mouse.move((before?.x ?? 0) + 20, (before?.y ?? 0) + 20)
+  await page.mouse.down()
+  await page.mouse.move((before?.x ?? 0) + 70, (before?.y ?? 0) + 44, { steps: 5 })
+  await expect(updatedStack).toHaveClass(/dragging/)
+  await page.mouse.up()
+  await expect(updatedStack).not.toHaveClass(/dragging/)
+
+  const after = await card.boundingBox()
+  expect(after).not.toBeNull()
+  expect((after?.x ?? 0) - (before?.x ?? 0)).toBeGreaterThan(35)
+  expect((after?.y ?? 0) - (before?.y ?? 0)).toBeGreaterThan(18)
+  await expect(updatedStack).toHaveClass(/selected/)
+})
+
 test('accordion controls collapse and restore inspector and score sections', async ({ page }) => {
   await page.goto('/')
 

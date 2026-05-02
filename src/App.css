@@ -702,7 +702,22 @@ button {
 }
 
 .creative-stack {
+  position: relative;
   width: 275px;
+  transform: translate3d(var(--drag-x, 0px), var(--drag-y, 0px), 0);
+  transition:
+    transform 150ms cubic-bezier(0.2, 0, 0.2, 1),
+    filter 140ms ease;
+  will-change: transform;
+}
+
+.creative-stack.dragging {
+  z-index: 8;
+  transition: none;
+}
+
+.creative-stack.dragging .creative-title {
+  cursor: grabbing;
 }
 
 .creative-stack.large {
@@ -710,10 +725,35 @@ button {
 }
 
 .creative-title {
+  display: block;
+  width: 100%;
   margin-bottom: 5px;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  background: transparent;
   color: #8c8e95;
+  font: inherit;
   font-size: 11px;
   font-weight: 500;
+  line-height: 14px;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+
+.creative-title:hover {
+  color: #62646c;
+}
+
+.creative-title:focus-visible {
+  border-radius: 3px;
+  outline: 1.5px solid rgba(47, 107, 255, 0.55);
+  outline-offset: 2px;
+}
+
+.creative-stack.selected .creative-title {
+  color: #2f6bff;
 }
 
 .creative-card {
@@ -728,11 +768,13 @@ button {
   background: #cba177;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
   cursor: pointer;
+  touch-action: none;
 }
 
 .creative-card::after {
   position: absolute;
   inset: 0;
+  z-index: 7;
   border-radius: 3px;
   pointer-events: none;
   transition: box-shadow 160ms ease;
@@ -745,13 +787,32 @@ button {
 }
 
 .creative-card.selected {
-  outline: 2px solid rgba(18, 18, 23, 0.16);
-  outline-offset: 4px;
+  outline: 0;
 }
 
 .creative-card:focus-visible {
-  outline: 2px solid rgba(18, 18, 23, 0.48);
-  outline-offset: 4px;
+  outline: 0;
+}
+
+.creative-card:focus-visible::after {
+  box-shadow: 0 0 0 2px rgba(18, 18, 23, 0.46);
+}
+
+.creative-stack.selected .creative-card::after {
+  box-shadow: 0 0 0 1.5px #2f6bff;
+}
+
+.creative-stack.selected .creative-card:focus-visible::after {
+  box-shadow:
+    0 0 0 1.5px #2f6bff,
+    0 0 0 4px rgba(47, 107, 255, 0.12);
+}
+
+.creative-stack.dragging .creative-card {
+  cursor: grabbing;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.16),
+    0 9px 22px rgba(18, 18, 23, 0.18);
 }
 
 .creative-card img {
