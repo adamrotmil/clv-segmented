@@ -59,6 +59,12 @@ test('saved ideas can be combined into an inspectable remix', async ({ page }) =
 test('chat, failure, and agent loop status are state-aware and inspectable', async ({ page }) => {
   await page.goto('/')
 
+  await page.getByPlaceholder('Ask anything...').fill('make the face more candid')
+  await page.getByRole('button', { name: 'Send message' }).click()
+  await expect(page.getByLabel('Staging')).toHaveValue('86')
+  await expect(page.getByText(/Applied: Staging moved/)).toBeVisible()
+  await expect(page.getByLabel('Interaction trace').first()).toContainText('Staging moved')
+
   await page.getByPlaceholder('Ask anything...').fill('what should I do next?')
   await page.getByRole('button', { name: 'Send message' }).click()
   await expect(page.getByText(/Next:/)).toBeVisible()

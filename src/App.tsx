@@ -314,7 +314,7 @@ function App() {
   function applyScalarChange(id: string, value: number, target: 'edit' | 'score') {
     const source = target === 'score' ? scoreScalars : scalars
     const scalar = source.find((item) => item.id === id)
-    if (!scalar || scalar.value === value) return
+    if (!scalar || scalar.value === value) return undefined
     const beforeScalars = scalars
     const beforeScoreScalars = scoreScalars
     const beforeScore = projectedScore(scalars)
@@ -355,6 +355,7 @@ function App() {
     setLastChange(trace)
     setHistory((current) => [entry, ...current].slice(0, 6))
     startWork('analyzing', trace)
+    return trace
   }
 
   function startWork(phase: Exclude<PendingPhase, 'idle' | 'failed'>, trace: ChangeTrace) {
@@ -658,8 +659,25 @@ function App() {
       ])
       return
     }
+    let appliedTrace: ChangeTrace | undefined
     if (lower.includes('candid') || lower.includes('face')) {
-      applyScalarChange('staging', Math.min(100, scalarValue(scalars, 'staging') + 8), 'edit')
+      appliedTrace = applyScalarChange(
+        'staging',
+        Math.min(100, scalarValue(scalars, 'staging') + 8),
+        'edit',
+      )
+    } else if (lower.includes('literal') || lower.includes('abstraction')) {
+      appliedTrace = applyScalarChange(
+        'abstraction',
+        Math.max(0, scalarValue(scalars, 'abstraction') - 8),
+        'edit',
+      )
+    } else if (lower.includes('warmer') || lower.includes('warmth')) {
+      appliedTrace = applyScalarChange(
+        'materiality',
+        Math.min(100, scalarValue(scalars, 'materiality') + 8),
+        'edit',
+      )
     } else {
       startWork('applying', lastChange)
     }
@@ -668,6 +686,9 @@ function App() {
         savedIdeas.length < 2
           ? 'Save two ideas, then combine them into a remix.'
           : 'You have enough saved signal to combine ideas or generate a remix.'
+      const stateNote = appliedTrace
+        ? `Applied: ${appliedTrace.what}`
+        : `Latest trace: ${lastChange.what}`
       setMessages((current) => [
         ...current,
         {
@@ -676,7 +697,7 @@ function App() {
           content:
             lower.includes('what should i do next') || lower.includes('next')
               ? `Next: ${nextStep} Current focus is ${activeSegment.label}; latest change is ${lastChange.control}.`
-              : `Applied state-aware guidance to ${activeSegment.label}. Latest trace: ${lastChange.what}`,
+              : `Applied state-aware guidance to ${activeSegment.label}. ${stateNote}`,
         },
       ])
     }, 650)
@@ -1407,16 +1428,16 @@ function AssistantPanel({
           onSaveIdea={onSaveIdea}
           onCombineIdeas={onCombineIdeas}
         />
-        <AgentActivity
-          tasks={agentTasks}
-          paused={agentPaused}
-          onTogglePaused={onToggleAgentPaused}
-        />
         {messages.map((message) => (
           <div key={message.id} className={`chat-message ${message.role}`}>
             {message.content}
           </div>
         ))}
+        <AgentActivity
+          tasks={agentTasks}
+          paused={agentPaused}
+          onTogglePaused={onToggleAgentPaused}
+        />
         <div className="assistant-status">
           <Bot size={21} />
           <div>

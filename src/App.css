@@ -1088,6 +1088,13 @@ button {
   flex: 1;
 }
 
+.trace-panel,
+.agent-panel,
+.chat-message,
+.assistant-status {
+  flex-shrink: 0;
+}
+
 .score-insights {
   width: 100%;
   margin-bottom: 18px;
