@@ -97,6 +97,44 @@ test('accordion controls collapse and restore inspector and score sections', asy
   await expect(page.getByLabel('Hardness score')).toBeHidden()
 })
 
+test('stubbed buttons visibly change local prototype state', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Save Changes' }).click()
+  await expect(page.getByLabel('Interaction trace').first()).toContainText('saved to approvals')
+
+  await page.getByRole('button', { name: 'Add Asset' }).click()
+  await expect(page.locator('.variant-strip').getByText('Asset draft')).toBeVisible()
+  await expect(page.getByLabel('Interaction trace').first()).toContainText('asset draft')
+
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.getByLabel('Interaction trace').first()).toContainText('Close requested')
+
+  await page.getByRole('button', { name: 'Close assistant' }).click()
+  await expect(page.getByRole('button', { name: 'Reopen assistant' })).toBeVisible()
+  await page.getByRole('button', { name: 'Reopen assistant' }).click()
+  await expect(page.getByRole('button', { name: 'Close assistant' })).toBeVisible()
+
+  await page.locator('.preset-row.active').click()
+  await expect(page.getByLabel('Interaction trace').first()).toContainText('Current style saved')
+
+  await page.getByRole('button', { name: 'Dismiss suggestions' }).click()
+  await expect(page.getByText('Increase process materiality')).toBeHidden()
+
+  await page.getByRole('button', { name: 'Product placement' }).last().click()
+  await page.getByRole('button', { name: 'Score' }).click()
+  await page.getByRole('button', { name: 'Scenes' }).click()
+  await expect(page.getByLabel('Interaction result')).toContainText('Scene segmentation')
+  await page.getByRole('button', { name: 'Insights' }).click()
+  await expect(page.getByLabel('Interaction result')).toContainText('Insight cards')
+
+  await page.locator('.score-title').click()
+  await expect(page.getByText('Score workspace asset selector opened')).toBeVisible()
+
+  await page.locator('.score-toolbar .zoom-control button').last().click()
+  await expect(page.locator('.score-toolbar .zoom-control')).toContainText('105%')
+})
+
 test('saved ideas can be combined into an inspectable remix', async ({ page }) => {
   await page.goto('/')
 
@@ -147,7 +185,7 @@ test('segment score and hybrid paths keep the interaction workbench visible', as
   await expect(page.getByLabel('Interaction trace').first()).toContainText('applied to Product placement')
   await page.getByRole('button', { name: 'Score' }).click()
 
-  await expect(page.getByText('Engagement Score')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Engagement Score' })).toBeVisible()
   await expect(page.getByText('325×325 px')).toBeVisible()
   await page.getByLabel('Novelty score').fill('65')
   await expect(page.getByText('What changed')).toBeVisible()

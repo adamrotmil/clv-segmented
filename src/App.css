@@ -509,6 +509,16 @@ button {
   font-size: 16px;
 }
 
+.suggestion-head button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+}
+
 .suggestion-card p {
   margin: 7px 8px 0 30px;
   font-size: 13.5px;
@@ -1107,6 +1117,51 @@ button {
   border: 0;
   background: transparent;
   color: #15161b;
+}
+
+.assistant-minimized {
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: #202127;
+}
+
+.assistant-minimized div {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+}
+
+.assistant-minimized svg {
+  color: #1b1269;
+  fill: #1b1269;
+}
+
+.assistant-minimized strong,
+.assistant-minimized span {
+  display: block;
+}
+
+.assistant-minimized strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.assistant-minimized span {
+  color: #888a91;
+  font-size: 13px;
+}
+
+.assistant-minimized button {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid #dedfe5;
+  border-radius: 8px;
+  background: #fff;
+  color: #16171d;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--shadow-sm);
 }
 
 .chat-log {
@@ -1816,6 +1871,9 @@ button {
 .single-artboard-row {
   display: flex;
   justify-content: center;
+  transform: scale(var(--score-zoom, 1));
+  transform-origin: top center;
+  transition: transform 120ms ease;
 }
 
 .ai-trigger {

@@ -46,6 +46,7 @@ import type {
 type EditorMode = 'edit' | 'score' | 'hybrid'
 type PendingPhase = 'idle' | 'analyzing' | 'applying' | 'remixing' | 'failed'
 type AgentStatus = 'queued' | 'running' | 'done' | 'paused' | 'failed'
+type ScoreTab = 'scenes' | 'score' | 'insights'
 
 type ChangeTrace = {
   id: string
@@ -253,6 +254,12 @@ function formatTraceValue(scalar: AestheticScalar, value: number) {
   return `${scalar.label} ${Math.round(value)}`
 }
 
+function scoreTabLabel(tab: ScoreTab) {
+  if (tab === 'scenes') return 'Scenes'
+  if (tab === 'insights') return 'Insights'
+  return 'Engagement Score'
+}
+
 function App() {
   const workTimer = useRef<number | undefined>(undefined)
   const [selectedAssetId, setSelectedAssetId] = useState(assets[0].id)
@@ -275,6 +282,7 @@ function App() {
   const [savedIdeas, setSavedIdeas] = useState<SavedIdea[]>([])
   const [agentTasks, setAgentTasks] = useState<AgentTask[]>(initialAgentTasks)
   const [agentPaused, setAgentPaused] = useState(false)
+  const [assistantMinimized, setAssistantMinimized] = useState(false)
 
   const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0]
   const activeCanvasAsset = { ...selectedAsset, version: selectedVersion }
@@ -317,6 +325,105 @@ function App() {
     setSelectedVersion(nextAsset.version)
     setSelectedVariantId('updated')
     setSelectedSegmentId('')
+    flashToast(`${nextAsset.name} selected`)
+  }
+
+  function flashToast(message: string, duration = 1600) {
+    setToast(message)
+    window.setTimeout(() => setToast(''), duration)
+  }
+
+  function recordPrototypeAction(control: string, what: string, why: string) {
+    window.clearTimeout(workTimer.current)
+    const trace: ChangeTrace = {
+      id: `${control.toLowerCase().replace(/\W+/g, '-')}-${Date.now()}`,
+      control,
+      what,
+      why,
+      before: lastChange.after,
+      after: lastChange.after,
+      scoreBefore: workingScore,
+      scoreAfter: workingScore,
+      segment: activeSegment.label,
+      ingredients: [control, 'Local preview', `ES ${workingScore}%`],
+    }
+    setWorkError('')
+    setPendingPhase('idle')
+    setLastChange(trace)
+    flashToast(control)
+    return trace
+  }
+
+  function closeEditor() {
+    recordPrototypeAction(
+      'Close requested',
+      'Close requested for the creative editor.',
+      'The editor keeps this review session in draft state until navigation is confirmed.',
+    )
+  }
+
+  function saveChanges() {
+    recordPrototypeAction(
+      'Changes saved',
+      `${selectedAsset.name} ${selectedVersion} saved to approvals.`,
+      'The simulated save commits the current scalar recipe, selected variant, and projected engagement state.',
+    )
+  }
+
+  function addAsset() {
+    const nextId = `asset-draft-${Date.now()}`
+    const assetDraft: ImageVariant = {
+      id: nextId,
+      title: 'Asset draft',
+      kind: 'generated',
+      image: initialVariants[1].image,
+      score: workingScore,
+      delta: Math.max(1, projectedDelta(scalars)),
+      filter: `${imageFilterForScalars(scalars)} brightness(1.01)`,
+      ingredients: ['Imported asset', selectedAsset.channel, selectedVersion],
+      sourceIds: [selectedVariantId],
+    }
+    setVariants((current) => [...current, assetDraft])
+    setSelectedVariantId(nextId)
+    recordPrototypeAction(
+      'Asset draft added',
+      'Added an asset draft to the canvas variant strip.',
+      'The new draft inherits the current scalar recipe so it can be compared against the active creative.',
+    )
+  }
+
+  function saveCurrentStyle() {
+    recordPrototypeAction(
+      'Style saved',
+      'Current style saved as the active preset.',
+      'The saved preset keeps the current scalar values available for the next creative or remix.',
+    )
+  }
+
+  function dismissSuggestion() {
+    recordPrototypeAction(
+      'Suggestions dismissed',
+      'Dismissed the current suggestion card.',
+      'The suggestion can return when a new scalar, segment, or chat action creates a fresh recommendation.',
+    )
+  }
+
+  function closeAssistant() {
+    setAssistantMinimized(true)
+    recordPrototypeAction(
+      'Assistant minimized',
+      'AI assistant panel minimized.',
+      'The assistant remains available as a compact restore state so the canvas can stay in view.',
+    )
+  }
+
+  function reopenAssistant() {
+    setAssistantMinimized(false)
+    recordPrototypeAction(
+      'Assistant reopened',
+      'AI assistant panel reopened.',
+      'The chat, trace, saved ideas, and agent activity return without losing the working canvas state.',
+    )
   }
 
   function applyScalarChange(id: string, value: number, target: 'edit' | 'score') {
@@ -672,12 +779,14 @@ function App() {
     setSelectedSegmentId(segmentId)
     setMode('score')
     setZoom(100)
+    flashToast('Score workspace opened')
   }
 
   function openHybridMode() {
     if (!selectedSegmentId) setSelectedSegmentId('emotion')
     setMode('hybrid')
     setZoom(100)
+    flashToast('AI edit workspace opened')
   }
 
   function sendChat(event: FormEvent<HTMLFormElement>) {
@@ -752,7 +861,12 @@ function App() {
     <main className="portfolio-frame">
       <BackgroundChrome />
       <section className="editor-window" aria-label="Edit creative">
-        <EditorHeader mode={mode} />
+        <EditorHeader
+          mode={mode}
+          onClose={closeEditor}
+          onAddAsset={addAsset}
+          onSave={saveChanges}
+        />
         {mode === 'edit' ? (
           <div className="editor-body">
             <LeftInspector
@@ -760,6 +874,8 @@ function App() {
               onSelectAsset={selectAsset}
               scalars={scalars.slice(0, 3)}
               onScalarChange={updateScalar}
+              onSaveCurrentStyle={saveCurrentStyle}
+              onDismissSuggestion={dismissSuggestion}
             />
             <CanvasWorkspace
               selectedAsset={activeCanvasAsset}
@@ -779,24 +895,29 @@ function App() {
               lastChange={lastChange}
               pendingPhase={pendingPhase}
             />
-            <AssistantPanel
-              messages={messages}
-              pendingPhase={pendingPhase}
-              workError={workError}
-              chatValue={chatValue}
-              onChatValueChange={setChatValue}
-              onSubmit={sendChat}
-              trace={lastChange}
-              history={history}
-              onUndo={undoLastChange}
-              onRestore={restoreHistory}
-              savedIdeas={savedIdeas}
-              onSaveIdea={saveIdea}
-              onCombineIdeas={combineIdeas}
-              agentTasks={agentTasks}
-              agentPaused={agentPaused}
-              onToggleAgentPaused={() => setAgentPaused((paused) => !paused)}
-            />
+            {assistantMinimized ? (
+              <AssistantMinimizedPanel onReopen={reopenAssistant} />
+            ) : (
+              <AssistantPanel
+                messages={messages}
+                pendingPhase={pendingPhase}
+                workError={workError}
+                chatValue={chatValue}
+                onChatValueChange={setChatValue}
+                onSubmit={sendChat}
+                trace={lastChange}
+                history={history}
+                onUndo={undoLastChange}
+                onRestore={restoreHistory}
+                savedIdeas={savedIdeas}
+                onSaveIdea={saveIdea}
+                onCombineIdeas={combineIdeas}
+                agentTasks={agentTasks}
+                agentPaused={agentPaused}
+                onToggleAgentPaused={() => setAgentPaused((paused) => !paused)}
+                onClose={closeAssistant}
+              />
+            )}
           </div>
         ) : mode === 'score' ? (
           <div className="editor-body score-editor-body">
@@ -804,6 +925,20 @@ function App() {
               scalars={scoreScalars}
               onScalarChange={updateScoreScalar}
               trace={lastChange}
+              onAssetClick={() =>
+                recordPrototypeAction(
+                  'Asset selector',
+                  'Score workspace asset selector opened.',
+                  'The score view keeps the current asset active while exposing the selector state.',
+                )
+              }
+              onTabSelect={(tab) =>
+                recordPrototypeAction(
+                  `${scoreTabLabel(tab)} selected`,
+                  `${scoreTabLabel(tab)} tab selected.`,
+                  'The tab changes the left-panel context while keeping the score canvas selected.',
+                )
+              }
             />
             <ScoreWorkspace
               selectedAsset={activeCanvasAsset}
@@ -820,6 +955,14 @@ function App() {
               onSelectSegment={setSelectedSegmentId}
               onOpenHybrid={openHybridMode}
               onZoomChange={setZoom}
+              onSelectCreative={() =>
+                recordPrototypeAction(
+                  'Score canvas selected',
+                  'Selected the score canvas for inspection.',
+                  'The selected artboard is ready for segment scoring, scalar inspection, and AI editing.',
+                )
+              }
+              zoom={zoom}
               mode="score"
               pendingPhase={pendingPhase}
               lastChange={lastChange}
@@ -832,6 +975,20 @@ function App() {
               onScalarChange={updateScoreScalar}
               variant="hybrid"
               trace={lastChange}
+              onAssetClick={() =>
+                recordPrototypeAction(
+                  'Asset selector',
+                  'Hybrid workspace asset selector opened.',
+                  'The hybrid view keeps the current asset active while exposing the selector state.',
+                )
+              }
+              onTabSelect={(tab) =>
+                recordPrototypeAction(
+                  `${scoreTabLabel(tab)} selected`,
+                  `${scoreTabLabel(tab)} tab selected.`,
+                  'The right panel keeps the active insights and agent loop connected to this tab state.',
+                )
+              }
             />
             <ScoreWorkspace
               selectedAsset={activeCanvasAsset}
@@ -848,6 +1005,14 @@ function App() {
               onSelectSegment={setSelectedSegmentId}
               onOpenHybrid={openHybridMode}
               onZoomChange={setZoom}
+              onSelectCreative={() =>
+                recordPrototypeAction(
+                  'Hybrid canvas selected',
+                  'Selected the hybrid canvas for inspection.',
+                  'The artboard remains connected to remix, reset, and segment-specific prompt edits.',
+                )
+              }
+              zoom={zoom}
               mode="hybrid"
               onReset={resetChanges}
               onRemix={remixImage}
@@ -871,6 +1036,7 @@ function App() {
               agentTasks={agentTasks}
               agentPaused={agentPaused}
               onToggleAgentPaused={() => setAgentPaused((paused) => !paused)}
+              onDismissSuggestion={dismissSuggestion}
             />
           </div>
         )}
@@ -901,7 +1067,17 @@ function BackgroundChrome() {
   )
 }
 
-function EditorHeader({ mode }: { mode: EditorMode }) {
+function EditorHeader({
+  mode,
+  onClose,
+  onAddAsset,
+  onSave,
+}: {
+  mode: EditorMode
+  onClose: () => void
+  onAddAsset: () => void
+  onSave: () => void
+}) {
   return (
     <header className="editor-header">
       <div className="breadcrumbs">
@@ -913,11 +1089,17 @@ function EditorHeader({ mode }: { mode: EditorMode }) {
         <strong>Edit Creative</strong>
       </div>
       <div className="header-actions">
-        <Button variant="secondary">Close</Button>
-        <Button variant="secondary" icon={mode === 'edit' ? <Plus size={20} /> : undefined}>
+        <Button variant="secondary" onClick={onClose}>
+          Close
+        </Button>
+        <Button
+          variant="secondary"
+          icon={mode === 'edit' ? <Plus size={20} /> : undefined}
+          onClick={onAddAsset}
+        >
           Add Asset
         </Button>
-        <Button>Save Changes</Button>
+        <Button onClick={onSave}>Save Changes</Button>
       </div>
     </header>
   )
@@ -928,16 +1110,21 @@ function LeftInspector({
   onSelectAsset,
   scalars,
   onScalarChange,
+  onSaveCurrentStyle,
+  onDismissSuggestion,
 }: {
   selectedAssetId: string
   onSelectAsset: (id: string) => void
   scalars: AestheticScalar[]
   onScalarChange: (id: string, value: number) => void
+  onSaveCurrentStyle: () => void
+  onDismissSuggestion: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [stylesOpen, setStylesOpen] = useState(true)
   const [showAllStyles, setShowAllStyles] = useState(false)
   const [intentOpen, setIntentOpen] = useState(true)
+  const [suggestionVisible, setSuggestionVisible] = useState(true)
   const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0]
 
   return (
@@ -983,7 +1170,12 @@ function LeftInspector({
         {stylesOpen ? (
           <div id="preset-styles-panel">
             <div className="preset-list">
-              <PresetRow active title="Current style" detail="Updated just now" />
+              <PresetRow
+                active
+                title="Current style"
+                detail="Updated just now"
+                onClick={onSaveCurrentStyle}
+              />
               <PresetRow
                 title="Meta - Campaign 12-Dec-202..."
                 detail="Created 13 Dec 2025"
@@ -1022,14 +1214,25 @@ function LeftInspector({
         ) : null}
       </section>
 
-      <section className="suggestion-card">
-        <div className="suggestion-head">
-          <Sparkles size={18} />
-          <strong>Suggestions</strong>
-          <X size={19} />
-        </div>
-        <p>Increase process materiality and reduce abstraction to create a more authentic look and feel.</p>
-      </section>
+      {suggestionVisible ? (
+        <section className="suggestion-card">
+          <div className="suggestion-head">
+            <Sparkles size={18} />
+            <strong>Suggestions</strong>
+            <button
+              type="button"
+              aria-label="Dismiss suggestions"
+              onClick={() => {
+                setSuggestionVisible(false)
+                onDismissSuggestion()
+              }}
+            >
+              <X size={19} />
+            </button>
+          </div>
+          <p>Increase process materiality and reduce abstraction to create a more authentic look and feel.</p>
+        </section>
+      ) : null}
 
       <div className="search-box">
         <Search size={18} />
@@ -1496,6 +1699,7 @@ function AssistantPanel({
   agentTasks,
   agentPaused,
   onToggleAgentPaused,
+  onClose,
 }: {
   messages: ChatMessage[]
   pendingPhase: PendingPhase
@@ -1513,6 +1717,7 @@ function AssistantPanel({
   agentTasks: AgentTask[]
   agentPaused: boolean
   onToggleAgentPaused: () => void
+  onClose: () => void
 }) {
   return (
     <aside className="assistant-panel">
@@ -1521,7 +1726,7 @@ function AssistantPanel({
           <Sparkles size={18} fill="currentColor" />
           <strong>Edit Image with AI</strong>
         </div>
-        <button type="button" aria-label="Close assistant">
+        <button type="button" aria-label="Close assistant" onClick={onClose}>
           <X size={19} />
         </button>
       </header>
@@ -1578,11 +1783,34 @@ function AssistantPanel({
   )
 }
 
-function TraceInline({ trace }: { trace: ChangeTrace }) {
+function AssistantMinimizedPanel({ onReopen }: { onReopen: () => void }) {
+  return (
+    <aside className="assistant-panel assistant-minimized" aria-label="AI assistant minimized">
+      <div>
+        <Bot size={21} />
+        <strong>AI Assistant</strong>
+        <span>Minimized</span>
+      </div>
+      <button type="button" onClick={onReopen}>
+        Reopen assistant
+      </button>
+    </aside>
+  )
+}
+
+function TraceInline({
+  trace,
+  eyebrow = 'What changed',
+  text = trace.what,
+}: {
+  trace: ChangeTrace
+  eyebrow?: string
+  text?: string
+}) {
   return (
     <section className="trace-inline" aria-label="Interaction result">
-      <span>What changed</span>
-      <strong>{trace.what}</strong>
+      <span>{eyebrow}</span>
+      <strong>{text}</strong>
     </section>
   )
 }
@@ -1736,34 +1964,79 @@ function ScoreControlsPanel({
   onScalarChange,
   variant = 'score',
   trace,
+  onAssetClick,
+  onTabSelect,
 }: {
   scalars: AestheticScalar[]
   onScalarChange: (id: string, value: number) => void
   variant?: 'score' | 'hybrid'
   trace: ChangeTrace
+  onAssetClick: () => void
+  onTabSelect: (tab: ScoreTab) => void
 }) {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(scoreControlGroups.map((group) => [group.title, true])),
   )
   const [expandedScalarId, setExpandedScalarId] = useState(variant === 'score' ? 'novelty' : '')
+  const [activeTab, setActiveTab] = useState<ScoreTab>('score')
   const scalarMap = new Map(scalars.map((scalar) => [scalar.id, scalar]))
+  const tabInsight =
+    activeTab === 'scenes'
+      ? 'Scene segmentation layers are ready for review.'
+      : activeTab === 'insights'
+        ? 'Insight cards are linked to the selected segment and current scalar mix.'
+        : trace.what
+
+  function chooseTab(tab: ScoreTab) {
+    setActiveTab(tab)
+    onTabSelect(tab)
+  }
 
   return (
     <aside className={`score-left-panel ${variant === 'hybrid' ? 'hybrid' : ''}`}>
-      <button className="asset-select score-title" type="button">
+      <button
+        className="asset-select score-title"
+        type="button"
+        onClick={() => {
+          setActiveTab('score')
+          onAssetClick()
+        }}
+      >
         <span>TikTok - Variant A</span>
         <ChevronDown size={18} />
       </button>
       {variant === 'score' ? (
         <div className="score-tabs" aria-label="Creative tabs">
-          <button type="button">Scenes</button>
-          <button className="active" type="button">
+          <button
+            className={activeTab === 'scenes' ? 'active' : ''}
+            type="button"
+            onClick={() => chooseTab('scenes')}
+          >
+            Scenes
+          </button>
+          <button
+            className={activeTab === 'score' ? 'active' : ''}
+            type="button"
+            onClick={() => chooseTab('score')}
+          >
             Engagement Score
           </button>
-          <button type="button">Insights</button>
+          <button
+            className={activeTab === 'insights' ? 'active' : ''}
+            type="button"
+            onClick={() => chooseTab('insights')}
+          >
+            Insights
+          </button>
         </div>
       ) : null}
-      {variant === 'score' ? <TraceInline trace={trace} /> : null}
+      {variant === 'score' ? (
+        <TraceInline
+          trace={trace}
+          eyebrow={activeTab === 'score' ? 'What changed' : scoreTabLabel(activeTab)}
+          text={tabInsight}
+        />
+      ) : null}
       <div className="score-groups">
         {scoreControlGroups.map((group) => (
           <section className="score-group" key={group.title}>
@@ -1872,6 +2145,8 @@ function ScoreWorkspace({
   onSelectSegment,
   onOpenHybrid,
   onZoomChange,
+  onSelectCreative,
+  zoom,
   mode,
   onReset,
   onRemix,
@@ -1888,6 +2163,8 @@ function ScoreWorkspace({
   onSelectSegment: (id: string) => void
   onOpenHybrid: () => void
   onZoomChange: (value: number) => void
+  onSelectCreative: () => void
+  zoom: number
   mode: 'score' | 'hybrid'
   onReset?: () => void
   onRemix?: () => void
@@ -1908,11 +2185,11 @@ function ScoreWorkspace({
             {annotationsVisible ? 'Hide Annotations' : 'Show Annotations'}
           </button>
           <div className="zoom-control">
-            <button type="button" onClick={() => onZoomChange(95)}>
+            <button type="button" onClick={() => onZoomChange(Math.max(80, zoom - 5))}>
               -
             </button>
-            <span>100%</span>
-            <button type="button" onClick={() => onZoomChange(105)}>
+            <span>{zoom}%</span>
+            <button type="button" onClick={() => onZoomChange(Math.min(125, zoom + 5))}>
               +
             </button>
           </div>
@@ -1925,13 +2202,16 @@ function ScoreWorkspace({
         </div>
       </div>
       <div className="score-canvas-scroll">
-        <div className="single-artboard-row">
+        <div
+          className="single-artboard-row"
+          style={{ '--score-zoom': zoom / 100 } as CSSProperties}
+        >
           <CreativeArtboard
             variant={variant}
             selected
             annotationsVisible={annotationsVisible}
             selectedSegmentId={selectedSegmentId}
-            onSelect={() => undefined}
+            onSelect={onSelectCreative}
             onSelectSegment={onSelectSegment}
             focus
             size="large"
@@ -2045,6 +2325,7 @@ function HybridInsightsPanel({
   agentTasks,
   agentPaused,
   onToggleAgentPaused,
+  onDismissSuggestion,
 }: {
   segment: SegmentAnnotation
   scoreScalars: AestheticScalar[]
@@ -2062,8 +2343,10 @@ function HybridInsightsPanel({
   agentTasks: AgentTask[]
   agentPaused: boolean
   onToggleAgentPaused: () => void
+  onDismissSuggestion: () => void
 }) {
   const [intentOpen, setIntentOpen] = useState(true)
+  const [suggestionVisible, setSuggestionVisible] = useState(true)
 
   return (
     <aside className="hybrid-panel">
@@ -2075,14 +2358,25 @@ function HybridInsightsPanel({
         showLabels
       />
       <HybridSignal trace={trace} tasks={agentTasks} paused={agentPaused} pendingPhase={pendingPhase} />
-      <section className="suggestion-card hybrid-suggestion">
-        <div className="suggestion-head">
-          <Sparkles size={18} />
-          <strong>Suggestions</strong>
-          <X size={19} />
-        </div>
-        <p>Increase process materiality and reduce abstraction to create a more authentic look and feel.</p>
-      </section>
+      {suggestionVisible ? (
+        <section className="suggestion-card hybrid-suggestion">
+          <div className="suggestion-head">
+            <Sparkles size={18} />
+            <strong>Suggestions</strong>
+            <button
+              type="button"
+              aria-label="Dismiss suggestions"
+              onClick={() => {
+                setSuggestionVisible(false)
+                onDismissSuggestion()
+              }}
+            >
+              <X size={19} />
+            </button>
+          </div>
+          <p>Increase process materiality and reduce abstraction to create a more authentic look and feel.</p>
+        </section>
+      ) : null}
       <div className="search-box hybrid-search">
         <Search size={18} />
         <span>Search...</span>
@@ -2169,13 +2463,15 @@ function Button({
   children,
   icon,
   variant = 'primary',
+  onClick,
 }: {
   children: ReactNode
   icon?: ReactNode
   variant?: 'primary' | 'secondary'
+  onClick?: () => void
 }) {
   return (
-    <button className={`button ${variant}`} type="button">
+    <button className={`button ${variant}`} type="button" onClick={onClick}>
       {icon}
       {children}
     </button>
