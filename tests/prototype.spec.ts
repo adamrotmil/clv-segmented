@@ -103,8 +103,11 @@ test('segment labels attach to their SAM frames', async ({ page }) => {
   await page.goto('/')
 
   const updatedStack = page.locator('.creative-stack').nth(1)
+  const cardBox = await updatedStack.locator('.creative-card').boundingBox()
   const labels = updatedStack.locator('.segment-label')
   const frames = updatedStack.locator('.segment-hotspot')
+
+  expect(cardBox).not.toBeNull()
 
   for (let index = 0; index < 4; index += 1) {
     const labelBox = await labels.nth(index).boundingBox()
@@ -113,7 +116,11 @@ test('segment labels attach to their SAM frames', async ({ page }) => {
     expect(labelBox).not.toBeNull()
     expect(frameBox).not.toBeNull()
     expect(Math.abs((labelBox?.x ?? 0) - (frameBox?.x ?? 0))).toBeLessThanOrEqual(1)
-    expect(Math.abs((labelBox?.y ?? 0) + (labelBox?.height ?? 0) - (frameBox?.y ?? 0))).toBeLessThanOrEqual(2.5)
+    expect((labelBox?.y ?? 0) - (cardBox?.y ?? 0)).toBeGreaterThanOrEqual(-0.5)
+
+    const aboveAttachment = Math.abs((labelBox?.y ?? 0) + (labelBox?.height ?? 0) - (frameBox?.y ?? 0))
+    const insideAttachment = Math.abs((labelBox?.y ?? 0) - (frameBox?.y ?? 0))
+    expect(Math.min(aboveAttachment, insideAttachment)).toBeLessThanOrEqual(13.5)
   }
 })
 

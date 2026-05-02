@@ -988,6 +988,7 @@ button {
 
 .segment-label-emotion {
   --segment-label-x: 0px;
+  --segment-label-y: 12px;
 }
 
 .segment-label-resonance {
