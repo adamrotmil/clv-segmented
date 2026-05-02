@@ -27,6 +27,7 @@ import {
   Undo2,
   X,
 } from 'lucide-react'
+import { LightbulbPerson20Regular } from '@fluentui/react-icons'
 import './App.css'
 import {
   assets,
@@ -1501,8 +1502,8 @@ function LeftInspector({
       {suggestionVisible ? (
         <section className="suggestion-card">
           <div className="suggestion-head">
-            <Sparkles size={18} />
-            <strong>Suggestions</strong>
+            <LightbulbPerson20Regular className="suggestion-icon" aria-hidden="true" />
+            <span className="suggestion-title">Suggestions</span>
             <button
               type="button"
               aria-label="Dismiss suggestions"
@@ -2779,8 +2780,8 @@ function HybridInsightsPanel({
       {suggestionVisible ? (
         <section className="suggestion-card hybrid-suggestion">
           <div className="suggestion-head">
-            <Sparkles size={18} />
-            <strong>Suggestions</strong>
+            <LightbulbPerson20Regular className="suggestion-icon" aria-hidden="true" />
+            <span className="suggestion-title">Suggestions</span>
             <button
               type="button"
               aria-label="Dismiss suggestions"

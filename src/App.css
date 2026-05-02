@@ -503,13 +503,19 @@ button {
   gap: 10px;
 }
 
-.suggestion-head svg {
+.suggestion-icon {
+  width: 20px;
+  height: 20px;
   color: var(--accent);
+  flex: 0 0 20px;
 }
 
-.suggestion-head strong {
+.suggestion-title {
   flex: 1;
-  font-size: 16px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: -0.0104em;
 }
 
 .suggestion-head button {
