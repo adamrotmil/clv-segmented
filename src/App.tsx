@@ -3,7 +3,6 @@ import type { CSSProperties, FormEvent, KeyboardEvent, PointerEvent, ReactNode }
 import {
   AlertTriangle,
   ArrowUp,
-  Bot,
   ChevronDown,
   ChevronLeft,
   GitBranch,
@@ -1460,7 +1459,7 @@ function App() {
     flashToast('AI edit workspace opened')
   }
 
-  function queueAssistantReply(content: string, focus = 'Composing response') {
+  function queueAssistantReply(content: string, focus = 'Composing response', activity = 'Worked for 1s >') {
     window.clearTimeout(chatThinkTimer.current)
     window.clearTimeout(chatResolveTimer.current)
     const id = `draft-${Date.now()}`
@@ -1483,6 +1482,7 @@ function App() {
         {
           id: `assistant-${Date.now()}`,
           role: 'assistant',
+          activity,
           content,
         },
       ])
@@ -1506,6 +1506,7 @@ function App() {
       queueAssistantReply(
         'The critic pass failed on product placement. I left the artifact visible so you can retry or adjust the segment.',
         'Holding failed artifact',
+        'Ran 4 commands >',
       )
       return
     }
@@ -1541,7 +1542,11 @@ function App() {
         : appliedTrace
           ? `Staged: ${appliedTrace.what} Use Remix Image to generate the committed image.`
           : `Applied state-aware guidance to ${activeSegment.label}. ${stateNote}`
-    queueAssistantReply(reply, appliedTrace ? `Staging ${appliedTrace.control}` : 'Reading latest trace')
+    queueAssistantReply(
+      reply,
+      appliedTrace ? `Staging ${appliedTrace.control}` : 'Reading latest trace',
+      lower.includes('what should i do next') || lower.includes('next') ? 'Thought for 2s >' : 'Worked for 1s >',
+    )
   }
 
   return (
@@ -2587,25 +2592,9 @@ function AssistantPanel({
           onCombineIdeas={onCombineIdeas}
         />
         {messages.map((message) => (
-          <div key={message.id} className={`chat-message ${message.role}`}>
-            {message.content}
-          </div>
+          <AssistantChatMessage key={message.id} message={message} />
         ))}
         {chatDraft ? <ChatThinkingBubble draft={chatDraft} /> : null}
-        <div className="assistant-status">
-          <Bot size={21} />
-          <div>
-            <strong>AI Assistant</strong>
-            <span>{pendingPhase === 'idle' ? 'Ready' : pendingPhase === 'failed' ? 'Needs review' : 'Generating image...'}</span>
-            {pendingPhase !== 'idle' && pendingPhase !== 'failed' ? (
-              <i>
-                <b />
-                <b />
-                <b />
-              </i>
-            ) : null}
-          </div>
-        </div>
       </div>
       <form className="chat-input" onSubmit={onSubmit}>
         <input
@@ -2622,6 +2611,22 @@ function AssistantPanel({
   )
 }
 
+function AssistantChatMessage({ message }: { message: ChatMessage }) {
+  const showActivity = message.role === 'assistant' && message.activity
+
+  return (
+    <div className={`chat-message ${message.role}`}>
+      {showActivity ? (
+        <>
+          <div className="assistant-activity">{message.activity}</div>
+          <div className="assistant-rule" />
+        </>
+      ) : null}
+      <div className="message-content">{message.content}</div>
+    </div>
+  )
+}
+
 function ChatThinkingBubble({ draft }: { draft: ChatDraft }) {
   return (
     <div
@@ -2630,10 +2635,8 @@ function ChatThinkingBubble({ draft }: { draft: ChatDraft }) {
       role="status"
       aria-live="polite"
     >
-      <div className="thinking-head">
-        <Sparkles size={13} fill="currentColor" />
-        <span>{draft.phase}</span>
-      </div>
+      <div className="assistant-activity">{draft.phase} &gt;</div>
+      <div className="assistant-rule" />
       <div className="thinking-lines">
         {draft.lines.map((line) => (
           <span key={`${draft.id}-${line}`}>{line}</span>
@@ -2645,11 +2648,9 @@ function ChatThinkingBubble({ draft }: { draft: ChatDraft }) {
 
 function AssistantMinimizedPanel({ onReopen }: { onReopen: () => void }) {
   return (
-    <aside className="assistant-panel assistant-minimized" aria-label="AI assistant minimized">
+    <aside className="assistant-panel assistant-minimized" aria-label="Assistant minimized">
       <div>
-        <Bot size={21} />
-        <strong>AI Assistant</strong>
-        <span>Minimized</span>
+        <strong>Assistant minimized</strong>
       </div>
       <button type="button" onClick={onReopen}>
         Reopen assistant

@@ -226,6 +226,7 @@ export const initialMessages: ChatMessage[] = [
   {
     id: 'assistant-1',
     role: 'assistant',
+    activity: 'Worked for 35s >',
     content:
       "Think of ways this can really trend on social media. Try showing people’s face in the image.",
   },

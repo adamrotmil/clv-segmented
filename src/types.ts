@@ -53,6 +53,7 @@ export type ChatMessage = {
   id: string
   role: 'user' | 'assistant'
   content: string
+  activity?: string
 }
 
 export type ScalarGenerationChange = {

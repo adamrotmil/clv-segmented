@@ -1281,29 +1281,13 @@ button {
 }
 
 .assistant-minimized div {
-  display: grid;
-  justify-items: center;
-  gap: 7px;
-}
-
-.assistant-minimized svg {
-  color: #1b1269;
-  fill: #1b1269;
-}
-
-.assistant-minimized strong,
-.assistant-minimized span {
-  display: block;
+  text-align: center;
 }
 
 .assistant-minimized strong {
+  display: block;
   font-size: 15px;
   font-weight: 500;
-}
-
-.assistant-minimized span {
-  color: #888a91;
-  font-size: 13px;
 }
 
 .assistant-minimized button {
@@ -1335,8 +1319,7 @@ button {
 
 .trace-panel,
 .agent-panel,
-.chat-message,
-.assistant-status {
+.chat-message {
   flex-shrink: 0;
 }
 
@@ -1436,44 +1419,66 @@ button {
 }
 
 .chat-message {
-  max-width: 270px;
-  margin: 0 4px 20px auto;
-  padding: 13px 14px;
-  border: 1px solid #dedfe4;
-  border-radius: 9px;
-  background: #fbfbfc;
+  width: calc(100% - 8px);
+  max-width: none;
+  margin: 0 4px 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: #3b3c43;
   font-size: 14px;
   line-height: 1.35;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  box-shadow: none;
+}
+
+.chat-message.assistant {
+  color: #222329;
+  font-size: 15px;
+  line-height: 1.42;
 }
 
 .chat-message.user {
+  width: auto;
+  max-width: 270px;
+  margin: 0 4px 20px auto;
+  padding: 13px 14px;
+  border: 1px solid #111217;
+  border-radius: 9px;
   background: #111217;
   color: #fff;
+  font-size: 14px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.message-content {
+  white-space: pre-wrap;
+}
+
+.assistant-activity {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+  color: #777a82;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 20px;
+}
+
+.assistant-rule {
+  height: 1px;
+  margin: 8px 0 13px;
+  background: #ececf0;
 }
 
 .chat-message.thinking {
-  width: 248px;
-  margin: 0 auto 18px 4px;
-  border-color: #ececf0;
-  background: #fff;
-}
-
-.thinking-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: #1b1269;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 16px;
+  margin-bottom: 20px;
 }
 
 .thinking-lines {
   display: grid;
   gap: 5px;
-  margin-top: 9px;
 }
 
 .thinking-lines span {
@@ -1856,57 +1861,6 @@ button {
   color: #7a7a7c;
   font-size: 10.5px;
   line-height: 14px;
-}
-
-.assistant-status {
-  display: flex;
-  gap: 10px;
-  margin-top: 0;
-  color: #202127;
-}
-
-.assistant-status svg {
-  margin-top: 2px;
-  color: #1b1269;
-  fill: #1b1269;
-}
-
-.assistant-status strong,
-.assistant-status span {
-  display: block;
-}
-
-.assistant-status strong {
-  color: #888a91;
-  font-size: 15px;
-  font-weight: 500;
-}
-
-.assistant-status span {
-  margin-top: 13px;
-  font-size: 15px;
-}
-
-.assistant-status i {
-  display: flex;
-  gap: 6px;
-  margin-top: 11px;
-}
-
-.assistant-status i b {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #777a9d;
-  animation: blink 1s infinite ease-in-out;
-}
-
-.assistant-status i b:nth-child(2) {
-  animation-delay: 0.15s;
-}
-
-.assistant-status i b:nth-child(3) {
-  animation-delay: 0.3s;
 }
 
 .score-editor-body {

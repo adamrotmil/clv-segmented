@@ -323,12 +323,15 @@ test('saved ideas can be combined into an inspectable remix', async ({ page }) =
 
 test('chat and failure states stay state-aware without exposed agent activity', async ({ page }) => {
   await page.goto('/')
+  await expect(page.getByText('AI Assistant')).toHaveCount(0)
+  await expect(page.getByText('Worked for 35s >')).toBeVisible()
 
   await page.getByPlaceholder('Ask anything...').fill('make the face more candid')
   await page.getByRole('button', { name: 'Send message' }).click()
   await expect(page.getByLabel('Staging')).toHaveValue('86')
   await expect(page.getByTestId('chat-thinking')).toBeVisible()
   await expect(page.getByText(/Staged: Staging staged/)).toBeVisible()
+  await expect(page.getByText('Worked for 1s >')).toBeVisible()
   await expect(page.getByTestId('chat-thinking')).toBeHidden()
   await expect(page.getByLabel('Interaction trace').first()).toContainText('Staging staged')
   await expect(page.getByLabel('Pending remix actions')).toBeVisible()
@@ -342,6 +345,7 @@ test('chat and failure states stay state-aware without exposed agent activity', 
   await page.getByPlaceholder('Ask anything...').fill('simulate failure')
   await page.getByRole('button', { name: 'Send message' }).click()
   await expect(page.getByRole('alert')).toContainText('Critic pass')
+  await expect(page.getByText('Ran 4 commands >')).toBeVisible()
   await expect(page.getByLabel('Agent activity')).toHaveCount(0)
 })
 
