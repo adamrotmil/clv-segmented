@@ -149,6 +149,32 @@ test('dragging empty canvas pans the viewport like a canvas tool', async ({ page
   expect(Math.abs(firstDy - secondDy)).toBeLessThan(1)
 })
 
+test('dragging one artboard onto another creates a blended variant', async ({ page }) => {
+  await page.goto('/')
+
+  const originalStack = page.locator('.creative-stack').first()
+  const updatedStack = page.locator('.creative-stack').nth(1)
+  const originalCard = originalStack.locator('.creative-card')
+  const updatedCard = updatedStack.locator('.creative-card')
+  const originalBox = await originalCard.boundingBox()
+  const updatedBox = await updatedCard.boundingBox()
+
+  expect(originalBox).not.toBeNull()
+  expect(updatedBox).not.toBeNull()
+
+  await page.mouse.move((originalBox?.x ?? 0) + 20, (originalBox?.y ?? 0) + 20)
+  await page.mouse.down()
+  await page.mouse.move((updatedBox?.x ?? 0) + 44, (updatedBox?.y ?? 0) + 44, { steps: 8 })
+  await expect(updatedStack).toHaveClass(/drop-target/)
+  await page.mouse.up()
+
+  await expect(updatedStack).not.toHaveClass(/drop-target/)
+  await expect(page.locator('.artboard-row .creative-stack').filter({ hasText: 'Blend 1' })).toBeVisible()
+  await expect(page.locator('.variant-strip').getByText(/Blend/)).toBeVisible()
+  await expect(page.getByLabel('Interaction trace').first()).toContainText('Blended Original Image and Updated Image')
+  await expect(page.getByText('Images blended')).toBeVisible()
+})
+
 test('segment labels attach to their SAM frames', async ({ page }) => {
   await page.goto('/')
 

@@ -41,6 +41,7 @@ function normalizeGenerationResult(
   const chatInstruction = lastUserInstruction(request)
   const ingredients = uniqueItems([
     ...(result.ingredients ?? []),
+    ...request.latestTrace.ingredients,
     ...scalarIngredients.slice(0, 2),
     chatInstruction ? 'Chat direction' : '',
     request.selectedSegment.label,

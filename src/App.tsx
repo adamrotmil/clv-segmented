@@ -312,11 +312,30 @@ function clampDragOffset(value: number, limit: number) {
 function useArtboardDrag(scale: number, onSelect: (id: string) => void) {
   const [positions, setPositions] = useState<Record<string, DragOffset>>({})
   const [dragState, setDragState] = useState<ArtboardDragState | null>(null)
+  const positionsRef = useRef<Record<string, DragOffset>>({})
+
+  function updatePosition(id: string, position: DragOffset) {
+    const nextPositions = {
+      ...positionsRef.current,
+      [id]: position,
+    }
+    positionsRef.current = nextPositions
+    setPositions(nextPositions)
+  }
+
+  function resetPositions(ids: string[]) {
+    const nextPositions = { ...positionsRef.current }
+    ids.forEach((id) => {
+      delete nextPositions[id]
+    })
+    positionsRef.current = nextPositions
+    setPositions(nextPositions)
+  }
 
   function beginDrag(id: string, event: PointerEvent<HTMLElement>) {
     if (event.button !== 0) return
 
-    const origin = positions[id] ?? { x: 0, y: 0 }
+    const origin = positionsRef.current[id] ?? { x: 0, y: 0 }
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
     onSelect(id)
@@ -338,22 +357,24 @@ function useArtboardDrag(scale: number, onSelect: (id: string) => void) {
     const x = dragState.originX + (event.clientX - dragState.startX) / dragScale
     const y = dragState.originY + (event.clientY - dragState.startY) / dragScale
 
-    setPositions((current) => ({
-      ...current,
-      [dragState.id]: {
-        x: clampDragOffset(x, 115),
-        y: clampDragOffset(y, 88),
-      },
-    }))
+    updatePosition(dragState.id, {
+      x: clampDragOffset(x, 360),
+      y: clampDragOffset(y, 220),
+    })
   }
 
   function endDrag(event: PointerEvent<HTMLElement>) {
-    if (!dragState || dragState.pointerId !== event.pointerId) return
+    if (!dragState || dragState.pointerId !== event.pointerId) return undefined
 
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
+    const result = {
+      id: dragState.id,
+      positions: positionsRef.current,
+    }
     setDragState(null)
+    return result
   }
 
   return {
@@ -362,7 +383,51 @@ function useArtboardDrag(scale: number, onSelect: (id: string) => void) {
     beginDrag,
     moveDrag,
     endDrag,
+    resetPositions,
   }
+}
+
+const artboardMetrics = {
+  size: 275,
+  gap: 30,
+}
+
+function artboardOrigin(index: number, position?: DragOffset) {
+  return {
+    x: index * (artboardMetrics.size + artboardMetrics.gap) + (position?.x ?? 0),
+    y: position?.y ?? 0,
+  }
+}
+
+function findOverlappedArtboard(
+  variants: ImageVariant[],
+  positions: Record<string, DragOffset>,
+  draggingId: string,
+) {
+  if (!draggingId) return ''
+  const sourceIndex = variants.findIndex((variant) => variant.id === draggingId)
+  if (sourceIndex < 0) return ''
+
+  const sourceOrigin = artboardOrigin(sourceIndex, positions[draggingId])
+  const sourceCenter = {
+    x: sourceOrigin.x + artboardMetrics.size / 2,
+    y: sourceOrigin.y + artboardMetrics.size / 2,
+  }
+
+  return (
+    variants.find((variant, index) => {
+      if (variant.id === draggingId) return false
+      const targetOrigin = artboardOrigin(index, positions[variant.id])
+      const targetCenter = {
+        x: targetOrigin.x + artboardMetrics.size / 2,
+        y: targetOrigin.y + artboardMetrics.size / 2,
+      }
+      const overlapX = Math.max(0, artboardMetrics.size - Math.abs(sourceCenter.x - targetCenter.x))
+      const overlapY = Math.max(0, artboardMetrics.size - Math.abs(sourceCenter.y - targetCenter.y))
+      const overlapRatio = (overlapX * overlapY) / (artboardMetrics.size * artboardMetrics.size)
+      return overlapRatio > 0.34
+    })?.id ?? ''
+  )
 }
 
 function canStartCanvasPan(target: EventTarget | null) {
@@ -800,6 +865,7 @@ function App() {
     baseFilter,
     trace,
     promptHints,
+    sourceVariantOverride,
   }: {
     id: string
     intent: CreativeGenerationRequest['intent']
@@ -812,8 +878,10 @@ function App() {
     baseFilter: string
     trace: ChangeTrace
     promptHints: string[]
+    sourceVariantOverride?: ImageVariant
   }): CreativeGenerationRequest {
     const sourceVariant =
+      sourceVariantOverride ??
       workingVariants.find((variant) => variant.id === selectedVariantId) ??
       workingVariants.find((variant) => variant.id === 'updated') ??
       initialVariants[1]
@@ -1231,6 +1299,99 @@ function App() {
     window.setTimeout(() => setToast(''), 1600)
   }
 
+  async function blendCanvasVariants(sourceId: string, targetId: string) {
+    const sourceVariant = workingVariants.find((variant) => variant.id === sourceId)
+    const targetVariant = workingVariants.find((variant) => variant.id === targetId)
+    if (!sourceVariant || !targetVariant || sourceVariant.id === targetVariant.id) return
+
+    const blendScalars = promptScalars
+    const blendScore = projectedScore(blendScalars)
+    const nextId = `blend-${Date.now()}`
+    const outputTitle = `Blend ${Math.max(1, variants.length - 1)}`
+    const predictedScore = Math.min(96, Math.round((sourceVariant.score + targetVariant.score) / 2) + 4)
+    const pendingTrace: ChangeTrace = {
+      id: `${nextId}-trace`,
+      control: 'Image blend',
+      what: `Blended ${sourceVariant.title} and ${targetVariant.title}.`,
+      why: 'The overlap gesture sent both canvas images, current photographic aesthetics, and recent chat context as one blend request.',
+      before: `${sourceVariant.title} + ${targetVariant.title}`,
+      after: outputTitle,
+      scoreBefore: blendScore,
+      scoreAfter: predictedScore,
+      segment: activeSegment.label,
+      ingredients: [
+        sourceVariant.title,
+        targetVariant.title,
+        activeSegment.label,
+        'Canvas blend',
+      ],
+    }
+    const generationRequest = buildGenerationRequest({
+      id: nextId,
+      intent: 'image-blend',
+      outputTitle,
+      sourceIds: [sourceVariant.id, targetVariant.id],
+      beforeScalars: scalars,
+      nextScalars: blendScalars,
+      projectedScoreValue: blendScore,
+      scoreLift: Math.max(1, predictedScore - blendScore),
+      baseFilter: `${imageFilterForScalars(blendScalars)} contrast(1.03)`,
+      trace: pendingTrace,
+      promptHints: [
+        `Blend ${sourceVariant.title} with ${targetVariant.title}`,
+        pendingTrace.why,
+        ...messages.slice(-4).map((message) => `${message.role}: ${message.content}`),
+      ],
+      sourceVariantOverride: sourceVariant,
+    })
+
+    setLastChange(pendingTrace)
+    setVariantGenerationTask(
+      `${sourceVariant.title} + ${targetVariant.title}`,
+      'Blending selected images',
+    )
+    startWork('remixing', pendingTrace, false)
+    const generation = await requestCreativeGeneration(generationRequest)
+    const blendVariant: ImageVariant = {
+      id: nextId,
+      title: generation.title,
+      kind: 'generated',
+      image: generation.image,
+      score: generation.score,
+      delta: generation.delta,
+      filter: generation.filter,
+      ingredients: generation.ingredients,
+      sourceIds: generation.sourceIds,
+    }
+    const trace: ChangeTrace = {
+      ...pendingTrace,
+      after: blendVariant.title,
+      scoreAfter: blendVariant.score,
+      ingredients: generation.ingredients,
+    }
+
+    setVariants((current) => [...current, blendVariant])
+    setSelectedVariantId(nextId)
+    setLastChange(trace)
+    setHistory((current) =>
+      [
+        {
+          ...trace,
+          scalarsBefore: scalars,
+          scalarsAfter: blendScalars,
+          scoreScalarsBefore: scoreScalars,
+          scoreScalarsAfter: scoreScalars,
+          variantIdBefore: sourceVariant.id,
+          variantIdAfter: nextId,
+        },
+        ...current,
+      ].slice(0, 6),
+    )
+    completeWork(generation.provider === 'endpoint' ? 'Endpoint blend received' : 'Mock blend response ready')
+    setToast('Images blended')
+    window.setTimeout(() => setToast(''), 1600)
+  }
+
   function undoLastChange() {
     const [entry] = history
     if (!entry) return
@@ -1405,6 +1566,7 @@ function App() {
               hasPendingChanges={hasPendingScalarChanges}
               onResetChanges={resetChanges}
               onRemix={remixImage}
+              onBlendVariants={blendCanvasVariants}
               lastChange={lastChange}
               pendingPhase={pendingPhase}
             />
@@ -1912,6 +2074,7 @@ function CanvasWorkspace({
   hasPendingChanges,
   onResetChanges,
   onRemix,
+  onBlendVariants,
   lastChange,
   pendingPhase,
 }: {
@@ -1935,19 +2098,46 @@ function CanvasWorkspace({
   hasPendingChanges: boolean
   onResetChanges: () => void
   onRemix: () => void
+  onBlendVariants: (sourceId: string, targetId: string) => void
   lastChange: ChangeTrace
   pendingPhase: PendingPhase
 }) {
-  const comparisonVariants = variants.slice(0, 2)
+  const baseComparisonVariants = variants.slice(0, 2)
+  const selectedGeneratedVariant = variants.find(
+    (variant) =>
+      variant.id === selectedVariantId &&
+      !baseComparisonVariants.some((baseVariant) => baseVariant.id === variant.id),
+  )
+  const comparisonVariants = selectedGeneratedVariant
+    ? [...baseComparisonVariants, selectedGeneratedVariant]
+    : baseComparisonVariants
   const generatedVariants = variants.slice(2)
-  const artboardScale = zoom / 78
+  const rowFitScale = comparisonVariants.length > 2 ? 0.8 : 1
+  const artboardScale = (zoom / 78) * rowFitScale
   const artboardDrag = useArtboardDrag(artboardScale, onSelectVariant)
   const canvasPan = useCanvasPan()
   const canvasWorldStyle = {
     '--pan-x': `${canvasPan.pan.x}px`,
     '--pan-y': `${canvasPan.pan.y}px`,
     '--zoom': artboardScale,
+    '--row-shift-x': comparisonVariants.length > 2 ? '-44px' : '0px',
   } as CSSProperties
+  const dropTargetId = findOverlappedArtboard(
+    comparisonVariants,
+    artboardDrag.positions,
+    artboardDrag.draggingId,
+  )
+
+  function endArtboardDrag(event: PointerEvent<HTMLElement>) {
+    const result = artboardDrag.endDrag(event)
+    if (!result) return
+
+    const targetId = findOverlappedArtboard(comparisonVariants, result.positions, result.id)
+    if (!targetId) return
+
+    artboardDrag.resetPositions([result.id, targetId])
+    onBlendVariants(result.id, targetId)
+  }
 
   return (
     <section className="canvas-panel">
@@ -1983,29 +2173,37 @@ function CanvasWorkspace({
       >
         <div className="canvas-world" style={canvasWorldStyle}>
           <div className="artboard-row">
-            {comparisonVariants.map((variant, index) => (
-              <CreativeArtboard
-                key={variant.id}
-                variant={variant}
-                selected={selectedVariantId === variant.id}
-                position={artboardDrag.positions[variant.id]}
-                dragging={artboardDrag.draggingId === variant.id}
-                annotationsVisible={annotationsVisible}
-                selectedSegmentId={selectedSegmentId}
-                onSelect={() => onSelectVariant(variant.id)}
-                onSelectSegment={onSelectSegment}
-                onOpenScoreSegment={onOpenScoreSegment}
-                onApplySegmentSuggestion={onApplySegmentSuggestion}
-                onDragPointerDown={(event) => artboardDrag.beginDrag(variant.id, event)}
-                onDragPointerMove={artboardDrag.moveDrag}
-                onDragPointerEnd={artboardDrag.endDrag}
-                focus={index === 1}
-                showScore
-                showDeltas={index === 1}
-                lastChange={index === 1 ? lastChange : undefined}
-                pendingPhase={index === 1 ? pendingPhase : 'idle'}
-              />
-            ))}
+            {comparisonVariants.map((variant, index) => {
+              const isActiveComparison = selectedGeneratedVariant
+                ? selectedGeneratedVariant.id === variant.id
+                : index === 1
+
+              return (
+                <CreativeArtboard
+                  key={variant.id}
+                  variant={variant}
+                  selected={selectedVariantId === variant.id}
+                  position={artboardDrag.positions[variant.id]}
+                  dragging={artboardDrag.draggingId === variant.id}
+                  dropTarget={dropTargetId === variant.id}
+                  combineSource={Boolean(dropTargetId) && artboardDrag.draggingId === variant.id}
+                  annotationsVisible={annotationsVisible}
+                  selectedSegmentId={selectedSegmentId}
+                  onSelect={() => onSelectVariant(variant.id)}
+                  onSelectSegment={onSelectSegment}
+                  onOpenScoreSegment={onOpenScoreSegment}
+                  onApplySegmentSuggestion={onApplySegmentSuggestion}
+                  onDragPointerDown={(event) => artboardDrag.beginDrag(variant.id, event)}
+                  onDragPointerMove={artboardDrag.moveDrag}
+                  onDragPointerEnd={endArtboardDrag}
+                  focus={isActiveComparison}
+                  showScore
+                  showDeltas={isActiveComparison && variant.id !== 'original'}
+                  lastChange={isActiveComparison ? lastChange : undefined}
+                  pendingPhase={isActiveComparison ? pendingPhase : 'idle'}
+                />
+              )
+            })}
           </div>
         </div>
 
@@ -2070,6 +2268,8 @@ function CreativeArtboard({
   selected,
   position,
   dragging = false,
+  dropTarget = false,
+  combineSource = false,
   annotationsVisible,
   selectedSegmentId,
   onSelect,
@@ -2091,6 +2291,8 @@ function CreativeArtboard({
   selected: boolean
   position?: DragOffset
   dragging?: boolean
+  dropTarget?: boolean
+  combineSource?: boolean
   annotationsVisible: boolean
   selectedSegmentId: string
   onSelect: () => void
@@ -2136,7 +2338,9 @@ function CreativeArtboard({
     <div
       className={`creative-stack ${size === 'large' ? 'large' : ''} ${
         selected ? 'selected' : ''
-      } ${dragging ? 'dragging' : ''}`}
+      } ${dragging ? 'dragging' : ''} ${dropTarget ? 'drop-target' : ''} ${
+        combineSource ? 'combine-source' : ''
+      }`}
       style={stackStyle}
     >
       <button
@@ -2271,7 +2475,11 @@ function SegmentFlyout({
           <strong>{segment.label}</strong>
           <small>ES +{Math.max(segment.delta, 0)}%</small>
         </div>
-        <button type="button" onClick={onOpenScore}>
+        <button
+          type="button"
+          aria-label={`Open score workspace for ${segment.label}`}
+          onClick={onOpenScore}
+        >
           Score
         </button>
       </div>

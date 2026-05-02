@@ -17,7 +17,11 @@ export type ImageVariant = {
   sourceIds?: string[]
 }
 
-export type CreativeGenerationIntent = 'scalar-remix' | 'idea-combine' | 'segment-edit'
+export type CreativeGenerationIntent =
+  | 'scalar-remix'
+  | 'idea-combine'
+  | 'segment-edit'
+  | 'image-blend'
 
 export type AestheticScalar = {
   id: string
