@@ -256,10 +256,10 @@ test('canvas node context menu exposes compact image actions', async ({ page }) 
   await expect(page.getByRole('menuitem', { name: 'Blend with Original Image' })).toBeEnabled()
 
   await page.getByRole('menuitem', { name: 'Compare from here' }).click()
-  await expect(page.getByLabel('Variant comparison')).toBeVisible()
-  await expect(page.getByLabel('Variant comparison')).toContainText('Original Image')
-  await expect(page.getByLabel('Variant comparison')).toContainText('Updated Image')
-  await page.getByRole('button', { name: 'Close details' }).click()
+  await expect(page.getByLabel('Selected variant comparison')).toBeVisible()
+  await expect(page.getByLabel('Selected variant comparison')).toContainText('Original Image')
+  await expect(page.getByLabel('Selected variant comparison')).toContainText('Updated Image')
+  await page.getByRole('button', { name: 'Close selected comparison' }).click()
 
   await page.getByRole('button', { name: 'Updated Image', exact: true }).click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Use as chat context' }).click()
@@ -274,6 +274,26 @@ test('canvas node context menu exposes compact image actions', async ({ page }) 
   await page.getByRole('button', { name: 'Asset draft', exact: true }).click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Remove from canvas' }).click()
   await expect(page.getByRole('button', { name: 'Asset draft', exact: true })).toHaveCount(0)
+})
+
+test('shift selecting canvas nodes creates an anchored comparison set', async ({ page }) => {
+  await page.goto('/')
+
+  const originalStack = page.locator('.creative-stack').first()
+  const updatedStack = page.locator('.creative-stack').nth(1)
+
+  await page.getByRole('button', { name: 'Original Image', exact: true }).click()
+  await page.getByRole('button', { name: 'Updated Image', exact: true }).click({ modifiers: ['Shift'] })
+
+  await expect(originalStack).toHaveClass(/selected/)
+  await expect(updatedStack).toHaveClass(/secondary-selected/)
+  await expect(page.getByLabel('Selected variant comparison')).toBeVisible()
+  await expect(page.getByLabel('Selected variant comparison')).toContainText('Anchor')
+  await expect(page.getByLabel('Selected variant comparison')).toContainText('+9 ES')
+  await expect(page.getByLabel('Selected variant comparison')).toContainText('Face visibility')
+
+  await page.getByRole('button', { name: 'Close selected comparison' }).click()
+  await expect(page.getByLabel('Selected variant comparison')).toHaveCount(0)
 })
 
 test('dragging empty canvas pans the viewport like a canvas tool', async ({ page }) => {

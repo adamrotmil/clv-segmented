@@ -104,9 +104,11 @@ type NodeMenuState = {
 
 type VariantDetailsState = {
   variantId: string
-  mode: 'details' | 'compare'
+  mode: 'details'
   compareToId?: string
 }
+
+type VariantSelectEvent = MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>
 
 type ChatDraft = {
   id: string
@@ -2904,6 +2906,7 @@ function CanvasWorkspace({
   const generatedVariants = variants.slice(2)
   const [nodeMenu, setNodeMenu] = useState<NodeMenuState | null>(null)
   const [variantDetails, setVariantDetails] = useState<VariantDetailsState | null>(null)
+  const [comparisonIds, setComparisonIds] = useState<string[]>([])
   const artboardScale = zoom / 78
   const artboardDrag = useArtboardDrag(artboardScale, onSelectVariant)
   const canvasPan = useCanvasPan()
@@ -2936,14 +2939,19 @@ function CanvasWorkspace({
   const menuVariant = nodeMenu
     ? canvasVariants.find((variant) => variant.id === nodeMenu.variantId) ?? null
     : null
-  const menuPeerVariant = nodeMenu?.peerVariantId
-    ? canvasVariants.find((variant) => variant.id === nodeMenu.peerVariantId) ?? null
-    : null
+  const comparisonVariants = comparisonIds
+    .map((id) => canvasVariants.find((variant) => variant.id === id))
+    .filter(Boolean) as ImageVariant[]
+  const comparisonAnchor = comparisonVariants[0] ?? null
+  const comparisonTargets = comparisonVariants.slice(1)
+  const menuPeerVariant = (() => {
+    if (!nodeMenu) return null
+    const selectedPeers = comparisonIds.filter((id) => id !== nodeMenu.variantId)
+    const peerId = selectedPeers[0] ?? nodeMenu.peerVariantId
+    return peerId ? canvasVariants.find((variant) => variant.id === peerId) ?? null : null
+  })()
   const detailsVariant = variantDetails
     ? canvasVariants.find((variant) => variant.id === variantDetails.variantId) ?? null
-    : null
-  const detailsCompareVariant = variantDetails?.compareToId
-    ? canvasVariants.find((variant) => variant.id === variantDetails.compareToId) ?? null
     : null
 
   useEffect(() => {
@@ -2994,8 +3002,42 @@ function CanvasWorkspace({
     onSelectVariant(variantId)
   }
 
+  function selectCanvasVariant(variantId: string, additive = false) {
+    setNodeMenu(null)
+    setVariantDetails(null)
+
+    if (!variantId) {
+      setComparisonIds([])
+      onSelectVariant('')
+      return
+    }
+
+    if (!additive) {
+      setComparisonIds([variantId])
+      onSelectVariant(variantId)
+      return
+    }
+
+    setComparisonIds((current) => {
+      const seed = current.length
+        ? current
+        : selectedVariantId && selectedVariantId !== variantId
+          ? [selectedVariantId]
+          : []
+
+      if (seed.includes(variantId)) {
+        const next = seed.filter((id) => id !== variantId)
+        return next.length ? next : [variantId]
+      }
+
+      return [...seed, variantId]
+    })
+    onSelectVariant(variantId)
+  }
+
   function compareTargetFor(variantId: string) {
-    const peerId = nodeMenu?.peerVariantId
+    const selectedPeer = comparisonIds.find((id) => id !== variantId)
+    const peerId = selectedPeer ?? nodeMenu?.peerVariantId
     if (peerId && peerId !== variantId) return peerId
     if (variantId === 'updated') return 'original'
     return 'updated'
@@ -3009,7 +3051,7 @@ function CanvasWorkspace({
     if (canStartCanvasPan(event.target)) {
       event.currentTarget.focus({ preventScroll: true })
       canvasPan.focusWheel()
-      onSelectVariant('')
+      selectCanvasVariant('')
       onSelectSegment('')
     }
     canvasPan.beginPan(event)
@@ -3072,6 +3114,8 @@ function CanvasWorkspace({
               const isActiveComparison = selectedGeneratedVariant
                 ? selectedGeneratedVariant.id === variant.id
                 : variant.id === 'updated'
+              const isComparisonSelection = comparisonIds.length > 1 && comparisonIds.includes(variant.id)
+              const isComparisonAnchor = isComparisonSelection && comparisonIds[0] === variant.id
               const artboardPendingPhase =
                 variant.status === 'generating'
                   ? 'remixing'
@@ -3083,14 +3127,15 @@ function CanvasWorkspace({
                 <CreativeArtboard
                   key={variant.id}
                   variant={variant}
-                  selected={selectedVariantId === variant.id}
+                  selected={isComparisonAnchor || (comparisonIds.length <= 1 && selectedVariantId === variant.id)}
+                  secondarySelected={isComparisonSelection && !isComparisonAnchor}
                   position={artboardDrag.positions[variant.id]}
                   dragging={artboardDrag.draggingId === variant.id}
                   dropTarget={dropTargetId === variant.id}
                   combineSource={Boolean(dropTargetId) && artboardDrag.draggingId === variant.id}
                   annotationsVisible={annotationsVisible}
                   selectedSegmentId={selectedSegmentId}
-                  onSelect={() => onSelectVariant(variant.id)}
+                  onSelect={(event) => selectCanvasVariant(variant.id, Boolean(event?.shiftKey))}
                   onOpenNodeMenu={(event) => openNodeMenu(variant.id, event)}
                   onSelectSegment={onSelectSegment}
                   onOpenScoreSegment={onOpenScoreSegment}
@@ -3135,9 +3180,18 @@ function CanvasWorkspace({
           <VariantDetailsPanel
             variant={detailsVariant}
             variants={canvasVariants}
-            compareVariant={detailsCompareVariant}
-            mode={variantDetails?.mode ?? 'details'}
             onClose={() => setVariantDetails(null)}
+          />
+        ) : null}
+        {comparisonAnchor && comparisonTargets.length > 0 ? (
+          <SelectedComparisonPanel
+            anchor={comparisonAnchor}
+            targets={comparisonTargets}
+            onBlend={() => {
+              const [target] = comparisonTargets
+              if (target) onBlendVariants(comparisonAnchor.id, target.id)
+            }}
+            onClose={() => setComparisonIds(comparisonAnchor ? [comparisonAnchor.id] : [])}
           />
         ) : null}
         {nodeMenu && menuVariant ? (
@@ -3150,11 +3204,8 @@ function CanvasWorkspace({
               onRemixFromVariant(menuVariant.id)
             }}
             onCompare={() => {
-              setVariantDetails({
-                variantId: menuVariant.id,
-                mode: 'compare',
-                compareToId: compareTargetFor(menuVariant.id),
-              })
+              setVariantDetails(null)
+              setComparisonIds([menuVariant.id, compareTargetFor(menuVariant.id)])
               closeNodeMenu()
             }}
             onBlend={() => {
@@ -3168,10 +3219,12 @@ function CanvasWorkspace({
             }}
             onViewDetails={() => {
               setVariantDetails({ variantId: menuVariant.id, mode: 'details' })
+              setComparisonIds([menuVariant.id])
               closeNodeMenu()
             }}
             onRemove={() => {
               closeNodeMenu()
+              setComparisonIds((current) => current.filter((id) => id !== menuVariant.id))
               onRemoveVariant(menuVariant.id)
               setVariantDetails((current) =>
                 current?.variantId === menuVariant.id ? null : current,
@@ -3295,51 +3348,33 @@ function NodeContextMenu({
 function VariantDetailsPanel({
   variant,
   variants,
-  compareVariant,
-  mode,
   onClose,
 }: {
   variant: ImageVariant
   variants: ImageVariant[]
-  compareVariant?: ImageVariant | null
-  mode: 'details' | 'compare'
   onClose: () => void
 }) {
   const sourceLabels = (variant.sourceIds ?? [])
     .map((id) => variants.find((item) => item.id === id)?.title ?? id)
     .slice(0, 3)
   const ingredients = Array.from(new Set(variant.ingredients ?? [])).slice(0, 4)
-  const scoreDelta = compareVariant ? variant.score - compareVariant.score : variant.delta
+  const scoreDelta = variant.delta
 
   return (
     <aside
       className="variant-details-panel"
-      aria-label={mode === 'compare' ? 'Variant comparison' : 'Variant details'}
+      aria-label="Variant details"
     >
       <div className="variant-details-head">
-        <span>{mode === 'compare' ? 'Compare' : 'Details'}</span>
+        <span>Details</span>
         <button type="button" aria-label="Close details" onClick={onClose}>
           <X size={16} />
         </button>
       </div>
-      {mode === 'compare' && compareVariant ? (
-        <div className="variant-compare">
-          <div>
-            <small>{compareVariant.title}</small>
-            <b>ES {compareVariant.score}%</b>
-          </div>
-          <span>→</span>
-          <div>
-            <small>{variant.title}</small>
-            <b>ES {variant.score}%</b>
-          </div>
-        </div>
-      ) : (
-        <div className="variant-detail-title">
-          <b>{variant.title}</b>
-          <span>{variant.kind}</span>
-        </div>
-      )}
+      <div className="variant-detail-title">
+        <b>{variant.title}</b>
+        <span>{variant.kind}</span>
+      </div>
       <dl className="variant-detail-grid">
         <div>
           <dt>Score</dt>
@@ -3356,7 +3391,7 @@ function VariantDetailsPanel({
       </dl>
       {ingredients.length ? (
         <div className="variant-ingredients">
-          <span>{mode === 'compare' ? 'Changed factors' : 'Prompt signals'}</span>
+          <span>Prompt signals</span>
           <div>
             {ingredients.map((item) => (
               <b key={item}>{item}</b>
@@ -3368,9 +3403,82 @@ function VariantDetailsPanel({
   )
 }
 
+function comparisonFactors(anchor: ImageVariant, target: ImageVariant) {
+  const targetSignals = target.ingredients ?? []
+  if (targetSignals.length > 0) return targetSignals.slice(0, 3)
+
+  if (anchor.id === 'original' && target.id === 'updated') {
+    return ['Face visibility', 'CTA clarity', 'Warmer tone']
+  }
+
+  if (target.kind === 'generated') {
+    return ['Creative resonance', 'Staging', 'Segment lift']
+  }
+
+  return ['Score movement', 'Visual treatment', 'Canvas context']
+}
+
+function SelectedComparisonPanel({
+  anchor,
+  targets,
+  onBlend,
+  onClose,
+}: {
+  anchor: ImageVariant
+  targets: ImageVariant[]
+  onBlend: () => void
+  onClose: () => void
+}) {
+  return (
+    <aside className="selection-compare-panel" aria-label="Selected variant comparison">
+      <div className="selection-compare-head">
+        <span>Compare selected</span>
+        <button type="button" aria-label="Close selected comparison" onClick={onClose}>
+          <X size={16} />
+        </button>
+      </div>
+      <div className="selection-anchor-row">
+        <span>Anchor</span>
+        <b>{anchor.title}</b>
+        <em>ES {anchor.score}%</em>
+      </div>
+      <div className="selection-target-list">
+        {targets.map((target) => {
+          const scoreDelta = target.score - anchor.score
+          const factors = comparisonFactors(anchor, target)
+
+          return (
+            <div className="selection-target-row" key={target.id}>
+              <div className="selection-target-score">
+                <b>{target.title}</b>
+                <span className={scoreDelta >= 0 ? 'positive' : 'negative'}>
+                  {scoreDelta >= 0 ? '+' : ''}
+                  {scoreDelta} ES
+                </span>
+              </div>
+              <div className="selection-factor-list">
+                {factors.map((factor) => (
+                  <span key={`${target.id}-${factor}`}>{factor}</span>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="selection-compare-actions">
+        <button type="button" onClick={onBlend} disabled={targets.length === 0}>
+          <Sparkles size={14} />
+          Blend first pair
+        </button>
+      </div>
+    </aside>
+  )
+}
+
 function CreativeArtboard({
   variant,
   selected,
+  secondarySelected = false,
   position,
   dragging = false,
   dropTarget = false,
@@ -3395,13 +3503,14 @@ function CreativeArtboard({
 }: {
   variant: ImageVariant
   selected: boolean
+  secondarySelected?: boolean
   position?: DragOffset
   dragging?: boolean
   dropTarget?: boolean
   combineSource?: boolean
   annotationsVisible: boolean
   selectedSegmentId: string
-  onSelect: () => void
+  onSelect: (event?: VariantSelectEvent) => void
   onSelectSegment: (id: string) => void
   onOpenScoreSegment?: (id: string) => void
   onApplySegmentSuggestion?: (
@@ -3449,7 +3558,7 @@ function CreativeArtboard({
     <div
       className={`creative-stack ${size === 'large' ? 'large' : ''} ${
         selected ? 'selected' : ''
-      } ${isGenerating ? 'generating' : ''} ${dragging ? 'dragging' : ''} ${dropTarget ? 'drop-target' : ''} ${
+      } ${secondarySelected ? 'secondary-selected' : ''} ${isGenerating ? 'generating' : ''} ${dragging ? 'dragging' : ''} ${dropTarget ? 'drop-target' : ''} ${
         combineSource ? 'combine-source' : ''
       }`}
       style={stackStyle}
@@ -3457,7 +3566,7 @@ function CreativeArtboard({
       <button
         className="creative-title"
         type="button"
-        aria-pressed={selected}
+        aria-pressed={selected || secondarySelected}
         onClick={onSelect}
         onPointerDown={handleDragPointerDown}
         onPointerMove={onDragPointerMove}
@@ -3472,7 +3581,7 @@ function CreativeArtboard({
         role="button"
         tabIndex={0}
         aria-label={`Select ${title}`}
-        aria-pressed={selected}
+        aria-pressed={selected || secondarySelected}
         onClick={onSelect}
         onKeyDown={handleCardKeyDown}
         onPointerDown={handleDragPointerDown}
