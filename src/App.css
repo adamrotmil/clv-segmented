@@ -256,6 +256,8 @@ button {
   display: grid;
   grid-template-columns: 320px minmax(520px, 1fr) 360px;
   height: calc(100% - 64px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .left-panel {
@@ -939,10 +941,12 @@ button {
 
 .assistant-panel {
   display: flex;
+  min-height: 0;
   min-width: 0;
   flex-direction: column;
   border-left: 1px solid #ededf0;
   background: #fff;
+  overflow: hidden;
 }
 
 .assistant-header {
