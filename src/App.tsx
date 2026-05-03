@@ -2199,8 +2199,116 @@ function App() {
     )
   }
 
-  function applySuggestion() {
+  async function generateScalarRemix({
+    beforeScalars,
+    beforeScoreScalars,
+    nextScalars,
+    sourceVariantId,
+    pendingTrace,
+    promptHints,
+    taskInput,
+    scoreLift = 1,
+  }: {
+    beforeScalars: AestheticScalar[]
+    beforeScoreScalars: AestheticScalar[]
+    nextScalars: AestheticScalar[]
+    sourceVariantId: string
+    pendingTrace: ChangeTrace
+    promptHints: string[]
+    taskInput: string
+    scoreLift?: number
+  }) {
+    const sourceVariant =
+      workingVariants.find((variant) => variant.id === sourceVariantId) ??
+      workingVariants.find((variant) => variant.id === selectedVariantId) ??
+      initialVariants[1]
+    const nextScore = projectedScore(nextScalars)
+    const nextId = `remix-${Date.now()}`
+    const outputTitle = nextRemixTitle(variants)
+    const predictedScore = Math.min(96, nextScore + scoreLift)
+    const generationRequest = buildGenerationRequest({
+      id: nextId,
+      intent: 'scalar-remix',
+      outputTitle,
+      sourceIds: [sourceVariant.id],
+      beforeScalars,
+      nextScalars,
+      projectedScoreValue: nextScore,
+      scoreLift,
+      baseFilter: imageFilterForScalars(nextScalars),
+      trace: pendingTrace,
+      promptHints,
+      sourceVariantOverride: sourceVariant,
+    })
+
+    setLastChange(pendingTrace)
+    queueGeneratingVariant(generationRequest, predictedScore)
+    setVariantGenerationTask(
+      generationRequest.chatContext.length ? `${taskInput} + chat context` : taskInput,
+    )
+    startWork('remixing', pendingTrace, false)
+
+    const generation = await requestCreativeGeneration(generationRequest)
+    const remix: ImageVariant = {
+      id: nextId,
+      title: generation.title,
+      kind: 'generated',
+      image: generation.image,
+      score: generation.score,
+      delta: generation.delta,
+      filter: generation.filter,
+      ingredients: generation.ingredients,
+      sourceIds: generation.sourceIds,
+      scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
+      promptRecipe: generation.promptRecipe,
+      visualContext: visualContextForGeneratedRequest(generationRequest),
+      segments: [],
+      status: 'ready',
+      segmentationStatus: 'segmenting',
+    }
+    const trace: ChangeTrace = {
+      ...pendingTrace,
+      why: 'The generation request included the staged photographic aesthetics, selected canvas source, selected segment, recent chat direction, and latest trace.',
+      after: `ES ${generation.score}%`,
+      scoreAfter: generation.score,
+      ingredients: generation.ingredients,
+    }
+
+    setScalars(nextScalars)
+    setDraftScalars(nextScalars)
+    resolveGeneratedVariant(remix)
+    setSelectedVariantId(nextId)
+    setLastChange(trace)
+    setHistory((current) =>
+      [
+        {
+          ...trace,
+          scalarsBefore: beforeScalars,
+          scalarsAfter: nextScalars,
+          scoreScalarsBefore: beforeScoreScalars,
+          scoreScalarsAfter: beforeScoreScalars,
+          variantIdBefore: sourceVariant.id,
+          variantIdAfter: nextId,
+        },
+        ...current,
+      ].slice(0, 6),
+    )
+    completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock image response ready')
+    releaseGenerationRequest(generationRequest.id, generation.image, generation.promptRecipe)
+    void segmentVariantImage({
+      variantId: nextId,
+      imageUrl: generation.image,
+      generationRequest,
+      sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
+    })
+    setToast('Remix generated')
+    window.setTimeout(() => setToast(''), 1800)
+  }
+
+  async function applySuggestion() {
     window.clearTimeout(workTimer.current)
+    const beforeScalars = scalars
+    const beforeScoreScalars = scoreScalars
     const materialityBefore = scalarValue(draftScalars, 'materiality')
     const abstractionBefore = scalarValue(draftScalars, 'abstraction')
     const materialityAfter = Math.min(100, materialityBefore + 12)
@@ -2226,9 +2334,9 @@ function App() {
     const scoreAfter = projectedScore(nextDraftScalars)
     const trace: ChangeTrace = {
       id: `suggestion-${Date.now()}`,
-      control: 'Suggestions',
-      what: 'Suggestion applied: materiality increased and abstraction reduced.',
-      why: 'The applied suggestion stages a prompt change toward a more authentic, less synthetic image treatment. Remix Image will commit it to a generated variant.',
+      control: 'Suggestion remix',
+      what: `Suggestion remix generated from ${selectedVariant?.title ?? 'the selected image'}.`,
+      why: 'The suggestion adjusted materiality and abstraction, then sent those scalar changes through the image remix pipeline using the selected canvas node as source.',
       before: `ES ${scoreBefore}%`,
       after: `ES ${scoreAfter}%`,
       scoreBefore,
@@ -2244,32 +2352,22 @@ function App() {
     setDraftScalars(nextDraftScalars)
     setSelectedStylePresetId('current')
     setWorkError('')
-    setPendingPhase('idle')
     setLastChange(trace)
-    setAgentTasks((current) =>
-      current.map((task) => {
-        if (task.id === 'prompt') {
-          return {
-            ...task,
-            status: agentPaused ? 'paused' : 'queued',
-            input: trace.what,
-            output: 'Suggestion patch staged',
-            test: 'Awaiting Remix Image',
-          }
-        }
-        if (task.id === 'variant') {
-          return {
-            ...task,
-            status: agentPaused ? 'paused' : 'queued',
-            input: 'Suggestion applied',
-            output: 'Waiting for commit',
-            test: 'Remix action visible',
-          }
-        }
-        return task
-      }),
-    )
-    flashToast('Suggestion applied')
+
+    await generateScalarRemix({
+      beforeScalars,
+      beforeScoreScalars,
+      nextScalars: nextDraftScalars,
+      sourceVariantId: selectedVariantId,
+      pendingTrace: trace,
+      taskInput: 'Suggestion remix',
+      promptHints: [
+        trace.what,
+        trace.why,
+        'Applied left-panel suggestion: increase materiality and reduce abstraction before generating.',
+        ...messages.slice(-4).map((message) => `${message.role}: ${message.content}`),
+      ],
+    })
   }
 
   function closeAssistant() {
@@ -3059,11 +3157,9 @@ function App() {
     const changedScalars = nextScalars.filter(
       (scalar) => scalar.value !== scalarValue(beforeScalars, scalar.id),
     )
-    const nextId = `remix-${Date.now()}`
-    const outputTitle = nextRemixTitle(variants)
     const predictedScore = Math.min(96, nextScore + 1)
     const pendingTrace: ChangeTrace = {
-      id: `${nextId}-trace`,
+      id: `remix-${Date.now()}-trace`,
       control: 'Remix',
       what: `Remix generated from ${changedScalars.length} staged scalar ${changedScalars.length === 1 ? 'change' : 'changes'}.`,
       why: 'The provisional slider values were packaged with chat context and sent as prompt constraints for the next generated variant.',
@@ -3078,84 +3174,20 @@ function App() {
         `Projected ES ${nextScore}%`,
       ],
     }
-    const generationRequest = buildGenerationRequest({
-      id: nextId,
-      intent: 'scalar-remix',
-      outputTitle,
-      sourceIds: [selectedVariantId],
+
+    await generateScalarRemix({
       beforeScalars,
+      beforeScoreScalars,
       nextScalars,
-      projectedScoreValue: nextScore,
-      scoreLift: 1,
-      baseFilter: imageFilterForScalars(nextScalars),
-      trace: pendingTrace,
+      sourceVariantId: selectedVariantId,
+      pendingTrace,
+      taskInput: 'Scalar remix',
       promptHints: [
         pendingTrace.what,
         pendingTrace.why,
         ...messages.slice(-4).map((message) => `${message.role}: ${message.content}`),
       ],
     })
-
-    setLastChange(pendingTrace)
-    queueGeneratingVariant(generationRequest, predictedScore)
-    setVariantGenerationTask(
-      generationRequest.chatContext.length ? 'Scalar remix + chat context' : 'Scalar remix',
-    )
-    startWork('remixing', pendingTrace, false)
-    const generation = await requestCreativeGeneration(generationRequest)
-    const remix: ImageVariant = {
-      id: nextId,
-      title: generation.title,
-      kind: 'generated',
-      image: generation.image,
-      score: generation.score,
-      delta: generation.delta,
-      filter: generation.filter,
-      ingredients: generation.ingredients,
-      sourceIds: generation.sourceIds,
-      scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
-      promptRecipe: generation.promptRecipe,
-      visualContext: visualContextForGeneratedRequest(generationRequest),
-      segments: [],
-      status: 'ready',
-      segmentationStatus: 'segmenting',
-    }
-    const trace: ChangeTrace = {
-      ...pendingTrace,
-      why: 'The generation request included the staged photographic aesthetics, selected segment, recent chat direction, and latest trace.',
-      after: `ES ${generation.score}%`,
-      scoreAfter: generation.score,
-      ingredients: generation.ingredients,
-    }
-    setScalars(nextScalars)
-    setDraftScalars(nextScalars)
-    resolveGeneratedVariant(remix)
-    setSelectedVariantId(nextId)
-    setLastChange(trace)
-    setHistory((current) =>
-      [
-        {
-          ...trace,
-          scalarsBefore: beforeScalars,
-          scalarsAfter: nextScalars,
-          scoreScalarsBefore: beforeScoreScalars,
-          scoreScalarsAfter: beforeScoreScalars,
-          variantIdBefore: selectedVariantId,
-          variantIdAfter: nextId,
-        },
-        ...current,
-      ].slice(0, 6),
-    )
-    completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock image response ready')
-    releaseGenerationRequest(generationRequest.id, generation.image, generation.promptRecipe)
-    void segmentVariantImage({
-      variantId: nextId,
-      imageUrl: generation.image,
-      generationRequest,
-      sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
-    })
-    setToast('Remix generated')
-    window.setTimeout(() => setToast(''), 1800)
   }
 
   function resetChanges() {

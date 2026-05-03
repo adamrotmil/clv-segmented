@@ -323,17 +323,27 @@ test('saving current style adds a reusable persisted preset', async ({ page }) =
   await expect(popover).toContainText('Brand')
 })
 
-test('suggestion apply stages scalar changes for remix', async ({ page }) => {
+test('suggestion apply generates a remix from the selected canvas source', async ({ page }) => {
   await page.goto('/')
 
   await expect(page.getByLabel('Materiality')).toHaveValue('50')
   await expect(page.getByLabel('Abstraction')).toHaveValue('23')
 
+  await page.getByRole('button', { name: 'Original Image', exact: true }).click()
   await page.getByRole('button', { name: 'Apply suggestion' }).click()
   await expect(page.getByLabel('Materiality')).toHaveValue('62')
   await expect(page.getByLabel('Abstraction')).toHaveValue('13')
-  await expect(page.getByLabel('Pending remix actions')).toBeVisible()
-  await expect(page.getByLabel('Completed action summary')).toContainText('Suggestion applied')
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'Use Original Image as the selected canvas source',
+  )
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'Applied left-panel suggestion',
+  )
+  await expect(page.locator('.variant-strip').getByText('Remix 2')).toBeVisible()
+  await expect(page.getByLabel('Pending remix actions')).toBeHidden()
+  await expect(page.getByLabel('Completed action summary')).toContainText(
+    'Suggestion remix generated from Original Image',
+  )
 })
 
 test('editor chrome hover states do not move controls', async ({ page }) => {
