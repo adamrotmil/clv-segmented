@@ -69,10 +69,16 @@ function mockPromptRecipeFor(request: CreativeGenerationRequest): PromptRecipe {
       id: scalar.id,
       label: scalar.label,
       value: scalar.value,
-      instruction:
+      instruction: [
+        request.promptComposer.scalarBundle.changes.find((line) =>
+          line.toLowerCase().startsWith(`${scalar.label.toLowerCase()}:`),
+        ),
         request.promptComposer.systemHints.find((hint) =>
           hint.toLowerCase().includes(scalar.label.toLowerCase()),
-        ) ?? `${scalar.label} interpreted from ${scalar.value}/100 for prompt composition.`,
+        ),
+      ]
+        .filter(Boolean)
+        .join(' ') || `${scalar.label} interpreted from ${scalar.value}/100 for prompt composition.`,
     })),
     observability: [
       {

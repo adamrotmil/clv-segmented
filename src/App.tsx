@@ -826,6 +826,26 @@ function scalarAdjustmentLine(change: CreativeGenerationRequest['scalarChanges']
   return `${change.label}: ${delta >= 0 ? '+' : ''}${delta} toward ${target}`
 }
 
+function scalarBundleInstruction(changes: CreativeGenerationRequest['scalarChanges']) {
+  if (!changes.length) {
+    return 'No staged slider deltas; use the full current scalar recipe as the photographic direction.'
+  }
+
+  return `Apply all ${changes.length} staged slider deltas together as one combined photographic direction, not as separate attempts and not only the most recent slider change.`
+}
+
+function scalarBundleLines(changes: CreativeGenerationRequest['scalarChanges']) {
+  return changes.length
+    ? changes.map(scalarAdjustmentLine)
+    : ['No staged scalar deltas; use the committed scalar recipe below.']
+}
+
+function scalarBundlePromptHint(changes: CreativeGenerationRequest['scalarChanges']) {
+  const lines = scalarBundleLines(changes)
+
+  return `${scalarBundleInstruction(changes)} Bundle=${lines.join('; ')}`
+}
+
 function promptRoleForVariant(variant: ImageVariant) {
   if (variant.id === 'original') return 'baseline source'
   return `${variant.kind === 'generated' ? 'generated' : 'saved'} remix`
@@ -1380,6 +1400,8 @@ function imageModelPromptForRequest({
   promptHints: string[]
 }) {
   const aestheticDirectives = aestheticDirectionBlock(nextScalars, scalarChanges)
+  const scalarBundle = scalarBundleLines(scalarChanges)
+  const scalarBundlePolicy = scalarBundleInstruction(scalarChanges)
   const sourceDna = sourceDnaLines(sourceVariant)
   const productLines = productDnaLines(sourceVariant)
   const typographyLines = typographyDnaLines(sourceVariant)
@@ -1393,6 +1415,7 @@ function imageModelPromptForRequest({
     `Subject and scene: ${sceneDescription.subject} ${sceneDescription.setting} ${sceneDescription.composition}`,
     `Product: preserve ${productLines.join(' ')}. The product should remain premium, tactile, visible, correctly scaled, and recognizably the exact same advertised product from imageInputs[0].`,
     `Photography: ${sceneDescription.camera} ${sceneDescription.lighting} ${sceneDescription.color} Keep negative space and body position suitable for the existing text overlay.`,
+    `Combined staged slider bundle:\n${scalarBundle.map((line) => `- ${line}`).join('\n')}\n${scalarBundlePolicy}`,
     `Aesthetic direction from sliders:\n${aestheticDirectives.map((line) => `- ${line}`).join('\n')}\nBlend these slider instructions into one coherent photographic treatment; do not execute them as separate visual ideas.`,
     `Typography overlay must remain clean native ad typography. Preserve source typography DNA: ${typographyLines.join(' ')}. Text must stay crisp, accurately spelled, naturally integrated into the ad layout, and exactly match the source copy.`,
     `Text exactly:\n${exactCopyBlockForPrompt(sourceVariant)}`,
@@ -1478,7 +1501,9 @@ function buildNegativePrompt({
       : 'Do not invent unsupported claims while blending copy from different source images.',
     'Do not change, replace, rebrand, relabel, resize into a different SKU, or hallucinate the advertised product package. Preserve the exact source product identity and package markings.',
     'Do not change or substitute the source font family, glyph style, typography hierarchy, casing, tracking, line-height, CTA text style, or text block placement unless typography is explicitly requested as the edit target.',
-    changedScalars ? `Do not apply scalar directions outside the staged controls (${changedScalars}).` : '',
+    changedScalars
+      ? `Prioritize the combined staged scalar deltas (${changedScalars}) while preserving the full scalar recipe supplied in Aesthetic controls.`
+      : '',
     sourceVariant.mediaSize
       ? `Do not crop, pad, or reframe the source into a square. Preserve the source aspect ratio ${sourceVariant.mediaSize.width}x${sourceVariant.mediaSize.height}.`
       : '',
@@ -3002,9 +3027,8 @@ function App() {
       .filter(Boolean)
       .join('\n')
     const selectedSegments = focusedSegments.map(segmentPromptLine)
-    const changedControls = scalarAdjustments.length
-      ? scalarAdjustments
-      : ['No staged scalar deltas; use the committed scalar recipe below.']
+    const changedControls = scalarBundleLines(scalarChanges)
+    const scalarBundlePolicy = scalarBundleInstruction(scalarChanges)
     const imageModelPrompt = imageModelPromptForRequest({
       asset: activeCanvasAsset,
       outputTitle,
@@ -3034,6 +3058,7 @@ function App() {
       `Selected SAM context:\n${selectedSegments.length ? selectedSegments.map((line) => `- ${line}`).join('\n') : `- ${activeSegment.label}: no additional segment selection`}`,
       `Aesthetic controls:\n${scalarSnapshot.map((line) => `- ${line}`).join('\n')}`,
       `Scalar interpretation:\n${scalarDirectives.map((line) => `- ${line}`).join('\n')}`,
+      `Combined staged slider bundle:\n${changedControls.map((line) => `- ${line}`).join('\n')}\n${scalarBundlePolicy}`,
       `Staged control changes:\n${changedControls.map((line) => `- ${line}`).join('\n')}`,
       `Scene assembly:\n- Subject/source: ${sceneDescription.subject}\n- Setting inference: ${sceneDescription.setting}\n- Composition: ${sceneDescription.composition}\n- Camera/framing: ${sceneDescription.camera}\n- Lighting: ${sceneDescription.lighting}\n- Color: ${sceneDescription.color}\n- Typography/text: ${sceneDescription.typography}`,
       `Current edit context: ${trace.what} ${trace.why}`,
@@ -3085,6 +3110,10 @@ function App() {
         {
           label: 'Source DNA',
           value: sourceDnaLines(sourceVariant).join(' | '),
+        },
+        {
+          label: 'Scalar bundle',
+          value: `${scalarBundlePolicy}\n${changedControls.join('\n')}`,
         },
         {
           label: 'Adjustments',
@@ -3147,7 +3176,9 @@ function App() {
       workingVariants.find((variant) => variant.id === 'updated') ??
       initialVariants[1]
     const scalarChanges = scalarChangesBetween(beforeScalars, nextScalars)
-    const uniquePromptHints = Array.from(new Set(promptHints.filter(Boolean)))
+    const uniquePromptHints = Array.from(
+      new Set([...promptHints, scalarBundlePromptHint(scalarChanges)].filter(Boolean)),
+    )
     const imageInputs = buildImageInputs(sourceIds, sourceVariant)
     const sourceSegments = segmentsForVariant(sourceVariant)
     const focusedSegmentIds = focusedSegmentIdsOverride?.length
@@ -3203,6 +3234,13 @@ function App() {
       imageInputs,
       scalars: nextScalars,
       scalarChanges,
+      scalarBundle: {
+        instruction:
+          promptContextValue('Scalar bundle').split('\n')[0] ||
+          scalarBundleInstruction(scalarChanges),
+        changes: scalarBundleLines(scalarChanges),
+        fullRecipe: scalarRecipeSummary(nextScalars),
+      },
       selectedSegments: focusedSegments,
       chatContext,
       promptDraft: imagePrompt.promptDraft,
@@ -7458,6 +7496,9 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
     request.scalarChanges
       .map((change) => `${change.label}: ${change.before}/100 -> ${change.after}/100 toward ${change.marker ?? change.highLabel}`)
       .join(' · ') || 'none'
+  const scalarBundleSummary =
+    request.promptComposer.scalarBundle.changes.join(' · ') ||
+    'No staged scalar deltas; full scalar recipe included.'
   const sourceFidelity = run.sourceFidelity
   const sourceEvidence = sourceFidelity?.evidence
   const sourceFidelityStatus =
@@ -7554,10 +7595,10 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
     lane: 'context',
     role: 'aesthetics',
     status: laneStatus,
-    text: `Staged control changes: ${scalarSummary} Aesthetic controls=${request.scalars
+    text: `Combined staged slider bundle: ${request.promptComposer.scalarBundle.instruction} changes=${scalarBundleSummary} rawDeltas=${scalarSummary} Aesthetic controls=${request.scalars
       .map((scalar) => `${scalar.label}: ${scalar.value}/100`)
       .join(' · ')}`,
-    maxTokens: 150,
+    maxTokens: 190,
   })
   appendStreamRows(rows, {
     id: 'chat',

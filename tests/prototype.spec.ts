@@ -1193,6 +1193,27 @@ test('remix generation request includes recent chat and scalar context', async (
   await expect(page.getByLabel('Interaction trace').first()).toContainText('recent chat direction')
 })
 
+test('remix generation request sends multiple staged slider changes together', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByLabel('Staging').fill('92')
+  await page.getByLabel('Abstraction').fill('8')
+  await page.getByLabel('Novelty').fill('82')
+  await page.getByLabel('Materiality').fill('66')
+  await page.getByRole('button', { name: 'Remix Image' }).click()
+
+  const prompt = page.getByLabel('Image generation prompt')
+  await expect(prompt).toContainText('Combined staged slider bundle')
+  await expect(prompt).toContainText('Apply all 4 staged slider deltas together')
+  await expect(prompt).toContainText('not only the most recent slider change')
+  await expect(prompt).toContainText('Staging: +14 toward Candid')
+  await expect(prompt).toContainText('Abstraction: -15 toward Literal')
+  await expect(prompt).toContainText('Novelty: +24 toward Surreal')
+  await expect(prompt).toContainText('Materiality: +16 toward Tactile')
+  await expect(prompt).toContainText('Aesthetic controls')
+  await expect(prompt).toContainText('Materiality: 66/100')
+})
+
 test('assistant can queue a remix from chat and pass segment context', async ({ page }) => {
   await page.goto('/')
 

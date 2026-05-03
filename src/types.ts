@@ -311,6 +311,11 @@ export type PromptComposerRequest = {
   imageInputs: ImageInputReference[]
   scalars: AestheticScalar[]
   scalarChanges: ScalarGenerationChange[]
+  scalarBundle: {
+    instruction: string
+    changes: string[]
+    fullRecipe: string[]
+  }
   selectedSegments: SegmentAnnotation[]
   chatContext: ChatMessage[]
   promptDraft: string
