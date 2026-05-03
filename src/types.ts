@@ -15,6 +15,7 @@ export type ImageVariant = {
   filter?: string
   ingredients?: string[]
   sourceIds?: string[]
+  scalarRecipe?: AestheticScalar[]
   visualContext?: {
     summary: string
     locks: string[]
@@ -187,6 +188,7 @@ export type ImageInputReference = {
   role: 'source' | 'reference'
   mediaType?: string
   copywriting?: string[]
+  scalarRecipe?: AestheticScalar[]
 }
 
 export type SceneDescription = {

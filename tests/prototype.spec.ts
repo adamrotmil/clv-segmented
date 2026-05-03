@@ -708,12 +708,54 @@ test('dragging one artboard onto another creates a blended variant', async ({ pa
     'image blend with different source copy sets',
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText('conceptual copy blend')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Blend scalar midpoint')
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'Staging midpoint: Original Image 78/100 + Remix 1 78/100 -> 78/100',
+  )
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'Aesthetic direction from sliders',
+  )
   await expect(page.getByLabel('Image generation prompt')).toContainText('Radiate Confidence')
   await expect(page.getByLabel('Image generation prompt')).toContainText('You smell so good')
   await expect(updatedStack).not.toHaveClass(/drop-target/)
   await expect(page.locator('.artboard-row .creative-stack').filter({ hasText: 'Remix 2' })).toBeVisible()
   await expect(page.locator('.variant-strip').getByText(/Remix 2/)).toBeVisible()
   await expect(page.getByLabel('Interaction trace').first()).toContainText('Blended Original Image and Remix 1 into Remix 2')
+  await expect(page.getByText('Images blended')).toBeVisible()
+})
+
+test('blended variants average their recorded scalar recipes into verbal prompts', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByLabel('Abstraction').fill('100')
+  await page.getByRole('button', { name: 'Remix Image' }).click()
+  await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
+
+  const originalStack = page.locator('.artboard-row .creative-stack').filter({ hasText: 'Original Image' }).first()
+  const remixStack = page.locator('.artboard-row .creative-stack').filter({ hasText: 'Remix 2' }).first()
+  await expect(remixStack).toBeVisible()
+  await expect(remixStack).not.toHaveClass(/generating/)
+
+  const originalBox = await originalStack.locator('.creative-card').boundingBox()
+  const remixBox = await remixStack.locator('.creative-card').boundingBox()
+  expect(originalBox).not.toBeNull()
+  expect(remixBox).not.toBeNull()
+
+  await page.mouse.move((originalBox?.x ?? 0) + 20, (originalBox?.y ?? 0) + 20)
+  await page.mouse.down()
+  await page.mouse.move((remixBox?.x ?? 0) + 48, (remixBox?.y ?? 0) + 48, { steps: 8 })
+  await expect(remixStack).toHaveClass(/drop-target/)
+  await page.mouse.up()
+
+  const promptObserver = page.getByLabel('Image generation prompt')
+  await expect(promptObserver).toContainText('Blend scalar midpoint')
+  await expect(promptObserver).toContainText(
+    'Abstraction midpoint: Original Image 23/100 + Remix 2 100/100 -> 62/100',
+  )
+  await expect(promptObserver).toContainText(
+    'keep abstraction balanced, with enough stylization to feel designed',
+  )
+  await expect(promptObserver).toContainText('scalar recipe Staging: 78/100')
   await expect(page.getByText('Images blended')).toBeVisible()
 })
 

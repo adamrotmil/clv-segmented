@@ -304,6 +304,29 @@ function scalarValuesEqual(left: AestheticScalar[], right: AestheticScalar[]) {
   return left.every((scalar) => scalar.value === scalarValue(right, scalar.id))
 }
 
+function cloneScalarRecipe(scalars: AestheticScalar[]) {
+  return scalars.map((scalar) => ({ ...scalar }))
+}
+
+function midpointScalarRecipe(recipes: AestheticScalar[][], fallbackScalars: AestheticScalar[]) {
+  return fallbackScalars.map((scalar) => {
+    const values = recipes
+      .map((recipe) => recipe.find((item) => item.id === scalar.id)?.value)
+      .filter((value): value is number => typeof value === 'number')
+    if (!values.length) return { ...scalar }
+
+    const averagedValue = Math.round(
+      values.reduce((total, value) => total + value, 0) / values.length,
+    )
+
+    return {
+      ...scalar,
+      value: Math.max(0, Math.min(100, averagedValue)),
+      marker: `Midpoint ${presetScalarDisplayValue(averagedValue)}`,
+    }
+  })
+}
+
 function projectedDelta(scalars: AestheticScalar[]) {
   const delta = Math.round(
     (scalarValue(scalars, 'staging') - 78) / 8 +
@@ -548,7 +571,11 @@ function sourceVariantLine(variant: ImageVariant, label = promptRoleForVariant(v
 }
 
 function imageInputLine(input: ImageInputReference, index: number) {
-  return `imageInputs[${index}]: ${input.role}; id ${input.id}; title ${input.title}; media ${input.mediaType ?? 'image'}`
+  const scalarRecipe = input.scalarRecipe?.length
+    ? `; scalar recipe ${scalarRecipeSummary(input.scalarRecipe, 5).join(' | ')}`
+    : ''
+
+  return `imageInputs[${index}]: ${input.role}; id ${input.id}; title ${input.title}; media ${input.mediaType ?? 'image'}${scalarRecipe}`
 }
 
 function chatPromptLines(chatContext: ChatMessage[]) {
@@ -1588,14 +1615,23 @@ function App() {
   const workingVariants = useMemo(
     () =>
       variants.map((variant) =>
-        variant.id === 'updated'
+        variant.id === 'original'
+          ? {
+              ...variant,
+              scalarRecipe: cloneScalarRecipe(variant.scalarRecipe ?? initialScalars),
+            }
+          : variant.id === 'updated'
           ? {
               ...variant,
               score: workingScore,
               delta: Math.max(0, workingScore - 76),
               filter: imageFilterForScalars(scalars),
+              scalarRecipe: cloneScalarRecipe(scalars),
             }
-          : variant,
+          : {
+              ...variant,
+              scalarRecipe: variant.scalarRecipe ? cloneScalarRecipe(variant.scalarRecipe) : undefined,
+            },
       ),
     [scalars, variants, workingScore],
   )
@@ -2118,6 +2154,26 @@ function App() {
       .filter(Boolean) as CreativeGenerationRequest['scalarChanges']
   }
 
+  function scalarRecipeForVariant(variant: ImageVariant, fallbackScalars = promptScalars) {
+    if (variant.scalarRecipe?.length) return cloneScalarRecipe(variant.scalarRecipe)
+    if (variant.id === 'original') return cloneScalarRecipe(initialScalars)
+    if (variant.id === 'updated') return cloneScalarRecipe(scalars)
+    return cloneScalarRecipe(fallbackScalars)
+  }
+
+  function scalarMidpointPromptLines(
+    sources: Array<{ variant: ImageVariant; recipe: AestheticScalar[] }>,
+    midpointRecipe: AestheticScalar[],
+  ) {
+    return midpointRecipe.map((scalar) => {
+      const sourceValues = sources
+        .map(({ variant, recipe }) => `${variant.title} ${Math.round(scalarValue(recipe, scalar.id))}/100`)
+        .join(' + ')
+
+      return `${scalar.label} midpoint: ${sourceValues} -> ${Math.round(scalar.value)}/100. ${scalarPromptDirective(scalar)}`
+    })
+  }
+
   function buildImageInputs(sourceIds: string[], sourceVariant: ImageVariant): ImageInputReference[] {
     const sourceVariants = [
       sourceVariant,
@@ -2136,6 +2192,7 @@ function App() {
       role: index === 0 ? 'source' : 'reference',
       mediaType: mediaTypeForImage(variant.image),
       copywriting: copywritingForVariant(variant),
+      scalarRecipe: scalarRecipeForVariant(variant),
     }))
   }
 
@@ -2483,6 +2540,7 @@ function App() {
       filter: request.baseFilter,
       ingredients: request.latestTrace.ingredients,
       sourceIds: request.sourceIds,
+      scalarRecipe: cloneScalarRecipe(request.scalars),
       visualContext: visualContextForGeneratedRequest(request),
       segments: [],
       status: 'generating',
@@ -2688,6 +2746,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -2871,6 +2930,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -2978,6 +3038,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -3095,6 +3156,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -3273,6 +3335,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -3320,7 +3383,16 @@ function App() {
     const targetVariant = workingVariants.find((variant) => variant.id === targetId)
     if (!sourceVariant || !targetVariant || sourceVariant.id === targetVariant.id) return
 
-    const blendScalars = promptScalars
+    const sourceRecipe = scalarRecipeForVariant(sourceVariant)
+    const targetRecipe = scalarRecipeForVariant(targetVariant)
+    const blendScalars = midpointScalarRecipe([sourceRecipe, targetRecipe], promptScalars)
+    const midpointLines = scalarMidpointPromptLines(
+      [
+        { variant: sourceVariant, recipe: sourceRecipe },
+        { variant: targetVariant, recipe: targetRecipe },
+      ],
+      blendScalars,
+    )
     const blendScore = projectedScore(blendScalars)
     const nextId = `blend-${Date.now()}`
     const outputTitle = nextRemixTitle(variants)
@@ -3329,7 +3401,7 @@ function App() {
       id: `${nextId}-trace`,
       control: 'Image blend',
       what: `Blended ${sourceVariant.title} and ${targetVariant.title} into ${outputTitle}.`,
-      why: 'The overlap gesture sent both canvas images, current photographic aesthetics, and recent chat context as one blend request.',
+      why: 'The overlap gesture sent both canvas images, averaged their recorded aesthetic slider recipes, and mapped the midpoint recipe into verbal image prompt constraints.',
       before: `${sourceVariant.title} + ${targetVariant.title}`,
       after: outputTitle,
       scoreBefore: blendScore,
@@ -3347,7 +3419,7 @@ function App() {
       intent: 'image-blend',
       outputTitle,
       sourceIds: [sourceVariant.id, targetVariant.id],
-      beforeScalars: scalars,
+      beforeScalars: sourceRecipe,
       nextScalars: blendScalars,
       projectedScoreValue: blendScore,
       scoreLift: Math.max(1, predictedScore - blendScore),
@@ -3355,6 +3427,7 @@ function App() {
       trace: pendingTrace,
       promptHints: [
         `Blend ${sourceVariant.title} with ${targetVariant.title}`,
+        `Blend scalar midpoint:\n${midpointLines.join('\n')}`,
         pendingTrace.why,
         ...messages.slice(-4).map((message) => `${message.role}: ${message.content}`),
       ],
@@ -3379,6 +3452,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -3392,13 +3466,15 @@ function App() {
     }
 
     resolveGeneratedVariant(blendVariant)
+    setScalars(blendScalars)
+    setDraftScalars(blendScalars)
     setSelectedVariantId(nextId)
     setLastChange(trace)
     setHistory((current) =>
       [
         {
           ...trace,
-          scalarsBefore: scalars,
+          scalarsBefore: sourceRecipe,
           scalarsAfter: blendScalars,
           scoreScalarsBefore: scoreScalars,
           scoreScalarsAfter: scoreScalars,
