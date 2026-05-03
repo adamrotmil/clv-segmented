@@ -686,6 +686,36 @@ test('canvas background click clears selection and enables trackpad panning', as
   expect((firstAfter?.y ?? 0) - (firstBefore?.y ?? 0)).toBeGreaterThan(34)
 })
 
+test('selected canvas image shows its scalar recipe star plot above chat', async ({ page }) => {
+  await page.goto('/')
+
+  const starPlot = page.getByLabel('Selected image scalar recipe')
+  await expect(starPlot).toBeVisible()
+  await expect(starPlot).toHaveAttribute('data-selected-variant-title', 'Remix 1')
+  await expect(starPlot).toHaveAttribute('data-scalar-values', /staging:78/)
+  await expect(starPlot).toContainText('Staging')
+  await expect(starPlot).toContainText('Emotional')
+  await expect(starPlot).toContainText('Valence')
+
+  const plotBox = await starPlot.boundingBox()
+  const chatLogBox = await page.locator('.chat-log').boundingBox()
+  expect(plotBox).not.toBeNull()
+  expect(chatLogBox).not.toBeNull()
+  expect((plotBox?.y ?? 0) + (plotBox?.height ?? 0)).toBeLessThanOrEqual((chatLogBox?.y ?? 0) + 1)
+
+  await page.getByRole('button', { name: 'Original Image', exact: true }).click()
+  await expect(starPlot).toHaveAttribute('data-selected-variant-title', 'Original Image')
+
+  const canvas = page.locator('.canvas-scroll')
+  const canvasBox = await canvas.boundingBox()
+  expect(canvasBox).not.toBeNull()
+  await page.mouse.click(
+    (canvasBox?.x ?? 0) + (canvasBox?.width ?? 0) / 2,
+    (canvasBox?.y ?? 0) + 132,
+  )
+  await expect(starPlot).toHaveCount(0)
+})
+
 test('trackpad zoom gesture scales the canvas instead of the browser viewport', async ({ page }) => {
   await page.goto('/')
 

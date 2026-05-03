@@ -2315,6 +2315,57 @@ button {
   margin: 0;
 }
 
+.assistant-scalar-plot-region {
+  flex: 0 0 auto;
+  padding: 12px 10px 10px;
+  border-bottom: 1px solid #f0f0f2;
+  background: #fff;
+}
+
+.assistant-star-plot {
+  display: block;
+  width: min(100%, 352px);
+  height: auto;
+  margin: 0 auto;
+  overflow: visible;
+}
+
+.assistant-star-grid circle,
+.assistant-star-grid line {
+  fill: none;
+  stroke: #edeef2;
+  stroke-width: 1.1;
+  vector-effect: non-scaling-stroke;
+}
+
+.assistant-star-grid .assistant-star-outer-ring {
+  stroke: #17181e;
+  stroke-width: 1.45;
+}
+
+.assistant-star-polygon {
+  fill: rgba(27, 18, 105, 0.075);
+  stroke: #1b1269;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.assistant-star-axis-labels text {
+  fill: #25262d;
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.assistant-star-value-labels text {
+  fill: #7c7e86;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
 .chat-log {
   position: relative;
   display: flex;

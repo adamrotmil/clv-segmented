@@ -4399,6 +4399,8 @@ function App() {
                 trace={lastChange}
                 generationRuns={generationPromptRuns}
                 selectedVariantId={selectedVariantId}
+                selectedVariant={selectedVariant ?? null}
+                selectedVariantScalars={selectedVariant ? scalarRecipeForVariant(selectedVariant) : []}
                 history={history}
                 canUndo={hasPendingScalarChanges || history.length > 0}
                 onUndo={hasPendingScalarChanges ? resetChanges : undoLastChange}
@@ -6217,6 +6219,116 @@ function SegmentFlyout({
   )
 }
 
+function AssistantScalarStarPlot({
+  variant,
+  scalars,
+}: {
+  variant: ImageVariant
+  scalars: AestheticScalar[]
+}) {
+  if (!scalars.length) return null
+
+  const width = 400
+  const height = 306
+  const centerX = 200
+  const centerY = 153
+  const radius = 100
+  const labelRadius = 132
+  const rings = [0.2, 0.4, 0.6, 0.8]
+  const recipeValues = scalars
+    .map((scalar) => `${scalar.id}:${Math.round(scalar.value)}`)
+    .join(';')
+
+  function pointFor(index: number, value = 1, outputRadius = radius) {
+    const angle = (Math.PI * 2 * index) / scalars.length - Math.PI / 2
+    const scalarRadius = outputRadius * value
+
+    return {
+      x: centerX + Math.cos(angle) * scalarRadius,
+      y: centerY + Math.sin(angle) * scalarRadius,
+      angle,
+    }
+  }
+
+  function labelLines(scalar: AestheticScalar) {
+    if (scalar.id === 'presence') return ['Human', 'Presence']
+    if (scalar.id === 'valence') return ['Emotional', 'Valence']
+    return [scalar.label]
+  }
+
+  const polygonPoints = scalars
+    .map((scalar, index) => {
+      const clampedValue = Math.min(100, Math.max(0, scalar.value)) / 100
+      const point = pointFor(index, clampedValue)
+      return `${point.x.toFixed(2)},${point.y.toFixed(2)}`
+    })
+    .join(' ')
+
+  return (
+    <section
+      className="assistant-scalar-plot-region"
+      aria-label="Selected image scalar recipe"
+      data-selected-variant-title={variant.title}
+      data-scalar-values={recipeValues}
+    >
+      <svg
+        className="assistant-star-plot"
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={`${variant.title} scalar recipe`}
+      >
+        <g className="assistant-star-grid">
+          {rings.map((ring) => (
+            <circle key={ring} cx={centerX} cy={centerY} r={radius * ring} />
+          ))}
+          <circle className="assistant-star-outer-ring" cx={centerX} cy={centerY} r={radius} />
+          {scalars.map((scalar, index) => {
+            const point = pointFor(index)
+            return (
+              <line
+                key={scalar.id}
+                x1={centerX}
+                y1={centerY}
+                x2={point.x}
+                y2={point.y}
+              />
+            )
+          })}
+        </g>
+        <polygon className="assistant-star-polygon" points={polygonPoints} />
+        <g className="assistant-star-value-labels" aria-hidden="true">
+          {[1, 0.8, 0.6, 0.4, 0.2, 0].map((value) => (
+            <text key={value} x={centerX + 7} y={centerY - radius * value + 4}>
+              {value === 1 || value === 0 ? value.toFixed(1).replace('.0', value === 0 ? '' : '.0') : value}
+            </text>
+          ))}
+        </g>
+        <g className="assistant-star-axis-labels">
+          {scalars.map((scalar, index) => {
+            const point = pointFor(index, 1, labelRadius)
+            const anchor =
+              Math.abs(point.x - centerX) < 10 ? 'middle' : point.x > centerX ? 'start' : 'end'
+            const lines = labelLines(scalar)
+            const verticalOffset = point.y < centerY - 110 ? 3 : point.y > centerY + 110 ? 6 : 0
+            const x = Number(point.x.toFixed(2))
+            const y = Number((point.y + verticalOffset - (lines.length - 1) * 8).toFixed(2))
+
+            return (
+              <text key={scalar.id} x={x} y={y} textAnchor={anchor}>
+                {lines.map((line, lineIndex) => (
+                  <tspan key={line} x={x} dy={lineIndex === 0 ? 0 : 18}>
+                    {line}
+                  </tspan>
+                ))}
+              </text>
+            )
+          })}
+        </g>
+      </svg>
+    </section>
+  )
+}
+
 function AssistantPanel({
   messages,
   chatDraft,
@@ -6229,6 +6341,8 @@ function AssistantPanel({
   trace,
   generationRuns,
   selectedVariantId,
+  selectedVariant,
+  selectedVariantScalars,
   history,
   canUndo,
   onUndo,
@@ -6246,6 +6360,8 @@ function AssistantPanel({
   trace: ChangeTrace
   generationRuns: GenerationPromptRun[]
   selectedVariantId: string
+  selectedVariant: ImageVariant | null
+  selectedVariantScalars: AestheticScalar[]
   history: HistoryEntry[]
   canUndo: boolean
   onUndo: () => void
@@ -6312,6 +6428,9 @@ function AssistantPanel({
             showSummary={false}
           />
         </div>
+      ) : null}
+      {selectedVariant ? (
+        <AssistantScalarStarPlot variant={selectedVariant} scalars={selectedVariantScalars} />
       ) : null}
       <div className="chat-log" ref={chatLogRef}>
         {messages.map((message) => (
