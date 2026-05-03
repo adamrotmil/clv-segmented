@@ -1893,22 +1893,67 @@ function zoomFromWheel(
   return Number(clampZoom(nextZoom, minZoom, maxZoom).toFixed(2))
 }
 
+function easeInOutCubic(value: number) {
+  return value < 0.5
+    ? 4 * value * value * value
+    : 1 - Math.pow(-2 * value + 2, 3) / 2
+}
+
+function curvedPanPoint(start: DragOffset, target: DragOffset, progress: number, curve: number) {
+  const eased = easeInOutCubic(progress)
+  const dx = target.x - start.x
+  const dy = target.y - start.y
+  const distance = Math.hypot(dx, dy)
+  const offset = distance > 0 ? curve * Math.sin(Math.PI * eased) : 0
+  const normalX = distance > 0 ? -dy / distance : 0
+  const normalY = distance > 0 ? dx / distance : 0
+
+  return {
+    x: start.x + dx * eased + normalX * offset,
+    y: start.y + dy * eased + normalY * offset,
+  }
+}
+
 function useCanvasPan() {
-  const [pan, setPan] = useState<DragOffset>({ x: 0, y: 0 })
+  const [pan, setPanValue] = useState<DragOffset>({ x: 0, y: 0 })
   const [panState, setPanState] = useState<CanvasPanState | null>(null)
   const [wheelFocused, setWheelFocused] = useState(false)
+  const panRef = useRef<DragOffset>({ x: 0, y: 0 })
+  const panAnimationRef = useRef(0)
+
+  const setPan = useCallback((next: DragOffset | ((current: DragOffset) => DragOffset)) => {
+    setPanValue((current) => {
+      const resolved = typeof next === 'function' ? next(current) : next
+      panRef.current = resolved
+      return resolved
+    })
+  }, [])
+
+  const cancelPanAnimation = useCallback(() => {
+    if (!panAnimationRef.current) return
+    window.cancelAnimationFrame(panAnimationRef.current)
+    panAnimationRef.current = 0
+  }, [])
+
+  useEffect(() => {
+    panRef.current = pan
+  }, [pan])
+
+  useEffect(() => cancelPanAnimation, [cancelPanAnimation])
 
   function beginPan(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0 || !canStartCanvasPan(event.target)) return
 
+    cancelPanAnimation()
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
+    const origin = panRef.current
     setPanState({
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      originX: pan.x,
-      originY: pan.y,
+      originX: origin.x,
+      originY: origin.y,
     })
   }
 
@@ -1932,18 +1977,55 @@ function useCanvasPan() {
 
   const panByWheel = useCallback(
     (event: Pick<globalThis.WheelEvent, 'deltaMode' | 'deltaX' | 'deltaY'>) => {
+      cancelPanAnimation()
       const deltaScale = normalizeWheelDelta(event.deltaMode)
       setPan((current) => ({
         x: current.x - event.deltaX * deltaScale,
         y: current.y - event.deltaY * deltaScale,
       }))
     },
-    [],
+    [cancelPanAnimation, setPan],
+  )
+
+  const animatePanTo = useCallback(
+    (target: DragOffset) => {
+      cancelPanAnimation()
+      const start = panRef.current
+      const dx = target.x - start.x
+      const dy = target.y - start.y
+      const distance = Math.hypot(dx, dy)
+
+      if (distance < 1 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        setPan(target)
+        return
+      }
+
+      const duration = Math.min(760, Math.max(460, 360 + distance * 0.45))
+      const curve = Math.min(14, Math.max(5, distance * 0.025))
+      const startedAt = performance.now()
+
+      function tick(now: number) {
+        const progress = Math.min(1, (now - startedAt) / duration)
+        setPan(curvedPanPoint(start, target, progress, curve))
+
+        if (progress < 1) {
+          panAnimationRef.current = window.requestAnimationFrame(tick)
+          return
+        }
+
+        panAnimationRef.current = 0
+        setPan(target)
+      }
+
+      panAnimationRef.current = window.requestAnimationFrame(tick)
+    },
+    [cancelPanAnimation, setPan],
   )
 
   return {
     pan,
     setPan,
+    animatePanTo,
     panning: Boolean(panState),
     wheelFocused,
     beginPan,
@@ -5606,10 +5688,10 @@ function CanvasWorkspace({
       320,
       Math.min(590, (canvasScrollRef.current?.clientHeight ?? 760) - 60),
     )
-    canvasPan.setPan((current) => ({
-      ...current,
+    canvasPan.animatePanTo({
+      x: canvasPan.pan.x,
       y: Math.min(0, targetScreenTop - targetTop),
-    }))
+    })
   }, [
     artboardDrag.positions,
     artboardScale,
