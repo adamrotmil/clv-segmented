@@ -126,7 +126,7 @@ export const updatedSegments: SegmentAnnotation[] = [
 
 const originalVisualContext: ImageVariant['visualContext'] = {
   summary:
-    'Square social ad creative with one seated person in a warm interior crop, large white headline copy across the middle, dark product held near the lower center, and a compact CTA in the lower-left corner.',
+    'Square social ad creative with one seated person in a warm tan interior crop, dark marble surface at the left edge, large white headline copy across the middle, dark rectangular product package held near the lower center, blue denim visible in the lower frame, and a compact CTA in the lower-left corner.',
   locks: [
     'one human subject only',
     'same seated/cropped body arrangement',
@@ -134,6 +134,7 @@ const originalVisualContext: ImageVariant['visualContext'] = {
     'headline region stays across the center of the frame',
     'CTA remains in the lower-left region',
     'warm wall/shadow backdrop remains recognizable',
+    'blue denim and seated lower-body crop remain recognizable',
   ],
   textAnchors: [
     'large central headline',
@@ -152,11 +153,11 @@ const originalVisualContext: ImageVariant['visualContext'] = {
 const remixVisualContext: ImageVariant['visualContext'] = {
   ...originalVisualContext,
   summary:
-    'Square social ad remix with one seated person in the same warm interior layout, face more visible, dark product held near the lower center, large white headline copy over the torso, italic subcopy below, and lower-left CTA.',
+    'Square social ad remix with one seated person in the same warm tan interior layout, face visible in the upper-right crop, cream top and blue denim lower-frame crop, dark marble surface at the left edge, dark rectangular product package held near the lower center, large white headline copy over the torso, italic subcopy below, and lower-left CTA.',
   textAnchors: [
     'Radiate Confidence / Feel Beautiful headline structure',
     'small italic morning/barista subcopy',
-    'SHOP BRALESS NOW lower-left CTA',
+    'lower-left CTA button',
   ],
 }
 
