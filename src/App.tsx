@@ -75,6 +75,8 @@ type PendingPhase = 'idle' | 'analyzing' | 'applying' | 'remixing' | 'failed'
 type AgentStatus = 'queued' | 'running' | 'done' | 'paused' | 'failed'
 type ScoreTab = 'scenes' | 'score' | 'insights'
 
+const DEFAULT_CANVAS_ZOOM = 75
+
 type ChangeTrace = {
   id: string
   control: string
@@ -2207,7 +2209,7 @@ function App() {
   const [selectedSegmentId, setSelectedSegmentId] = useState('')
   const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([])
   const [annotationsVisible, setAnnotationsVisible] = useState(true)
-  const [zoom, setZoom] = useState(100)
+  const [zoom, setZoom] = useState(DEFAULT_CANVAS_ZOOM)
   const [scalars, setScalars] = useState(initialScalars)
   const [draftScalars, setDraftScalars] = useState(initialScalars)
   const [scoreScalars, setScoreScalars] = useState(() => applyScorePreset(initialScalars))
