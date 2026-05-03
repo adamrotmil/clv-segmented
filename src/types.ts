@@ -130,6 +130,21 @@ export type AssistantCanvasAction =
       groups: CanvasThemeGroup[]
       selectedIds?: string[]
     }
+  | {
+      type: 'select-segment'
+      segmentIds: string[]
+    }
+  | {
+      type: 'generate-remix'
+      sourceVariantId?: string
+      segmentIds?: string[]
+      promptHint?: string
+    }
+  | {
+      type: 'blend-variants'
+      sourceId: string
+      targetId: string
+    }
 
 export type ScalarGenerationChange = {
   id: string

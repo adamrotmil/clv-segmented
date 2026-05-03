@@ -247,6 +247,102 @@ function arrangeResponse(request: AssistantChatRequest): AssistantChatResponse |
   }
 }
 
+function segmentIdsFromPrompt(request: AssistantChatRequest) {
+  const prompt = latestUserPrompt(request).toLowerCase()
+  const segments = request.selectedVariant.segments?.length
+    ? request.selectedVariant.segments
+    : request.selectedSegments
+  const matches = segments.filter((segment) => {
+    const label = `${segment.id} ${segment.label}`.toLowerCase()
+    return (
+      prompt.includes(segment.id.toLowerCase()) ||
+      label
+        .split(/\s+/)
+        .filter((token) => token.length > 3)
+        .some((token) => prompt.includes(token))
+    )
+  })
+
+  if (matches.length) return matches.map((segment) => segment.id)
+  if (prompt.includes('face') || prompt.includes('person') || prompt.includes('emotion')) return ['emotion']
+  if (prompt.includes('product') || prompt.includes('package')) return ['product']
+  if (prompt.includes('cta') || prompt.includes('button')) return ['cta']
+  if (prompt.includes('copy') || prompt.includes('headline') || prompt.includes('text')) return ['resonance']
+  return request.selectedSegments.map((segment) => segment.id).slice(0, 2)
+}
+
+function selectSegmentResponse(request: AssistantChatRequest): AssistantChatResponse | null {
+  const prompt = latestUserPrompt(request).toLowerCase()
+  if (
+    !prompt.includes('focus') &&
+    !prompt.includes('select') &&
+    !prompt.includes('segment') &&
+    !prompt.includes('look at')
+  ) {
+    return null
+  }
+
+  const segmentIds = segmentIdsFromPrompt(request).filter(Boolean)
+  if (!segmentIds.length) return null
+
+  return {
+    content: `I focused ${segmentIds.join(', ')} so the canvas and next prompt use that segment context.`,
+    activity: 'Focused segment >',
+    focus: 'Selecting segment context',
+    provider: 'mock',
+    actions: [{ type: 'select-segment', segmentIds }],
+  }
+}
+
+function blendResponse(request: AssistantChatRequest): AssistantChatResponse | null {
+  const prompt = latestUserPrompt(request).toLowerCase()
+  if (!prompt.includes('blend') && !prompt.includes('merge') && !prompt.includes('combine images')) {
+    return null
+  }
+
+  const [source, target] = comparisonCandidates(request)
+  if (!source || !target) return null
+
+  return {
+    content: `I’ll blend ${source.title} with ${target.title} as a new canvas remix, using the current photographic controls and chat context.`,
+    activity: 'Queued image blend >',
+    focus: 'Blending selected canvas images',
+    provider: 'mock',
+    actions: [{ type: 'blend-variants', sourceId: source.id, targetId: target.id }],
+  }
+}
+
+function generateResponse(request: AssistantChatRequest): AssistantChatResponse | null {
+  const prompt = latestUserPrompt(request).toLowerCase()
+  if (
+    !prompt.includes('generate') &&
+    !prompt.includes('remix') &&
+    !prompt.includes('make a new image') &&
+    !prompt.includes('create a variant')
+  ) {
+    return null
+  }
+
+  const [source] = variantsFromPrompt(request)
+  const sourceVariant = source ?? request.selectedVariant
+  const segmentIds = segmentIdsFromPrompt(request)
+
+  return {
+    content: `I’ll generate a new remix from ${sourceVariant.title}, carrying over the staged controls, selected segment context, and this chat direction.`,
+    activity: 'Queued remix >',
+    focus: 'Starting image generation',
+    provider: 'mock',
+    actions: [
+      {
+        type: 'generate-remix',
+        sourceVariantId: sourceVariant.id,
+        segmentIds,
+        promptHint: request.prompt,
+      },
+    ],
+  }
+}
+
 function fallbackChatResponse(request: AssistantChatRequest): AssistantChatResponse {
   const prompt = latestUserPrompt(request).toLowerCase()
   const scalarSummary = scalarContext(request)
@@ -271,6 +367,26 @@ function fallbackChatResponse(request: AssistantChatRequest): AssistantChatRespo
     prompt.includes('rearrange')
   ) {
     const response = arrangeResponse(request)
+    if (response) return response
+  }
+
+  if (prompt.includes('blend') || prompt.includes('merge') || prompt.includes('combine images')) {
+    const response = blendResponse(request)
+    if (response) return response
+  }
+
+  if (
+    prompt.includes('generate') ||
+    prompt.includes('remix') ||
+    prompt.includes('make a new image') ||
+    prompt.includes('create a variant')
+  ) {
+    const response = generateResponse(request)
+    if (response) return response
+  }
+
+  if (prompt.includes('focus') || prompt.includes('select') || prompt.includes('segment')) {
+    const response = selectSegmentResponse(request)
     if (response) return response
   }
 

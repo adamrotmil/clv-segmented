@@ -33,6 +33,7 @@ jobs:
       - name: Build
         env:
           VITE_IMAGE_GENERATION_ENDPOINT: ${{ vars.VITE_IMAGE_GENERATION_ENDPOINT }}
+          VITE_IMAGE_SEGMENTATION_ENDPOINT: ${{ vars.VITE_IMAGE_SEGMENTATION_ENDPOINT }}
           VITE_CHAT_ENDPOINT: ${{ vars.VITE_CHAT_ENDPOINT }}
         run: npm run build
 

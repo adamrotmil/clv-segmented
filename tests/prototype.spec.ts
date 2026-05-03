@@ -887,6 +887,18 @@ test('remix generation request includes recent chat and scalar context', async (
   await expect(page.getByLabel('Interaction trace').first()).toContainText('recent chat direction')
 })
 
+test('assistant can queue a remix from chat and pass segment context', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByPlaceholder('Ask anything...').fill('generate a new remix from Remix 1 focused on product')
+  await page.getByRole('button', { name: 'Send message' }).click()
+
+  await expect(page.locator('.variant-strip').getByText('Remix 2')).toBeVisible()
+  await expect(page.getByText('Source remix generated')).toBeVisible()
+  await expect(page.getByText('Queued remix >')).toBeVisible()
+  await expect(page.locator('.variant-strip')).toContainText('Product placement')
+})
+
 test('assistant compares requested canvas versions with SAM context', async ({ page }) => {
   await page.goto('/')
 

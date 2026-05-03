@@ -1803,6 +1803,7 @@ function App() {
     trace,
     promptHints,
     chatContext,
+    focusedSegmentsOverride,
   }: {
     intent: CreativeGenerationRequest['intent']
     outputTitle: string
@@ -1814,10 +1815,13 @@ function App() {
     trace: ChangeTrace
     promptHints: string[]
     chatContext: ChatMessage[]
+    focusedSegmentsOverride?: SegmentAnnotation[]
   }): ImagePromptPacket {
-    const focusedSegments = (selectedSegmentIds.length ? selectedSegmentIds : [activeSegment.id])
-      .map((id) => activeVariantSegments.find((segment) => segment.id === id))
-      .filter(Boolean) as SegmentAnnotation[]
+    const focusedSegments =
+      focusedSegmentsOverride ??
+      ((selectedSegmentIds.length ? selectedSegmentIds : [activeSegment.id])
+        .map((id) => activeVariantSegments.find((segment) => segment.id === id))
+        .filter(Boolean) as SegmentAnnotation[])
     const scalarAdjustments = scalarChanges.map(scalarAdjustmentLine)
     const scalarSnapshot = scalarRecipeSummary(nextScalars)
     const scalarDirectives = nextScalars.map(scalarPromptDirective)
@@ -1930,6 +1934,7 @@ function App() {
     trace,
     promptHints,
     sourceVariantOverride,
+    focusedSegmentIdsOverride,
   }: {
     id: string
     intent: CreativeGenerationRequest['intent']
@@ -1943,6 +1948,7 @@ function App() {
     trace: ChangeTrace
     promptHints: string[]
     sourceVariantOverride?: ImageVariant
+    focusedSegmentIdsOverride?: string[]
   }): CreativeGenerationRequest {
     const sourceVariant =
       sourceVariantOverride ??
@@ -1952,8 +1958,18 @@ function App() {
     const scalarChanges = scalarChangesBetween(beforeScalars, nextScalars)
     const uniquePromptHints = Array.from(new Set(promptHints.filter(Boolean)))
     const imageInputs = buildImageInputs(sourceIds, sourceVariant)
-    const focusedSegments = (selectedSegmentIds.length ? selectedSegmentIds : [activeSegment.id])
-      .map((segmentId) => activeVariantSegments.find((segment) => segment.id === segmentId))
+    const sourceSegments = segmentsForVariant(sourceVariant)
+    const focusedSegmentIds = focusedSegmentIdsOverride?.length
+      ? focusedSegmentIdsOverride
+      : selectedSegmentIds.length
+        ? selectedSegmentIds
+        : [activeSegment.id]
+    const focusedSegments = focusedSegmentIds
+      .map(
+        (segmentId) =>
+          sourceSegments.find((segment) => segment.id === segmentId) ??
+          activeVariantSegments.find((segment) => segment.id === segmentId),
+      )
       .filter(Boolean) as SegmentAnnotation[]
     const chatContext = messages.slice(-8)
     const sceneDescription = sceneDescriptionForVariant({
@@ -1977,7 +1993,9 @@ function App() {
       trace,
       promptHints: uniquePromptHints,
       chatContext,
+      focusedSegmentsOverride: focusedSegments,
     })
+    const selectedGenerationSegment = focusedSegments[0] ?? activeSegment
 
     return {
       id,
@@ -1989,7 +2007,7 @@ function App() {
       sourceVariant,
       sourceIds,
       imageInputs,
-      selectedSegment: activeSegment,
+      selectedSegment: selectedGenerationSegment,
       scalars: nextScalars,
       scalarChanges,
       chatContext,
@@ -2508,7 +2526,7 @@ function App() {
     window.setTimeout(() => setToast(''), 1800)
   }
 
-  async function remixFromVariant(variantId: string) {
+  async function remixFromVariant(variantId: string, focusedSegmentIdsOverride?: string[]) {
     const sourceVariant = workingVariants.find((variant) => variant.id === variantId)
     if (!sourceVariant) return
 
@@ -2517,6 +2535,11 @@ function App() {
     const nextId = `remix-${Date.now()}`
     const outputTitle = nextRemixTitle(variants)
     const predictedScore = Math.min(96, Math.max(sourceVariant.score + 2, remixScore + 1))
+    const sourceSegments = segmentsForVariant(sourceVariant)
+    const remixSegment =
+      focusedSegmentIdsOverride
+        ?.map((segmentId) => sourceSegments.find((segment) => segment.id === segmentId))
+        .find(Boolean) ?? activeSegment
     const pendingTrace: ChangeTrace = {
       id: `${nextId}-trace`,
       control: 'Remix source',
@@ -2526,10 +2549,10 @@ function App() {
       after: outputTitle,
       scoreBefore: sourceVariant.score,
       scoreAfter: predictedScore,
-      segment: activeSegment.label,
+      segment: remixSegment.label,
       ingredients: [
         sourceVariant.title,
-        activeSegment.label,
+        remixSegment.label,
         ...remixScalars.slice(0, 1).map((scalar) => scalar.label),
       ],
     }
@@ -2550,6 +2573,7 @@ function App() {
         ...messages.slice(-4).map((message) => `${message.role}: ${message.content}`),
       ],
       sourceVariantOverride: sourceVariant,
+      focusedSegmentIdsOverride,
     })
 
     setLastChange(pendingTrace)
@@ -3190,6 +3214,54 @@ function App() {
 
         setToast('Canvas grouped by theme')
         window.setTimeout(() => setToast(''), 1600)
+        return
+      }
+
+      if (action.type === 'select-segment') {
+        const validSegmentIds = action.segmentIds.filter((id) =>
+          activeVariantSegments.some((segment) => segment.id === id),
+        )
+        if (!validSegmentIds.length) return
+
+        setSelectedSegmentIds(validSegmentIds)
+        setSelectedSegmentId(validSegmentIds[0])
+        setToast('Segment focused')
+        window.setTimeout(() => setToast(''), 1400)
+        return
+      }
+
+      if (action.type === 'generate-remix') {
+        const validSegmentIds = (action.segmentIds ?? []).filter((id) =>
+          activeVariantSegments.some((segment) => segment.id === id),
+        )
+        if (validSegmentIds.length) {
+          setSelectedSegmentIds(validSegmentIds)
+          setSelectedSegmentId(validSegmentIds[0])
+        }
+
+        const sourceVariantId =
+          action.sourceVariantId && workingVariants.some((variant) => variant.id === action.sourceVariantId)
+            ? action.sourceVariantId
+            : selectedVariantId
+
+        setToast('Assistant queued remix')
+        window.setTimeout(() => setToast(''), 1400)
+        void remixFromVariant(sourceVariantId, validSegmentIds)
+        return
+      }
+
+      if (action.type === 'blend-variants') {
+        const canBlend =
+          action.sourceId !== action.targetId &&
+          workingVariants.some((variant) => variant.id === action.sourceId) &&
+          workingVariants.some((variant) => variant.id === action.targetId)
+        if (!canBlend) return
+
+        setCanvasComparisonIds([action.sourceId, action.targetId])
+        setSelectedVariantId(action.sourceId)
+        setToast('Assistant queued blend')
+        window.setTimeout(() => setToast(''), 1400)
+        void blendCanvasVariants(action.sourceId, action.targetId)
       }
     })
   }
