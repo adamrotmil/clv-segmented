@@ -34,6 +34,8 @@ import {
   SubGrid20Regular,
 } from '@fluentui/react-icons'
 import './App.css'
+import helveticaNeueBoldSample from './assets/typeface-reference/helvetica-neue-bold-sample.png'
+import helveticaNeueRegularSample from './assets/typeface-reference/helvetica-neue-regular-sample.png'
 import {
   assets,
   initialMessages,
@@ -851,8 +853,10 @@ function imageInputLine(input: ImageInputReference, index: number) {
   const scalarRecipe = input.scalarRecipe?.length
     ? `; scalar recipe ${scalarRecipeSummary(input.scalarRecipe, 5).join(' | ')}`
     : ''
+  const referenceType = input.referenceType ? `; referenceType ${input.referenceType}` : ''
+  const description = input.description ? `; description ${input.description}` : ''
 
-  return `imageInputs[${index}]: ${input.role}; id ${input.id}; title ${input.title}; media ${input.mediaType ?? 'image'}${scalarRecipe}`
+  return `imageInputs[${index}]: ${input.role}; id ${input.id}; title ${input.title}; media ${input.mediaType ?? 'image'}${referenceType}${description}${scalarRecipe}`
 }
 
 function chatPromptLines(chatContext: ChatMessage[]) {
@@ -948,7 +952,7 @@ function productPolicyForRequest({
 }) {
   const sourceLines = productDnaLines(sourceVariant)
   const referenceLines = imageInputs
-    .filter((input) => input.role === 'reference')
+    .filter((input) => input.role === 'reference' && input.referenceType !== 'typography')
     .map((input) => `reference ${input.title}: compare only for style/composition; do not replace the source product identity with this reference product`)
 
   return [
@@ -975,11 +979,16 @@ function typographyPolicyForRequest({
   const sourceLines = typographyDnaLines(sourceVariant)
   const referenceLines = imageInputs
     .filter((input) => input.role === 'reference')
-    .map((input) => `reference ${input.title}: inspect only for visual comparison; do not override source typography unless this is an image blend with matching text system`)
+    .map((input) =>
+      input.referenceType === 'typography'
+        ? `typography reference ${input.title}: use as glyph-shape grounding for Helvetica Neue proportions, terminals, numerals, punctuation, weight, and x-height; keep the creative photo source in imageInputs[0] as the layout/product/copy source of truth`
+        : `creative reference ${input.title}: inspect only for visual comparison; do not override source typography unless this is an image blend with matching text system`,
+    )
 
   return [
     'Typography brand lock: before remixing, perform a source image DNA read from imageInputs[0] and preserve the exact same font family and text rendering as the source image.',
     'If the source uses Inter, use Inter. If the source uses Mulish, use Mulish. If vision identifies another brand font, use that exact font family and matching fallback style.',
+    'When Helvetica Neue typography reference images are provided, use them as additional glyph grounding for Helvetica Neue/neutral grotesk letterforms while keeping imageInputs[0] as the primary ad/photo source.',
     'Keep glyph geometry, x-height, weight, casing, kerning/tracking, line-height, text alignment, stroke contrast, CTA label style, and text block placement from the source.',
     'Only photographic aesthetics may change unless the user explicitly asks to change typography. Do not substitute generic sans, serif, script, display, condensed, rounded, or decorative fonts.',
     `Seeded source typography DNA:\n${sourceLines.map((line) => `- ${line}`).join('\n')}`,
@@ -2656,6 +2665,31 @@ function App() {
     })
   }
 
+  function typefaceReferenceInputs(): ImageInputReference[] {
+    return [
+      {
+        id: 'typeface-helvetica-neue-regular',
+        title: 'Helvetica Neue Regular glyph reference',
+        url: absoluteImageUrl(helveticaNeueRegularSample),
+        role: 'reference',
+        referenceType: 'typography',
+        mediaType: 'image/png',
+        description:
+          'Helvetica Neue regular glyph grid for exact letterform, numeral, punctuation, x-height, and terminal reference.',
+      },
+      {
+        id: 'typeface-helvetica-neue-bold',
+        title: 'Helvetica Neue Bold glyph reference',
+        url: absoluteImageUrl(helveticaNeueBoldSample),
+        role: 'reference',
+        referenceType: 'typography',
+        mediaType: 'image/png',
+        description:
+          'Helvetica Neue bold glyph grid for CTA-weight letterform, numeral, punctuation, x-height, and terminal reference.',
+      },
+    ]
+  }
+
   function buildImageInputs(sourceIds: string[], sourceVariant: ImageVariant): ImageInputReference[] {
     const sourceVariants = [
       sourceVariant,
@@ -2667,15 +2701,18 @@ function App() {
       (variant, index, list) => list.findIndex((item) => item.id === variant.id) === index,
     )
 
-    return uniqueSourceVariants.map((variant, index) => ({
+    const creativeInputs = uniqueSourceVariants.map((variant, index) => ({
       id: variant.id,
       title: variant.title,
       url: absoluteImageUrl(variant.image),
       role: index === 0 ? 'source' : 'reference',
+      referenceType: 'creative',
       mediaType: mediaTypeForImage(variant.image),
       copywriting: copywritingForVariant(variant),
       scalarRecipe: scalarRecipeForVariant(variant),
-    }))
+    })) satisfies ImageInputReference[]
+
+    return [...creativeInputs, ...typefaceReferenceInputs()]
   }
 
   function buildImagePromptPacket({

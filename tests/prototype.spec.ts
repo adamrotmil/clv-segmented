@@ -81,6 +81,16 @@ test('new remix generation reserves a shimmering target frame before resolving',
     'Create a square 1:1 premium social ad for a beauty/intimates brand',
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'imageInputs[0]: source; id updated; title Remix 1',
+  )
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'Helvetica Neue Regular glyph reference',
+  )
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'Helvetica Neue Bold glyph reference',
+  )
+  await expect(page.getByLabel('Image generation prompt')).toContainText('referenceType typography')
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
     'Aesthetic direction from sliders',
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText(
@@ -99,6 +109,7 @@ test('new remix generation reserves a shimmering target frame before resolving',
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText('Typography brand lock')
   await expect(page.getByLabel('Image generation prompt')).toContainText('exact same font family')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('glyph grounding')
   await expect(page.getByLabel('Image generation prompt')).toContainText('font family Inter')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Source image DNA / vision read')
   await expect(page.getByLabel('Image generation prompt')).toContainText(

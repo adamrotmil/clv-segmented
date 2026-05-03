@@ -209,7 +209,9 @@ export type ImageInputReference = {
   title: string
   url: string
   role: 'source' | 'reference'
+  referenceType?: 'creative' | 'typography'
   mediaType?: string
+  description?: string
   copywriting?: string[]
   scalarRecipe?: AestheticScalar[]
 }
