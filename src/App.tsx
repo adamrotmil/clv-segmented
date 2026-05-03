@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   CSSProperties,
   FormEvent,
@@ -6,7 +6,6 @@ import type {
   MouseEvent,
   PointerEvent,
   ReactNode,
-  WheelEvent,
 } from 'react'
 import {
   AlertTriangle,
@@ -564,6 +563,32 @@ function canStartCanvasPan(target: EventTarget | null) {
   )
 }
 
+function canStartCanvasZoom(target: EventTarget | null) {
+  if (!(target instanceof Element)) return true
+
+  return !target.closest('input, textarea, select')
+}
+
+function normalizeWheelDelta(deltaMode: number) {
+  return deltaMode === 1 ? 18 : deltaMode === 2 ? 120 : 1
+}
+
+function clampZoom(value: number, minZoom: number, maxZoom: number) {
+  return Math.min(maxZoom, Math.max(minZoom, value))
+}
+
+function zoomFromWheel(
+  currentZoom: number,
+  event: Pick<globalThis.WheelEvent, 'deltaMode' | 'deltaY'>,
+  minZoom: number,
+  maxZoom: number,
+) {
+  const deltaScale = normalizeWheelDelta(event.deltaMode)
+  const nextZoom = currentZoom - event.deltaY * deltaScale * 0.08
+
+  return Number(clampZoom(nextZoom, minZoom, maxZoom).toFixed(2))
+}
+
 function useCanvasPan() {
   const [pan, setPan] = useState<DragOffset>({ x: 0, y: 0 })
   const [panState, setPanState] = useState<CanvasPanState | null>(null)
@@ -601,15 +626,16 @@ function useCanvasPan() {
     setPanState(null)
   }
 
-  function wheelPan(event: WheelEvent<HTMLDivElement>) {
-    if (!wheelFocused || !canStartCanvasPan(event.target)) return
-
-    const deltaScale = event.deltaMode === 1 ? 18 : event.deltaMode === 2 ? 120 : 1
-    setPan((current) => ({
-      x: current.x - event.deltaX * deltaScale,
-      y: current.y - event.deltaY * deltaScale,
-    }))
-  }
+  const panByWheel = useCallback(
+    (event: Pick<globalThis.WheelEvent, 'deltaMode' | 'deltaX' | 'deltaY'>) => {
+      const deltaScale = normalizeWheelDelta(event.deltaMode)
+      setPan((current) => ({
+        x: current.x - event.deltaX * deltaScale,
+        y: current.y - event.deltaY * deltaScale,
+      }))
+    },
+    [],
+  )
 
   return {
     pan,
@@ -618,10 +644,56 @@ function useCanvasPan() {
     beginPan,
     movePan,
     endPan,
-    wheelPan,
+    panByWheel,
     focusWheel: () => setWheelFocused(true),
     blurWheel: () => setWheelFocused(false),
   }
+}
+
+function useCanvasWheelGestures({
+  scrollRef,
+  wheelFocused,
+  panByWheel,
+  zoom,
+  onZoomChange,
+  minZoom,
+  maxZoom,
+}: {
+  scrollRef: { current: HTMLDivElement | null }
+  wheelFocused: boolean
+  panByWheel: (event: Pick<globalThis.WheelEvent, 'deltaMode' | 'deltaX' | 'deltaY'>) => void
+  zoom: number
+  onZoomChange: (value: number) => void
+  minZoom: number
+  maxZoom: number
+}) {
+  useEffect(() => {
+    const node = scrollRef.current
+    if (!node) return undefined
+    const wheelNode = node
+
+    function handleCanvasWheel(event: globalThis.WheelEvent) {
+      const zoomGesture = event.ctrlKey || event.metaKey
+
+      if (zoomGesture) {
+        if (!canStartCanvasZoom(event.target)) return
+
+        event.preventDefault()
+        wheelNode.focus({ preventScroll: true })
+        onZoomChange(zoomFromWheel(zoom, event, minZoom, maxZoom))
+        return
+      }
+
+      if (!wheelFocused || !canStartCanvasPan(event.target)) return
+
+      event.preventDefault()
+      panByWheel(event)
+    }
+
+    wheelNode.addEventListener('wheel', handleCanvasWheel, { passive: false })
+
+    return () => wheelNode.removeEventListener('wheel', handleCanvasWheel)
+  }, [maxZoom, minZoom, onZoomChange, panByWheel, scrollRef, wheelFocused, zoom])
 }
 
 function App() {
@@ -3102,6 +3174,15 @@ function CanvasWorkspace({
   const artboardDrag = useArtboardDrag(artboardScale, onSelectVariant)
   const canvasPan = useCanvasPan()
   const [canvasScrollRef, canvasViewportWidth] = useElementWidth<HTMLDivElement>()
+  useCanvasWheelGestures({
+    scrollRef: canvasScrollRef,
+    wheelFocused: canvasPan.wheelFocused,
+    panByWheel: canvasPan.panByWheel,
+    zoom,
+    onZoomChange,
+    minZoom: 58,
+    maxZoom: 118,
+  })
   const gridColumns =
     canvasViewportWidth > 0
       ? Math.max(
@@ -3109,7 +3190,7 @@ function CanvasWorkspace({
           Math.min(
             canvasVariants.length,
             Math.floor(
-              (canvasViewportWidth / artboardScale + artboardMetrics.gap) /
+              (canvasViewportWidth + artboardMetrics.gap) /
                 (artboardMetrics.size + artboardMetrics.gap),
             ),
           ),
@@ -3283,7 +3364,7 @@ function CanvasWorkspace({
             <button type="button" onClick={() => onZoomChange(Math.max(58, zoom - 5))}>
               -
             </button>
-            <span>{zoom}%</span>
+            <span>{Math.round(zoom)}%</span>
             <button type="button" onClick={() => onZoomChange(Math.min(118, zoom + 5))}>
               +
             </button>
@@ -3302,7 +3383,6 @@ function CanvasWorkspace({
         onPointerMove={canvasPan.movePan}
         onPointerUp={canvasPan.endPan}
         onPointerCancel={canvasPan.endPan}
-        onWheel={canvasPan.wheelPan}
         onBlur={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
             canvasPan.blurWheel()
@@ -4678,6 +4758,16 @@ function ScoreWorkspace({
   const scoreScale = zoom / 100
   const artboardDrag = useArtboardDrag(scoreScale, () => onSelectCreative())
   const canvasPan = useCanvasPan()
+  const scoreCanvasRef = useRef<HTMLDivElement | null>(null)
+  useCanvasWheelGestures({
+    scrollRef: scoreCanvasRef,
+    wheelFocused: canvasPan.wheelFocused,
+    panByWheel: canvasPan.panByWheel,
+    zoom,
+    onZoomChange,
+    minZoom: 80,
+    maxZoom: 125,
+  })
   const canvasWorldStyle = {
     '--pan-x': `${canvasPan.pan.x}px`,
     '--pan-y': `${canvasPan.pan.y}px`,
@@ -4709,7 +4799,7 @@ function ScoreWorkspace({
             <button type="button" onClick={() => onZoomChange(Math.max(80, zoom - 5))}>
               -
             </button>
-            <span>{zoom}%</span>
+            <span>{Math.round(zoom)}%</span>
             <button type="button" onClick={() => onZoomChange(Math.min(125, zoom + 5))}>
               +
             </button>
@@ -4726,13 +4816,13 @@ function ScoreWorkspace({
         className={`score-canvas-scroll ${canvasPan.panning ? 'is-panning' : ''} ${
           canvasPan.wheelFocused ? 'is-wheel-focused' : ''
         }`}
+        ref={scoreCanvasRef}
         aria-label="Score canvas"
         tabIndex={0}
         onPointerDown={handleScoreCanvasPointerDown}
         onPointerMove={canvasPan.movePan}
         onPointerUp={canvasPan.endPan}
         onPointerCancel={canvasPan.endPan}
-        onWheel={canvasPan.wheelPan}
         onBlur={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
             canvasPan.blurWheel()

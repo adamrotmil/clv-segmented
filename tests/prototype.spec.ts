@@ -429,6 +429,46 @@ test('canvas background click clears selection and enables trackpad panning', as
   expect((firstAfter?.y ?? 0) - (firstBefore?.y ?? 0)).toBeGreaterThan(34)
 })
 
+test('trackpad zoom gesture scales the canvas instead of the browser viewport', async ({ page }) => {
+  await page.goto('/')
+
+  const canvas = page.locator('.canvas-scroll')
+  const zoomControl = page.locator('.canvas-toolbar .zoom-control')
+  const firstStack = page.locator('.creative-stack').first()
+  const firstBefore = await firstStack.boundingBox()
+  expect(firstBefore).not.toBeNull()
+  await expect(zoomControl).toContainText('100%')
+
+  const gestureResult = await page
+    .getByRole('button', { name: 'Original Image', exact: true })
+    .evaluate((element) => {
+      const event = new WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        deltaY: -80,
+      })
+      const dispatchResult = element.dispatchEvent(event)
+
+      return {
+        defaultPrevented: event.defaultPrevented,
+        dispatchResult,
+        viewportScale: window.visualViewport?.scale ?? 1,
+      }
+    })
+
+  expect(gestureResult.defaultPrevented).toBe(true)
+  expect(gestureResult.dispatchResult).toBe(false)
+  expect(gestureResult.viewportScale).toBe(1)
+  await expect(canvas).toBeFocused()
+  await expect(zoomControl).toContainText('106%')
+
+  await page.waitForTimeout(160)
+  const firstAfter = await firstStack.boundingBox()
+  expect(firstAfter).not.toBeNull()
+  expect((firstAfter?.width ?? 0) - (firstBefore?.width ?? 0)).toBeGreaterThan(14)
+})
+
 test('sidebars resize to expose more canvas', async ({ page }) => {
   await page.goto('/')
 
