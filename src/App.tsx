@@ -7373,35 +7373,18 @@ function GenerationPromptTrace({
   generationRuns: GenerationPromptRun[]
   mode?: 'running' | 'selected'
 }) {
-  const runningCount = generationRuns.filter((run) => run.status === 'running').length
-  const headerLabel =
-    mode === 'selected'
-      ? 'Selected generation'
-      : runningCount > 1
-        ? `Running ${runningCount} generations`
-        : runningCount === 1
-          ? 'Running generation'
-          : 'Last generation'
-  const statusLabel =
-    mode === 'selected'
-      ? 'raw prompt + segmentation data'
-      : runningCount
-        ? 'streaming tool tokens'
-        : 'tool calls complete'
-
   return (
-    <div className="prompt-observer" aria-label="Image generation prompt">
-      <div className="prompt-observer-head">
-        <span>{headerLabel}</span>
-        <em>{statusLabel}</em>
-      </div>
+    <div className="prompt-observer" aria-label="Image generation prompt" data-generation-mode={mode}>
       {generationRuns.map((run) => (
         <article className="prompt-packet" key={run.request.id}>
-          <div className="prompt-packet-title">
-            <strong>{run.request.outputTitle}</strong>
-            <span>
-              {run.request.model} · {run.status === 'running' ? run.request.intent : `sent · ${run.request.intent}`}
-            </span>
+          <div
+            className="observability-stream"
+            aria-label="Generation observability stream"
+            aria-live="polite"
+          >
+            {observabilityStreamRowsForRequest(run).map((row) => (
+              <ObservabilityStreamRowItem key={`${run.request.id}-${row.id}`} row={row} />
+            ))}
           </div>
           <div className="stream-raw-payloads" aria-label={`Raw tool payloads for ${run.request.outputTitle}`}>
             {observabilityRawPayloadsForRequest(run).map((payload) => (
@@ -7416,15 +7399,6 @@ function GenerationPromptTrace({
                 </summary>
                 <pre>{payload.details}</pre>
               </details>
-            ))}
-          </div>
-          <div
-            className="observability-stream"
-            aria-label="Generation observability stream"
-            aria-live="polite"
-          >
-            {observabilityStreamRowsForRequest(run).map((row) => (
-              <ObservabilityStreamRowItem key={`${run.request.id}-${row.id}`} row={row} />
             ))}
           </div>
         </article>

@@ -162,12 +162,13 @@ test('new remix generation reserves a shimmering target frame before resolving',
     top: element.scrollTop,
     max: element.scrollHeight - element.clientHeight,
   }))
-  const traceMode = await page.locator('.prompt-observer-head').innerText()
-  if (traceMode.includes('Selected generation')) {
+  const traceMode = await page.getByLabel('Image generation prompt').getAttribute('data-generation-mode')
+  if (traceMode === 'selected') {
     expect(scrollMetrics.top).toBeLessThan(4)
   } else {
     expect(scrollMetrics.max - scrollMetrics.top).toBeLessThan(4)
   }
+  await expect(page.locator('.prompt-observer-head')).toHaveCount(0)
   await expect(page.getByLabel('Image generation prompt')).toContainText('active canvas node: Remix 1')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Recent chat')
   await expect(page.getByLabel('Image generation prompt')).not.toContainText('Lifestyle beauty ad')
@@ -203,10 +204,9 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Image generation prompt')).toHaveCount(0)
 
   await remixStack.getByRole('button', { name: 'Remix 2', exact: true }).click()
-  await expect(page.getByLabel('Image generation prompt')).toContainText('Selected generation')
-  await expect(page.getByLabel('Image generation prompt')).toContainText(
-    'raw prompt + segmentation data',
-  )
+  await expect(page.getByLabel('Image generation prompt')).toHaveAttribute('data-generation-mode', 'selected')
+  await expect(page.getByLabel('Image generation prompt')).not.toContainText('Selected generation')
+  await expect(page.getByLabel('Image generation prompt')).not.toContainText('raw prompt + segmentation data')
   await expect
     .poll(() => traceScroll.evaluate((element) => element.scrollTop))
     .toBeLessThan(4)
@@ -1189,7 +1189,7 @@ test('chat and failure states stay state-aware without exposed agent activity', 
   })
   expect(traceFade.position).toBe('absolute')
   expect(traceFade.top).toBe('0px')
-  expect(traceFade.height).toBe('58px')
+  expect(traceFade.height).toBe('24px')
   expect(traceFade.background).toContain('linear-gradient')
 
   await page.getByPlaceholder('Ask anything...').fill('make the face more candid')

@@ -2829,14 +2829,13 @@ button {
   right: 0;
   left: 0;
   z-index: 5;
-  height: 58px;
+  height: 24px;
   border-radius: 8px 8px 0 0;
   background: linear-gradient(
     180deg,
     #fff 0%,
-    #fff 28%,
-    rgba(255, 255, 255, 0.96) 48%,
-    rgba(255, 255, 255, 0.68) 76%,
+    rgba(255, 255, 255, 0.96) 28%,
+    rgba(255, 255, 255, 0.68) 66%,
     rgba(255, 255, 255, 0) 100%
   );
   pointer-events: none;
@@ -2868,13 +2867,12 @@ button {
 }
 
 .trace-panel.has-generation::after {
-  height: 58px;
+  height: 24px;
   background: linear-gradient(
     180deg,
     #fff 0%,
-    #fff 25%,
-    rgba(255, 255, 255, 0.94) 48%,
-    rgba(255, 255, 255, 0.64) 78%,
+    rgba(255, 255, 255, 0.94) 28%,
+    rgba(255, 255, 255, 0.62) 66%,
     rgba(255, 255, 255, 0) 100%
   );
 }
@@ -3014,27 +3012,6 @@ button {
   color: #202126;
 }
 
-.prompt-observer-head,
-.prompt-packet-title,
-.prompt-negative {
-  display: flex;
-  align-items: center;
-}
-
-.prompt-observer-head {
-  justify-content: space-between;
-  color: #8b8c91;
-  font-size: 10px;
-  font-weight: 450;
-  line-height: 14px;
-}
-
-.prompt-observer-head em {
-  color: #9a9ba0;
-  font-style: normal;
-  font-weight: 450;
-}
-
 .prompt-packet {
   display: grid;
   gap: 5px;
@@ -3043,28 +3020,6 @@ button {
 .prompt-packet + .prompt-packet {
   padding-top: 8px;
   border-top: 1px solid rgba(19, 19, 22, 0.08);
-}
-
-.prompt-packet-title {
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.prompt-packet-title strong {
-  overflow: hidden;
-  color: #131316;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.prompt-packet-title span {
-  flex: 0 0 auto;
-  color: #8b8c91;
-  font-size: 10px;
-  line-height: 14px;
 }
 
 .observability-stream {
