@@ -45,6 +45,7 @@ import type {
   AestheticScalar,
   AssistantCanvasAction,
   ChatMessage,
+  CreativeAsset,
   CreativeGenerationRequest,
   ImagePromptPacket,
   ImageInputReference,
@@ -498,6 +499,83 @@ function sliderVars(value: number, committedValue = value) {
 
 function scalarSettingsFromScalars(scalars: AestheticScalar[]) {
   return scalars.map(({ id, value, marker }) => ({ id, value, marker }))
+}
+
+const savedStylePresetsStorageKey = 'clv-segmented:saved-style-presets:v1'
+
+function isSavedStylePreset(value: unknown): value is StylePreset {
+  if (!value || typeof value !== 'object') return false
+  const preset = value as Partial<StylePreset>
+  return (
+    typeof preset.id === 'string' &&
+    typeof preset.title === 'string' &&
+    typeof preset.detail === 'string' &&
+    Array.isArray(preset.scalarSettings) &&
+    !!preset.context &&
+    typeof preset.context.image === 'string' &&
+    typeof preset.context.audience === 'string' &&
+    typeof preset.context.brand === 'string' &&
+    Array.isArray(preset.context.chat)
+  )
+}
+
+function loadSavedStylePresets() {
+  try {
+    const raw = window.localStorage.getItem(savedStylePresetsStorageKey)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(isSavedStylePreset).slice(0, 8)
+  } catch {
+    return []
+  }
+}
+
+function persistSavedStylePresets(presets: StylePreset[]) {
+  try {
+    window.localStorage.setItem(savedStylePresetsStorageKey, JSON.stringify(presets.slice(0, 8)))
+  } catch {
+    // Local persistence is best effort for the prototype surface.
+  }
+}
+
+function formatPresetSavedDate(date: Date) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date)
+}
+
+function savedCurrentStylePreset({
+  scalars,
+  asset,
+  version,
+  messages,
+}: {
+  scalars: AestheticScalar[]
+  asset: CreativeAsset
+  version: string
+  messages: ChatMessage[]
+}): StylePreset {
+  const savedAt = new Date()
+  const chatContext = messages
+    .filter((message) => message.role === 'user')
+    .slice(-3)
+    .map((message) => message.content)
+
+  return {
+    id: `saved-style-${savedAt.getTime()}`,
+    title: 'Saved current style',
+    detail: `Saved ${formatPresetSavedDate(savedAt)}`,
+    scalarSettings: scalarSettingsFromScalars(scalars),
+    context: {
+      image: `${asset.name} ${version} with the active canvas recipe and selected image context.`,
+      audience: `${asset.channel} campaign audience and current targeting metadata.`,
+      brand: 'Logged-in brand metadata, product locks, typography locks, and approved creative guardrails.',
+      chat: chatContext.length ? chatContext : ['Saved from the current editing session.'],
+    },
+  }
 }
 
 function currentStylePreset(scalars: AestheticScalar[]): StylePreset {
@@ -1617,6 +1695,7 @@ function App() {
   const [scalars, setScalars] = useState(initialScalars)
   const [draftScalars, setDraftScalars] = useState(initialScalars)
   const [scoreScalars, setScoreScalars] = useState(() => applyScorePreset(initialScalars))
+  const [savedStylePresets, setSavedStylePresets] = useState<StylePreset[]>(loadSavedStylePresets)
   const [variants, setVariants] = useState<ImageVariant[]>(() =>
     initialVariants.map((variant) => ({
       ...variant,
@@ -1872,11 +1951,22 @@ function App() {
   }
 
   function saveCurrentStyle() {
-    setSelectedStylePresetId('current')
+    const preset = savedCurrentStylePreset({
+      scalars: promptScalars,
+      asset: selectedAsset,
+      version: selectedVersion,
+      messages,
+    })
+    setSavedStylePresets((current) => {
+      const next = [preset, ...current].slice(0, 8)
+      persistSavedStylePresets(next)
+      return next
+    })
+    setSelectedStylePresetId(preset.id)
     recordPrototypeAction(
       'Style saved',
-      'Current style saved as the active preset.',
-      'The saved preset keeps the current scalar values available for the next creative or remix.',
+      'Current style saved into pre-set styles.',
+      'The saved preset keeps the current scalar recipe, image context, brand metadata, and recent chat context available for future use.',
     )
   }
 
@@ -4025,6 +4115,7 @@ function App() {
               scalars={draftScalars}
               committedScalars={scalars}
               selectedStylePresetId={selectedStylePresetId}
+              savedStylePresets={savedStylePresets}
               onScalarChange={updateScalar}
               onSelectStylePreset={selectStylePreset}
               onSaveCurrentStyle={saveCurrentStyle}
@@ -4352,6 +4443,7 @@ function LeftInspector({
   scalars,
   committedScalars,
   selectedStylePresetId,
+  savedStylePresets,
   onScalarChange,
   onSelectStylePreset,
   onSaveCurrentStyle,
@@ -4363,6 +4455,7 @@ function LeftInspector({
   scalars: AestheticScalar[]
   committedScalars: AestheticScalar[]
   selectedStylePresetId: string
+  savedStylePresets: StylePreset[]
   onScalarChange: (id: string, value: number) => void
   onSelectStylePreset: (preset: StylePreset) => void
   onSaveCurrentStyle: () => void
@@ -4378,7 +4471,10 @@ function LeftInspector({
   const [searchQuery, setSearchQuery] = useState('')
   const presetPanelRef = useRef<HTMLDivElement>(null)
   const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0]
-  const presetOptions = useMemo(() => [currentStylePreset(scalars), ...stylePresets], [scalars])
+  const presetOptions = useMemo(
+    () => [currentStylePreset(scalars), ...savedStylePresets, ...stylePresets],
+    [savedStylePresets, scalars],
+  )
   const committedScalarMap = new Map(committedScalars.map((scalar) => [scalar.id, scalar]))
   const filteredScalars = useMemo(
     () => filterScalarsByQuery(scalars, searchQuery),

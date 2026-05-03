@@ -285,6 +285,34 @@ test('preset styles select rows and expose saved preset context', async ({ page 
   await expect(popover).toContainText('Asked for more human warmth')
 })
 
+test('saving current style adds a reusable persisted preset', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByLabel('Abstraction').fill('71')
+  await page.getByRole('button', { name: 'Save current style' }).click()
+
+  const savedPreset = page.locator('[data-testid^="style-preset-saved-style-"]').first()
+  await expect(savedPreset).toBeVisible()
+  await expect(savedPreset).toHaveClass(/active/)
+  await expect(savedPreset).toContainText('Saved current style')
+  await expect(page.getByLabel('Interaction trace').first()).toContainText(
+    'Current style saved into pre-set styles',
+  )
+
+  await page.reload()
+  const persistedPreset = page.locator('[data-testid^="style-preset-saved-style-"]').first()
+  await expect(persistedPreset).toBeVisible()
+  await persistedPreset.getByRole('button', { name: /Select Saved current style/ }).click()
+  await expect(page.getByLabel('Abstraction')).toHaveValue('71')
+
+  await persistedPreset
+    .getByRole('button', { name: /Open preset details for Saved current style/ })
+    .click()
+  const popover = page.getByRole('dialog', { name: /Preset details for Saved current style/ })
+  await expect(popover).toContainText('Parameters')
+  await expect(popover).toContainText('Brand')
+})
+
 test('suggestion apply stages scalar changes for remix', async ({ page }) => {
   await page.goto('/')
 
