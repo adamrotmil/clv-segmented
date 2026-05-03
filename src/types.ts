@@ -88,6 +88,18 @@ export type ScalarGenerationChange = {
   marker?: string
 }
 
+export type ImagePromptContextItem = {
+  label: string
+  value: string
+}
+
+export type ImagePromptPacket = {
+  prompt: string
+  negativePrompt: string
+  context: ImagePromptContextItem[]
+  promptHints: string[]
+}
+
 export type CreativeGenerationRequest = {
   id: string
   intent: CreativeGenerationIntent
@@ -116,6 +128,7 @@ export type CreativeGenerationRequest = {
   baseFilter: string
   fallbackImage: string
   promptHints: string[]
+  imagePrompt: ImagePromptPacket
 }
 
 export type CreativeGenerationResult = {

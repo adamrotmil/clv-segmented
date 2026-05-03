@@ -19,6 +19,8 @@ function lastUserInstruction(request: CreativeGenerationRequest) {
 }
 
 function promptSummaryFor(request: CreativeGenerationRequest) {
+  if (request.imagePrompt?.prompt) return request.imagePrompt.prompt
+
   const scalarSummary = request.scalarChanges
     .map((change) => `${change.label} ${Math.round(change.before)}→${Math.round(change.after)}`)
     .join(', ')

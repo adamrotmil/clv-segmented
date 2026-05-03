@@ -14,7 +14,7 @@ The endpoint may generate the image, call a segmentation model, and return both 
 
 ## Request Shape
 
-The app sends a `CreativeGenerationRequest` JSON payload. Important fields for segmentation:
+The app sends a `CreativeGenerationRequest` JSON payload. The `imagePrompt` object is the exact downstream generation prompt and context rendered in the Assistant observability box while generation is running. Important fields for generation and segmentation:
 
 ```ts
 {
@@ -33,6 +33,12 @@ The app sends a `CreativeGenerationRequest` JSON payload. Important fields for s
   scalarChanges: ScalarGenerationChange[]
   chatContext: ChatMessage[]
   promptHints: string[]
+  imagePrompt: {
+    prompt: string
+    negativePrompt: string
+    context: Array<{ label: string; value: string }>
+    promptHints: string[]
+  }
 }
 ```
 
@@ -76,9 +82,10 @@ Each segment should use percent coordinates relative to the rendered image:
 ## Recommended Worker Flow
 
 1. Receive the generation request.
-2. Generate or fetch the new image.
-3. Run segmentation/object localization on the generated image.
-4. Map model output to the four product concepts the UI currently expects: emotional engagement, creative resonance, product placement, CTA.
-5. Return the generated image plus normalized `segments`.
+2. Use `imagePrompt.prompt`, `imagePrompt.negativePrompt`, and the `imagePrompt.context` rows as the generation inputs.
+3. Generate or fetch the new image.
+4. Run segmentation/object localization on the generated image.
+5. Map model output to the four product concepts the UI currently expects: emotional engagement, creative resonance, product placement, CTA.
+6. Return the generated image plus normalized `segments`.
 
 For true SAM masks, keep pixel masks server-side and return the bounding boxes for the prototype. The UI contract can later add polygon or mask URLs without changing the current interaction model.

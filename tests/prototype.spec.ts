@@ -57,6 +57,11 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(remixStack).toHaveClass(/generating/)
   await expect(remixStack.getByTestId('pending-shimmer')).toBeVisible()
   await expect(updatedStack.getByTestId('pending-shimmer')).toHaveCount(0)
+  await expect(page.getByLabel('Image generation prompt')).toBeVisible()
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Generate Remix')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Source image')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Scalar changes')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Recent chat')
   await expect(page.locator('.variant-strip .variant-thumb.generating').filter({ hasText: /Remix/ })).toBeVisible()
 
   await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()

@@ -2706,6 +2706,126 @@ button {
   font-weight: 500;
 }
 
+.prompt-observer {
+  display: grid;
+  gap: 10px;
+  color: #202126;
+}
+
+.prompt-observer-head,
+.prompt-packet-title,
+.prompt-negative {
+  display: flex;
+  align-items: center;
+}
+
+.prompt-observer-head {
+  justify-content: space-between;
+  color: #7a7a7c;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.prompt-observer-head em {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #f1f8f2;
+  color: #064f25;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.prompt-packet {
+  display: grid;
+  gap: 8px;
+}
+
+.prompt-packet + .prompt-packet {
+  padding-top: 10px;
+  border-top: 1px solid rgba(19, 19, 22, 0.08);
+}
+
+.prompt-packet-title {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.prompt-packet-title strong {
+  overflow: hidden;
+  color: #131316;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-packet-title span {
+  flex: 0 0 auto;
+  color: #7a7a7c;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.prompt-packet pre {
+  margin: 0;
+  padding: 9px 10px;
+  overflow: visible;
+  border: 1px solid rgba(19, 19, 22, 0.08);
+  border-radius: 7px;
+  background: #fafafa;
+  color: #202126;
+  font: 400 11px/16px var(--font-system);
+  white-space: pre-wrap;
+}
+
+.prompt-negative {
+  align-items: flex-start;
+  gap: 8px;
+  color: #7a7a7c;
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.prompt-negative span {
+  flex: 0 0 auto;
+  font-weight: 500;
+}
+
+.prompt-negative p {
+  margin: 0;
+}
+
+.prompt-context {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.prompt-context div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.prompt-context dt,
+.prompt-context dd {
+  margin: 0;
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.prompt-context dt {
+  color: #8c8d93;
+  font-weight: 500;
+}
+
+.prompt-context dd {
+  color: #303138;
+  overflow-wrap: anywhere;
+}
+
 .ingredient-row {
   display: flex;
   flex-wrap: wrap;

@@ -41,6 +41,7 @@ import type {
   AestheticScalar,
   ChatMessage,
   CreativeGenerationRequest,
+  ImagePromptPacket,
   ImageVariant,
   SegmentAnnotation,
   SegmentSuggestion,
@@ -74,6 +75,11 @@ type HistoryEntry = ChangeTrace & {
   scoreScalarsAfter: AestheticScalar[]
   variantIdBefore: string
   variantIdAfter: string
+}
+
+type GenerationPromptRun = {
+  request: CreativeGenerationRequest
+  status: 'running' | 'completed'
 }
 
 type SavedIdea = {
@@ -726,6 +732,7 @@ function App() {
   const [lastChange, setLastChange] = useState<ChangeTrace>(initialTrace)
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [savedIdeas, setSavedIdeas] = useState<SavedIdea[]>([])
+  const [generationPromptRuns, setGenerationPromptRuns] = useState<GenerationPromptRun[]>([])
   const [agentTasks, setAgentTasks] = useState<AgentTask[]>(initialAgentTasks)
   const [agentPaused] = useState(false)
   const [assistantMinimized, setAssistantMinimized] = useState(false)
@@ -1274,6 +1281,111 @@ function App() {
       .filter(Boolean) as CreativeGenerationRequest['scalarChanges']
   }
 
+  function buildImagePromptPacket({
+    intent,
+    outputTitle,
+    sourceIds,
+    sourceVariant,
+    nextScalars,
+    scalarChanges,
+    projectedScoreValue,
+    scoreLift,
+    trace,
+    promptHints,
+  }: {
+    intent: CreativeGenerationRequest['intent']
+    outputTitle: string
+    sourceIds: string[]
+    sourceVariant: ImageVariant
+    nextScalars: AestheticScalar[]
+    scalarChanges: CreativeGenerationRequest['scalarChanges']
+    projectedScoreValue: number
+    scoreLift: number
+    trace: ChangeTrace
+    promptHints: string[]
+  }): ImagePromptPacket {
+    const sourceLabels = sourceIds.map(
+      (sourceId) =>
+        workingVariants.find((variant) => variant.id === sourceId)?.title ??
+        savedIdeas.find((idea) => idea.id === sourceId)?.label ??
+        sourceId,
+    )
+    const focusedSegments = (selectedSegmentIds.length ? selectedSegmentIds : [activeSegment.id])
+      .map((id) => activeVariantSegments.find((segment) => segment.id === id))
+      .filter(Boolean) as SegmentAnnotation[]
+    const scalarPrompt = scalarChanges
+      .map(
+        (change) =>
+          `${change.label}: ${Math.round(change.before)} -> ${Math.round(change.after)} (${change.lowLabel} to ${change.highLabel}${change.marker ? `, marker ${change.marker}` : ''})`,
+      )
+      .join('; ')
+    const scalarSnapshot = nextScalars
+      .map((scalar) => `${scalar.label} ${Math.round(scalar.value)}`)
+      .join(', ')
+    const chatContext = messages
+      .slice(-6)
+      .map((message) => `${message.role}: ${message.content}`)
+      .join('\n')
+    const savedIdeaContext = savedIdeas
+      .map((idea) => `${idea.label} ES ${idea.score}% (${idea.ingredients.join(', ')})`)
+      .join('; ')
+    const uniquePromptHints = Array.from(new Set(promptHints.filter(Boolean)))
+    const prompt = [
+      `Generate ${outputTitle} for ${activeCanvasAsset.name} on ${activeCanvasAsset.channel}.`,
+      `Intent: ${intent}.`,
+      `Use source image "${sourceVariant.title}"${sourceLabels.length > 1 ? ` with source set ${sourceLabels.join(', ')}` : ''}.`,
+      focusedSegments.length
+        ? `Selected SAM segments: ${focusedSegments.map((segment) => `${segment.label} (${segment.delta >= 0 ? '+' : ''}${segment.delta}% ES delta)`).join(', ')}.`
+        : '',
+      scalarPrompt
+        ? `Apply these aesthetic scalar changes: ${scalarPrompt}.`
+        : `Keep the committed aesthetic scalar recipe: ${scalarSnapshot}.`,
+      `Projected engagement score after generation: ${projectedScoreValue + scoreLift}%.`,
+      `Current trace: ${trace.what} ${trace.why}`,
+      savedIdeaContext ? `Saved idea context: ${savedIdeaContext}.` : '',
+      chatContext ? `Recent assistant chat context:\n${chatContext}` : '',
+      uniquePromptHints.length ? `Prompt hints: ${uniquePromptHints.join(' | ')}.` : '',
+      'Preserve brand/product identity, campaign format, legible ad copy, and the image aspect ratio.',
+    ]
+      .filter(Boolean)
+      .join('\n')
+
+    return {
+      prompt,
+      negativePrompt:
+        'Avoid distorted anatomy, changed product identity, illegible CTA text, off-brand claims, duplicate faces, extra hands, heavy artifacts, or unreadable typography.',
+      context: [
+        { label: 'Asset', value: `${activeCanvasAsset.name} · ${activeCanvasAsset.version}` },
+        { label: 'Intent', value: intent },
+        { label: 'Output', value: outputTitle },
+        { label: 'Source image', value: sourceVariant.title },
+        { label: 'Source IDs', value: sourceIds.join(', ') },
+        {
+          label: 'Selected SAM',
+          value: focusedSegments.map((segment) => segment.label).join(', ') || activeSegment.label,
+        },
+        {
+          label: 'Scalar changes',
+          value: scalarPrompt || 'No staged scalar changes; committed recipe included.',
+        },
+        { label: 'Projected ES', value: `${projectedScoreValue}% + ${scoreLift}` },
+        {
+          label: 'Recent chat',
+          value: chatContext || 'No recent user chat context.',
+        },
+        {
+          label: 'Trace',
+          value: `${trace.control}: ${trace.what}`,
+        },
+        {
+          label: 'Saved ideas',
+          value: savedIdeaContext || 'No saved ideas.',
+        },
+      ],
+      promptHints: uniquePromptHints,
+    }
+  }
+
   function buildGenerationRequest({
     id,
     intent,
@@ -1306,6 +1418,20 @@ function App() {
       workingVariants.find((variant) => variant.id === selectedVariantId) ??
       workingVariants.find((variant) => variant.id === 'updated') ??
       initialVariants[1]
+    const scalarChanges = scalarChangesBetween(beforeScalars, nextScalars)
+    const uniquePromptHints = Array.from(new Set(promptHints.filter(Boolean)))
+    const imagePrompt = buildImagePromptPacket({
+      intent,
+      outputTitle,
+      sourceIds,
+      sourceVariant,
+      nextScalars,
+      scalarChanges,
+      projectedScoreValue,
+      scoreLift,
+      trace,
+      promptHints: uniquePromptHints,
+    })
 
     return {
       id,
@@ -1317,7 +1443,7 @@ function App() {
       sourceIds,
       selectedSegment: activeSegment,
       scalars: nextScalars,
-      scalarChanges: scalarChangesBetween(beforeScalars, nextScalars),
+      scalarChanges,
       chatContext: messages.slice(-8),
       latestTrace: {
         control: trace.control,
@@ -1334,7 +1460,8 @@ function App() {
       scoreLift,
       baseFilter,
       fallbackImage: sourceVariant.image,
-      promptHints: Array.from(new Set(promptHints.filter(Boolean))),
+      promptHints: uniquePromptHints,
+      imagePrompt,
     }
   }
 
@@ -1354,7 +1481,25 @@ function App() {
     )
   }
 
+  function trackGenerationRequest(request: CreativeGenerationRequest) {
+    setGenerationPromptRuns((current) =>
+      [
+        ...current.filter((item) => item.request.id !== request.id),
+        { request, status: 'running' as const },
+      ].slice(-4),
+    )
+  }
+
+  function releaseGenerationRequest(requestId: string) {
+    setGenerationPromptRuns((current) =>
+      current.map((item) =>
+        item.request.id === requestId ? { ...item, status: 'completed' as const } : item,
+      ),
+    )
+  }
+
   function queueGeneratingVariant(request: CreativeGenerationRequest, predictedScore: number) {
+    trackGenerationRequest(request)
     const sourceVariant =
       workingVariants.find((variant) => variant.id === request.sourceIds[0]) ??
       workingVariants.find((variant) => variant.id === selectedVariantId) ??
@@ -1486,6 +1631,7 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock image response ready')
+    releaseGenerationRequest(generationRequest.id)
     setToast('Remix generated')
     window.setTimeout(() => setToast(''), 1800)
   }
@@ -1659,6 +1805,7 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock image response ready')
+    releaseGenerationRequest(generationRequest.id)
     setToast(sources.length === 2 ? 'Ideas combined' : 'Remix generated')
     window.setTimeout(() => setToast(''), 1800)
   }
@@ -1752,6 +1899,7 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock source response ready')
+    releaseGenerationRequest(generationRequest.id)
     setToast('Source remix generated')
     window.setTimeout(() => setToast(''), 1800)
   }
@@ -1860,6 +2008,7 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock delta response ready')
+    releaseGenerationRequest(generationRequest.id)
     setToast('Delta remix generated')
     window.setTimeout(() => setToast(''), 1800)
   }
@@ -1984,6 +2133,7 @@ function App() {
       }),
     )
     setVariantGenerationTask(selectedVariantId, 'Creating segment-specific variant')
+    trackGenerationRequest(generationRequest)
     startWork('applying', pendingTrace, false)
     const generation = await requestCreativeGeneration(generationRequest)
     const segmentVariant: ImageVariant = {
@@ -2025,6 +2175,7 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock segment response ready')
+    releaseGenerationRequest(generationRequest.id)
     setToast('Segment edit applied')
     window.setTimeout(() => setToast(''), 1600)
   }
@@ -2121,6 +2272,7 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint blend received' : 'Mock blend response ready')
+    releaseGenerationRequest(generationRequest.id)
     setToast('Images blended')
     window.setTimeout(() => setToast(''), 1600)
   }
@@ -2504,6 +2656,7 @@ function App() {
                 onSubmit={sendChat}
                 onSubmitEdit={sendEditedChat}
                 trace={lastChange}
+                generationRuns={generationPromptRuns}
                 history={history}
                 onUndo={undoLastChange}
                 onRestore={restoreHistory}
@@ -4253,6 +4406,7 @@ function AssistantPanel({
   onSubmit,
   onSubmitEdit,
   trace,
+  generationRuns,
   history,
   onUndo,
   onRestore,
@@ -4270,6 +4424,7 @@ function AssistantPanel({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onSubmitEdit: (messageId: string, content: string) => void
   trace: ChangeTrace
+  generationRuns: GenerationPromptRun[]
   history: HistoryEntry[]
   onUndo: () => void
   onRestore: (entry: HistoryEntry) => void
@@ -4321,6 +4476,7 @@ function AssistantPanel({
       <div className="assistant-trace-region">
         <InteractionTrace
           trace={trace}
+          generationRuns={generationRuns}
           history={history}
           pendingPhase={pendingPhase}
           workError={workError}
@@ -4536,6 +4692,7 @@ function TraceInline({
 
 function InteractionTrace({
   trace,
+  generationRuns = [],
   history,
   pendingPhase,
   workError,
@@ -4547,6 +4704,7 @@ function InteractionTrace({
   compact = false,
 }: {
   trace: ChangeTrace
+  generationRuns?: GenerationPromptRun[]
   history: HistoryEntry[]
   pendingPhase: PendingPhase
   workError: string
@@ -4558,6 +4716,8 @@ function InteractionTrace({
   compact?: boolean
 }) {
   const isPending = pendingPhase !== 'idle' && pendingPhase !== 'failed'
+  const runningGenerationRuns = generationRuns.filter((run) => run.status === 'running')
+  const hasGenerationPackets = runningGenerationRuns.length > 0
   return (
     <section className={`trace-panel ${compact ? 'compact' : ''}`} aria-label="Interaction trace">
       <div className="trace-scroll" tabIndex={0}>
@@ -4568,70 +4728,119 @@ function InteractionTrace({
             <span>{workError}</span>
           </div>
         ) : null}
-        <div className="trace-copy">
-          <small>What changed</small>
-          <strong>{trace.what}</strong>
-        </div>
-        <div className="trace-copy">
-          <small>Why it changed</small>
-          <p>{trace.why}</p>
-        </div>
-        <div className="trace-metrics">
-          <span>{trace.before}</span>
-          <b>→</b>
-          <span>{trace.after}</span>
-          <em>
-            ES {trace.scoreBefore}% → {trace.scoreAfter}%
-          </em>
-        </div>
-        <div className="ingredient-row" aria-label="Remix ingredients">
-          {trace.ingredients.slice(0, compact ? 2 : 3).map((ingredient) => (
-            <span key={ingredient}>{ingredient}</span>
-          ))}
-        </div>
-        <div className="trace-actions">
-          <button type="button" onClick={onUndo} disabled={!history.length}>
-            <Undo2 size={14} />
-            Undo
-          </button>
-          <button type="button" onClick={() => onSaveIdea('idea-a')}>
-            Save Variant A
-          </button>
-          <button type="button" onClick={() => onSaveIdea('idea-b')}>
-            Save Variant B
-          </button>
-          <button type="button" onClick={onCombineIdeas}>
-            <GitBranch size={14} />
-            Combine
-          </button>
-        </div>
-        {savedIdeas.length ? (
-          <div className="saved-ideas" aria-label="Saved ideas">
-            {savedIdeas.map((idea) => (
-              <span key={idea.id}>
-                {idea.label} · ES {idea.score}%
-              </span>
-            ))}
-          </div>
-        ) : null}
-        {history.length ? (
-          <div className="history-list" aria-label="History timeline">
-            <div>
-              <History size={13} />
-              Timeline
+        {hasGenerationPackets ? (
+          <GenerationPromptTrace generationRuns={runningGenerationRuns} />
+        ) : (
+          <>
+            <div className="trace-copy">
+              <small>What changed</small>
+              <strong>{trace.what}</strong>
             </div>
-            {history.slice(0, compact ? 2 : 3).map((entry) => (
-              <button key={entry.id} type="button" onClick={() => onRestore(entry)}>
-                {entry.control}
-                <span>
-                  {entry.scoreBefore}% → {entry.scoreAfter}%
-                </span>
+            <div className="trace-copy">
+              <small>Why it changed</small>
+              <p>{trace.why}</p>
+            </div>
+            <div className="trace-metrics">
+              <span>{trace.before}</span>
+              <b>→</b>
+              <span>{trace.after}</span>
+              <em>
+                ES {trace.scoreBefore}% → {trace.scoreAfter}%
+              </em>
+            </div>
+            <div className="ingredient-row" aria-label="Remix ingredients">
+              {trace.ingredients.slice(0, compact ? 2 : 3).map((ingredient) => (
+                <span key={ingredient}>{ingredient}</span>
+              ))}
+            </div>
+            <div className="trace-actions">
+              <button type="button" onClick={onUndo} disabled={!history.length}>
+                <Undo2 size={14} />
+                Undo
               </button>
-            ))}
-          </div>
-        ) : null}
+              <button type="button" onClick={() => onSaveIdea('idea-a')}>
+                Save Variant A
+              </button>
+              <button type="button" onClick={() => onSaveIdea('idea-b')}>
+                Save Variant B
+              </button>
+              <button type="button" onClick={onCombineIdeas}>
+                <GitBranch size={14} />
+                Combine
+              </button>
+            </div>
+            {savedIdeas.length ? (
+              <div className="saved-ideas" aria-label="Saved ideas">
+                {savedIdeas.map((idea) => (
+                  <span key={idea.id}>
+                    {idea.label} · ES {idea.score}%
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {history.length ? (
+              <div className="history-list" aria-label="History timeline">
+                <div>
+                  <History size={13} />
+                  Timeline
+                </div>
+                {history.slice(0, compact ? 2 : 3).map((entry) => (
+                  <button key={entry.id} type="button" onClick={() => onRestore(entry)}>
+                    {entry.control}
+                    <span>
+                      {entry.scoreBefore}% → {entry.scoreAfter}%
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </>
+        )}
       </div>
     </section>
+  )
+}
+
+function GenerationPromptTrace({
+  generationRuns,
+}: {
+  generationRuns: GenerationPromptRun[]
+}) {
+  const runningCount = generationRuns.filter((run) => run.status === 'running').length
+  return (
+    <div className="prompt-observer" aria-label="Image generation prompt">
+      <div className="prompt-observer-head">
+        <span>Image prompt</span>
+        <em>
+          {runningCount > 1
+            ? `${runningCount} running`
+            : runningCount === 1
+              ? 'Running'
+              : 'Last sent'}
+        </em>
+      </div>
+      {generationRuns.map(({ request, status }) => (
+        <article className="prompt-packet" key={request.id}>
+          <div className="prompt-packet-title">
+            <strong>{request.outputTitle}</strong>
+            <span>{status === 'running' ? request.intent : `sent · ${request.intent}`}</span>
+          </div>
+          <pre>{request.imagePrompt.prompt}</pre>
+          <div className="prompt-negative">
+            <span>Negative</span>
+            <p>{request.imagePrompt.negativePrompt}</p>
+          </div>
+          <dl className="prompt-context">
+            {request.imagePrompt.context.map((item) => (
+              <div key={`${request.id}-${item.label}`}>
+                <dt>{item.label}</dt>
+                <dd>{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </article>
+      ))}
+    </div>
   )
 }
 
