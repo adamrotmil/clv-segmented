@@ -9,7 +9,9 @@ import type {
   SourceFidelityReport,
 } from './types'
 
-type EndpointGenerationResult = Partial<Omit<CreativeGenerationResult, 'requestId' | 'provider'>> & {
+type EndpointGenerationResult = Partial<
+  Omit<CreativeGenerationResult, 'requestId' | 'provider' | 'sourceFidelity'>
+> & {
   finalPrompt?: string
   negativePrompt?: string
   visualRead?: string
@@ -122,9 +124,44 @@ function promptRecipeFromEndpoint(
 }
 
 function isFallbackProviderMode(providerMode?: string) {
-  return /safety-retry-generation|fallback-generation|text-to-image|generation-fallback/i.test(
+  return /safety-retry-generation|fallback-generation|text-to-image|generation-fallback|endpoint-failed|unchanged-output/i.test(
     providerMode ?? '',
   )
+}
+
+function endpointFallbackResult(
+  request: CreativeGenerationRequest,
+  reason: string,
+): EndpointGenerationResult {
+  return {
+    providerMode: 'endpoint-failed-fallback-preview',
+    finalPrompt: request.imagePrompt.promptDraft,
+    negativePrompt: request.imagePrompt.negativePrompt,
+    visualRead:
+      request.sourceVariant.visualContext?.summary ??
+      `Endpoint failed before returning an image for ${request.sourceVariant.title}.`,
+    ingredients: ['Endpoint fallback preview', ...request.scalarChanges.map((change) => change.label)],
+    sourceFidelity: {
+      providerMode: 'endpoint-failed-fallback-preview',
+      mode: 'fallback-generation',
+      confidence: 'low',
+      status: 'warning',
+      evidence: {
+        endpoint: generationEndpoint ?? 'configured generation endpoint',
+        model: request.model,
+        imageInputCount: request.imageInputs.length,
+        imageInputRoles: request.imageInputs.map(
+          (input, index) => `${index}:${input.role}:${input.referenceType ?? 'creative'}`,
+        ),
+        fallbackReason: reason,
+      },
+      warnings: [
+        reason,
+        'The canvas is showing the source image as a fallback preview, not a source-preserving generated remix.',
+      ],
+      notes: ['Endpoint did not return a usable generated image.'],
+    },
+  }
 }
 
 function sourceFidelityStatusFromCheck(
@@ -390,6 +427,34 @@ function normalizeGenerationResult(
   result: EndpointGenerationResult,
   provider: CreativeGenerationResult['provider'],
 ): CreativeGenerationResult {
+  const unchangedEndpointImage =
+    provider === 'endpoint' && Boolean(result.image) && result.image === request.fallbackImage
+  const fidelityResult: EndpointGenerationResult = unchangedEndpointImage
+    ? {
+        ...result,
+        providerMode: result.providerMode ?? 'unchanged-output-fallback-preview',
+        sourceFidelity: {
+          ...result.sourceFidelity,
+          providerMode:
+            result.sourceFidelity?.providerMode ??
+            result.providerMode ??
+            'unchanged-output-fallback-preview',
+          mode: result.sourceFidelity?.mode ?? 'fallback-generation',
+          confidence: result.sourceFidelity?.confidence ?? 'low',
+          status: result.sourceFidelity?.status ?? 'warning',
+          evidence: {
+            ...result.sourceFidelity?.evidence,
+            fallbackReason:
+              result.sourceFidelity?.evidence?.fallbackReason ??
+              'Endpoint returned an image identical to the selected canvas source.',
+          },
+          warnings: uniqueItems([
+            ...(result.sourceFidelity?.warnings ?? []),
+            'Endpoint returned an image identical to the selected canvas source; treat this as an unaccepted fallback preview.',
+          ]),
+        },
+      }
+    : result
   const scalarIngredients = request.scalarChanges.map((change) => change.label)
   const chatInstruction = lastUserInstruction(request)
   const ingredients = uniqueItems([
@@ -400,23 +465,23 @@ function normalizeGenerationResult(
     request.selectedSegment.label,
   ]).slice(0, 4)
   const projectedScore = Math.min(96, request.projectedScore + request.scoreLift)
-  const promptRecipe = promptRecipeFromEndpoint(request, result)
-  const sourceFidelity = sourceFidelityReportFor(request, result, provider)
+  const promptRecipe = promptRecipeFromEndpoint(request, fidelityResult)
+  const sourceFidelity = sourceFidelityReportFor(request, fidelityResult, provider)
   const fallbackIngredient =
     sourceFidelity.mode === 'fallback-generation' ? 'Fallback generated' : ''
 
   return {
     requestId: request.id,
-    title: result.title ?? request.outputTitle,
-    image: result.image ?? request.fallbackImage,
-    score: result.score ?? projectedScore,
-    delta: result.delta ?? Math.max(1, projectedScore - request.sourceVariant.score),
-    filter: result.filter ?? request.baseFilter,
+    title: fidelityResult.title ?? request.outputTitle,
+    image: fidelityResult.image ?? request.fallbackImage,
+    score: fidelityResult.score ?? projectedScore,
+    delta: fidelityResult.delta ?? Math.max(1, projectedScore - request.sourceVariant.score),
+    filter: fidelityResult.filter ?? request.baseFilter,
     ingredients: uniqueItems([...ingredients, fallbackIngredient]).slice(0, 4),
-    sourceIds: result.sourceIds ?? request.sourceIds,
+    sourceIds: fidelityResult.sourceIds ?? request.sourceIds,
     provider,
     providerMode: sourceFidelity.providerMode,
-    promptSummary: result.promptSummary ?? promptRecipe.finalPrompt ?? promptSummaryFor(request),
+    promptSummary: fidelityResult.promptSummary ?? promptRecipe.finalPrompt ?? promptSummaryFor(request),
     promptRecipe,
     sourceFidelity,
   }
@@ -432,9 +497,33 @@ async function requestEndpointGeneration(request: CreativeGenerationRequest) {
     body: JSON.stringify(request),
   })
 
-  if (!response.ok) return undefined
+  if (!response.ok) {
+    return endpointFallbackResult(
+      request,
+      `Generation endpoint returned ${response.status} ${response.statusText || 'without a usable image response'}.`,
+    )
+  }
 
-  return (await response.json()) as EndpointGenerationResult
+  const result = (await response.json()) as EndpointGenerationResult
+
+  if (!result.image) {
+    const fallback = endpointFallbackResult(
+      request,
+      'Generation endpoint completed without returning a generated image URL or data URL.',
+    )
+
+    return {
+      ...fallback,
+      ...result,
+      providerMode: result.providerMode ?? 'endpoint-failed-fallback-preview',
+      sourceFidelity: {
+        ...fallback.sourceFidelity,
+        ...result.sourceFidelity,
+      },
+    }
+  }
+
+  return result
 }
 
 function wait(ms: number) {
@@ -466,7 +555,16 @@ export async function requestCreativeGeneration(request: CreativeGenerationReque
     if (endpointResult) {
       return normalizeGenerationResult(request, endpointResult, 'endpoint')
     }
-  } catch {
+  } catch (error) {
+    if (generationEndpoint && !(typeof navigator !== 'undefined' && navigator.webdriver)) {
+      const message = error instanceof Error ? error.message : 'Generation endpoint failed.'
+      return normalizeGenerationResult(
+        request,
+        endpointFallbackResult(request, message),
+        'endpoint',
+      )
+    }
+
     return simulateGeneration(request)
   }
 

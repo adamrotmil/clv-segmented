@@ -567,6 +567,26 @@ test('uploaded device images become remixable canvas sources', async ({ page }) 
   await expect(page.locator('.variant-strip').getByText('Remix 2')).toBeVisible()
 })
 
+test('remix from an uploaded canvas source carries staged slider deltas', async ({ page }) => {
+  await page.goto('/')
+
+  await uploadAssetFromDevice(page)
+  await expect(page.getByRole('button', { name: 'image-1', exact: true })).toBeVisible()
+
+  await page.getByLabel('Staging').fill('92')
+  await page.getByLabel('Materiality').fill('66')
+  await page.getByRole('button', { name: 'image-1', exact: true }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Remix from this' }).click()
+
+  const prompt = page.getByLabel('Image generation prompt')
+  await expect(prompt).toContainText('active canvas node: image-1')
+  await expect(prompt).toContainText('Combined staged slider bundle')
+  await expect(prompt).toContainText('Apply all 2 staged slider deltas together')
+  await expect(prompt).toContainText('Staging: +14 toward Candid')
+  await expect(prompt).toContainText('Materiality: +16 toward Tactile')
+  await expect(prompt).toContainText('Treat the uploaded pixels as the source of truth')
+})
+
 test('uploaded portrait images keep aspect ratio and get upload-specific segments', async ({ page }) => {
   await page.goto('/')
 

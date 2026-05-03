@@ -3748,7 +3748,9 @@ function App() {
     const sourceVariant = workingVariants.find((variant) => variant.id === variantId)
     if (!sourceVariant) return
 
-    const remixScalars = promptScalars
+    const sourceRecipe = scalarRecipeForVariant(sourceVariant)
+    const remixScalars = hasPendingScalarChanges ? draftScalars : sourceRecipe
+    const scalarChanges = scalarChangesBetween(sourceRecipe, remixScalars)
     const remixScore = projectedScore(remixScalars)
     const nextId = `remix-${Date.now()}`
     const outputTitle = nextRemixTitle(variants)
@@ -3771,7 +3773,7 @@ function App() {
       ingredients: [
         sourceVariant.title,
         remixSegment.label,
-        ...remixScalars.slice(0, 1).map((scalar) => scalar.label),
+        ...scalarChanges.slice(0, 2).map((scalar) => scalar.label),
       ],
     }
     const generationRequest = buildGenerationRequest({
@@ -3779,7 +3781,7 @@ function App() {
       intent: 'scalar-remix',
       outputTitle,
       sourceIds: [sourceVariant.id],
-      beforeScalars: scalars,
+      beforeScalars: sourceRecipe,
       nextScalars: remixScalars,
       projectedScoreValue: remixScore,
       scoreLift: Math.max(1, predictedScore - remixScore),
@@ -3788,6 +3790,7 @@ function App() {
       promptHints: [
         `Use ${sourceVariant.title} as source`,
         pendingTrace.why,
+        scalarBundlePromptHint(scalarChanges),
         ...messages.slice(-4).map((message) => `${message.role}: ${message.content}`),
       ],
       sourceVariantOverride: sourceVariant,
@@ -3834,7 +3837,7 @@ function App() {
       [
         {
           ...trace,
-          scalarsBefore: scalars,
+          scalarsBefore: sourceRecipe,
           scalarsAfter: remixScalars,
           scoreScalarsBefore: scoreScalars,
           scoreScalarsAfter: scoreScalars,
