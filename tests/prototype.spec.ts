@@ -61,6 +61,7 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Image generation prompt')).toContainText('Generation target: Remix 2')
   await expect(page.getByLabel('Image generation prompt')).toContainText('imageInputs')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Image inputs')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('gpt-image-2')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Canvas context')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Source preservation')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Copywriting policy')
