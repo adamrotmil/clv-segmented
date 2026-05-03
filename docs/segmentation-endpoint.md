@@ -19,7 +19,7 @@ The app sends a `CreativeGenerationRequest` JSON payload. The `imagePrompt` obje
 ```ts
 {
   id: string
-  model: "gpt-image-2" | string
+  model: "gpt-image-1.5" | string
   intent: "scalar-remix" | "idea-combine" | "segment-edit" | "image-blend"
   outputTitle: string
   sourceVariant: {
@@ -99,7 +99,7 @@ Each segment should use percent coordinates relative to the rendered image:
 ## Recommended Worker Flow
 
 1. Receive the generation request.
-2. Use `imagePrompt.prompt` as the text prompt, `imagePrompt.negativePrompt` as the negative guardrail, and pass `imageInputs` as real image references/uploads to `gpt-image-2`.
+2. Use `imagePrompt.prompt` as the text prompt, `imagePrompt.negativePrompt` as the negative guardrail, and pass `imageInputs` as real image references/uploads to `gpt-image-1.5` through the image edits path when source images are present.
 3. Generate or fetch the new image.
 4. Run segmentation/object localization on the generated image.
 5. Map model output to the four product concepts the UI currently expects: emotional engagement, creative resonance, product placement, CTA.

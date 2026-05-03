@@ -161,7 +161,7 @@ const sidebarWidthBounds: Record<SidebarSide, { min: number; max: number }> = {
   right: { min: 300, max: 520 },
 }
 
-const imageGenerationModel = 'gpt-image-2'
+const imageGenerationModel = 'gpt-image-1.5'
 
 const scoreScalarPreset: Record<string, Pick<AestheticScalar, 'value' | 'marker'>> = {
   staging: { value: 50, marker: 'Constructed' },
