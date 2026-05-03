@@ -109,6 +109,8 @@ type ObservabilityRawPayload = {
   label: string
   detailsLabel: string
   details: string
+  kind?: 'prompt' | 'image' | 'sam'
+  summary?: string
 }
 
 type SavedIdea = {
@@ -5942,11 +5944,14 @@ function GenerationPromptTrace({
           <div className="stream-raw-payloads" aria-label={`Raw tool payloads for ${run.request.outputTitle}`}>
             {observabilityRawPayloadsForRequest(run).map((payload) => (
               <details
-                className="stream-raw-payload"
+                className={`stream-raw-payload ${payload.kind ? `payload-${payload.kind}` : ''}`}
                 key={`${run.request.id}-${payload.id}`}
                 aria-label={payload.detailsLabel}
               >
-                <summary>{payload.label}</summary>
+                <summary>
+                  <span>{payload.label}</span>
+                  {payload.summary ? <em>{payload.summary}</em> : null}
+                </summary>
                 <pre>{payload.details}</pre>
               </details>
             ))}
@@ -6157,11 +6162,11 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
     lane: 'sam',
     role: run.segmentationResult?.toolName ?? 'queued',
     status: samLaneStatus,
-    text: `segmentation status=${run.segmentationStatus} image=${run.imageUrl ?? 'waiting-for-generated-image'} hints=${defaultSemanticHints.join(', ')} returned=${run.segmentationResult?.segments.length ?? 0} source=${request.sourceVariant.title} focus=${selectedSegments
-      .slice(0, 4)
-      .map((segment) => `${segment.label} bbox=${segment.x}/${segment.y}/${segment.width}/${segment.height}`)
-      .join(' · ')}`,
-    maxTokens: 150,
+    text: `segmentation status=${run.segmentationStatus} image=${run.imageUrl ? 'generated-image-ready' : 'waiting-for-generated-image'} hints=${defaultSemanticHints.length} returned=${run.segmentationResult?.segments.length ?? 0} source=${request.sourceVariant.title} focus=${selectedSegments
+      .slice(0, 3)
+      .map((segment) => segment.label)
+      .join(', ') || 'none'}`,
+    maxTokens: 80,
   })
   appendStreamRows(rows, {
     id: 'sam-fallback',
@@ -6170,13 +6175,9 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
     status: samLaneStatus,
     text:
       run.segmentationResult && segmentResultRole(run.segmentationResult) !== 'projected fallback'
-        ? `finalSegments=${run.segmentationResult.segments
-            .map((segment) => `${segment.label}:${segment.x}/${segment.y}/${segment.width}/${segment.height}`)
-            .join(' · ')}`
-        : `projectedFallbackPreview=${projectedFallbackPreview
-            .map((segment) => `${segment.label}:${segment.x}/${segment.y}/${segment.width}/${segment.height}`)
-            .join(' · ')}`,
-    maxTokens: 130,
+        ? `finalSegments=${run.segmentationResult.segments.length} provider=${run.segmentationResult.provider} details in SAM accordion`
+        : `projectedFallbackPreview=${projectedFallbackPreview.length} details in SAM accordion`,
+    maxTokens: 60,
   })
   appendStreamRows(rows, {
     id: 'image',
@@ -6201,6 +6202,10 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
 function observabilityRawPayloadsForRequest(run: GenerationPromptRun): ObservabilityRawPayload[] {
   const { request } = run
   const { imagePayload, samPayload } = observabilityPayloadDataForRequest(run)
+  const samSegmentCount = run.segmentationResult?.segments.length ?? 0
+  const samPreviewCount = Array.isArray(samPayload.projectedFallbackPreview)
+    ? samPayload.projectedFallbackPreview.length
+    : 0
   const promptPayload = {
     requestId: request.id,
     prompt: request.imagePrompt.prompt,
@@ -6215,18 +6220,27 @@ function observabilityRawPayloadsForRequest(run: GenerationPromptRun): Observabi
       id: 'prompt',
       label: 'Raw prompt context',
       detailsLabel: 'Raw prompt context',
+      kind: 'prompt',
+      summary: `${request.imagePrompt.context.length} context items`,
       details: JSON.stringify(promptPayload, null, 2),
     },
     {
       id: 'image',
       label: 'Raw image payload',
       detailsLabel: 'Raw image payload',
+      kind: 'image',
+      summary: request.model,
       details: JSON.stringify(imagePayload, null, 2),
     },
     {
       id: 'sam',
       label: 'Raw SAM payload',
       detailsLabel: 'Raw SAM payload',
+      kind: 'sam',
+      summary:
+        run.segmentationResult && segmentResultRole(run.segmentationResult) !== 'projected fallback'
+          ? `${samSegmentCount} segments · ${run.segmentationResult.provider}`
+          : `${samPreviewCount} projected segments · ${run.segmentationStatus}`,
       details: JSON.stringify(samPayload, null, 2),
     },
   ]

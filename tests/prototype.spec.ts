@@ -88,6 +88,10 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Generation observability stream')).toContainText('scalar-remix')
   await expect(page.getByLabel('Generation observability stream')).toContainText('segmentation')
   await expect(page.getByLabel('Generation observability stream')).toContainText('Generation target')
+  await expect(page.getByLabel('Generation observability stream')).toContainText(
+    'details in SAM accordion',
+  )
+  await expect(page.getByLabel('Generation observability stream')).not.toContainText('bbox=')
   const traceScroll = page.locator('.trace-panel.has-generation .trace-scroll')
   await expect(traceScroll).toBeVisible()
   const scrollMetrics = await traceScroll.evaluate((element) => ({
@@ -102,6 +106,8 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Generation observability stream')).toContainText('imageInputs')
   await page.getByText('Raw SAM payload').click()
   await expect(page.getByLabel('Raw SAM payload')).toContainText('projectedFallbackPreview')
+  const runningSamPayloadBox = await page.getByLabel('Raw SAM payload').locator('pre').boundingBox()
+  expect(runningSamPayloadBox?.height ?? 0).toBeLessThanOrEqual(150)
   await page.getByText('Raw image payload').click()
   await expect(page.getByLabel('Raw image payload')).toContainText('negativePrompt')
 
@@ -129,6 +135,8 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await page.getByText('Raw SAM payload').click()
   await expect(page.getByLabel('Raw SAM payload')).toContainText('finalSegments')
   await expect(page.getByLabel('Raw SAM payload')).toContainText('Emotional engagement')
+  const selectedSamPayloadBox = await page.getByLabel('Raw SAM payload').locator('pre').boundingBox()
+  expect(selectedSamPayloadBox?.height ?? 0).toBeLessThanOrEqual(150)
 
   const updatedEmotionGeometry = await updatedStack
     .locator('.segment-hotspot[aria-label="Emotional engagement"]')
