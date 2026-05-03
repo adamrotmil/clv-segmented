@@ -42,6 +42,9 @@ test('interaction trace shows slider effect, shimmer, explanation, and undo', as
   await expect(page.getByTestId('pending-shimmer').first()).toBeVisible()
   await expect(page.locator('.variant-strip').getByText(/Remix/)).toBeVisible()
   await expect(page.getByLabel('Pending remix actions')).toBeHidden()
+  await expect(page.getByLabel('Image generation prompt')).toBeVisible()
+  await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Remix 1', exact: true }).click()
   await expect(page.getByLabel('History timeline').first()).toBeVisible()
 })
 
@@ -102,6 +105,23 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(remixStack.locator('.segment-hotspot')).toHaveCount(0)
   await expect(remixStack.getByTestId('segmenting-shimmer')).toHaveCount(0)
   await expect(remixStack.locator('.segment-hotspot')).toHaveCount(4)
+
+  await page.getByRole('button', { name: 'Remix 1', exact: true }).click()
+  await expect(page.getByLabel('Image generation prompt')).toHaveCount(0)
+
+  await remixStack.getByRole('button', { name: 'Remix 2', exact: true }).click()
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Selected generation')
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'raw prompt + segmentation data',
+  )
+  await expect
+    .poll(() => traceScroll.evaluate((element) => element.scrollTop))
+    .toBeLessThan(4)
+  await page.getByText('Raw prompt context').click()
+  await expect(page.getByLabel('Raw prompt context')).toContainText('Generation target: Remix 2')
+  await page.getByText('Raw SAM payload').click()
+  await expect(page.getByLabel('Raw SAM payload')).toContainText('finalSegments')
+  await expect(page.getByLabel('Raw SAM payload')).toContainText('Emotional engagement')
 
   const updatedEmotionGeometry = await updatedStack
     .locator('.segment-hotspot[aria-label="Emotional engagement"]')

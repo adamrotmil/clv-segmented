@@ -2057,7 +2057,7 @@ function App() {
           status: 'running' as const,
           segmentationStatus: 'queued' as const,
         },
-      ].slice(-4),
+      ],
     )
   }
 
@@ -2805,6 +2805,7 @@ function App() {
     }
 
     setVariants((current) => current.filter((item) => item.id !== variantId))
+    setGenerationPromptRuns((current) => current.filter((run) => run.request.id !== variantId))
     if (selectedVariantId === variantId) {
       setSelectedVariantId('updated')
     }
@@ -3528,6 +3529,7 @@ function App() {
                 onSubmitEdit={sendEditedChat}
                 trace={lastChange}
                 generationRuns={generationPromptRuns}
+                selectedVariantId={selectedVariantId}
                 history={history}
                 onUndo={undoLastChange}
                 onRestore={restoreHistory}
@@ -5337,6 +5339,7 @@ function AssistantPanel({
   onSubmitEdit,
   trace,
   generationRuns,
+  selectedVariantId,
   history,
   onUndo,
   onRestore,
@@ -5355,6 +5358,7 @@ function AssistantPanel({
   onSubmitEdit: (messageId: string, content: string) => void
   trace: ChangeTrace
   generationRuns: GenerationPromptRun[]
+  selectedVariantId: string
   history: HistoryEntry[]
   onUndo: () => void
   onRestore: (entry: HistoryEntry) => void
@@ -5407,6 +5411,7 @@ function AssistantPanel({
         <InteractionTrace
           trace={trace}
           generationRuns={generationRuns}
+          selectedVariantId={selectedVariantId}
           history={history}
           pendingPhase={pendingPhase}
           workError={workError}
@@ -5623,6 +5628,7 @@ function TraceInline({
 function InteractionTrace({
   trace,
   generationRuns = [],
+  selectedVariantId = '',
   history,
   pendingPhase,
   workError,
@@ -5635,6 +5641,7 @@ function InteractionTrace({
 }: {
   trace: ChangeTrace
   generationRuns?: GenerationPromptRun[]
+  selectedVariantId?: string
   history: HistoryEntry[]
   pendingPhase: PendingPhase
   workError: string
@@ -5647,10 +5654,22 @@ function InteractionTrace({
 }) {
   const isPending = pendingPhase !== 'idle' && pendingPhase !== 'failed'
   const runningGenerationRuns = generationRuns.filter((run) => run.status === 'running')
-  const hasGenerationPackets = runningGenerationRuns.length > 0
+  const selectedGenerationRun = selectedVariantId
+    ? generationRuns.find((run) => run.request.id === selectedVariantId)
+    : undefined
+  const visibleGenerationRuns = runningGenerationRuns.length
+    ? runningGenerationRuns
+    : selectedGenerationRun
+      ? [selectedGenerationRun]
+      : []
+  const generationTraceMode = runningGenerationRuns.length ? 'running' : 'selected'
+  const hasGenerationPackets = visibleGenerationRuns.length > 0
   const traceScrollRef = useRef<HTMLDivElement | null>(null)
-  const generationStreamKey = runningGenerationRuns
-    .map((run) => `${run.request.id}:${run.status}:${run.request.outputTitle}:${run.request.imagePrompt.prompt.length}`)
+  const generationStreamKey = visibleGenerationRuns
+    .map(
+      (run) =>
+        `${run.request.id}:${run.status}:${run.segmentationStatus}:${run.segmentationResult?.segments.length ?? 0}:${run.request.outputTitle}:${run.request.imagePrompt.prompt.length}`,
+    )
     .join('|')
 
   useEffect(() => {
@@ -5658,10 +5677,11 @@ function InteractionTrace({
     const scrollElement = traceScrollRef.current
     if (!scrollElement) return
     const animationFrame = window.requestAnimationFrame(() => {
-      scrollElement.scrollTop = scrollElement.scrollHeight
+      scrollElement.scrollTop =
+        generationTraceMode === 'running' ? scrollElement.scrollHeight : 0
     })
     return () => window.cancelAnimationFrame(animationFrame)
-  }, [generationStreamKey, hasGenerationPackets, pendingPhase])
+  }, [generationStreamKey, generationTraceMode, hasGenerationPackets, pendingPhase])
 
   return (
     <section
@@ -5679,7 +5699,7 @@ function InteractionTrace({
           </div>
         ) : null}
         {hasGenerationPackets ? (
-          <GenerationPromptTrace generationRuns={runningGenerationRuns} />
+          <GenerationPromptTrace generationRuns={visibleGenerationRuns} mode={generationTraceMode} />
         ) : (
           <>
             <div className="trace-copy">
@@ -5753,21 +5773,32 @@ function InteractionTrace({
 
 function GenerationPromptTrace({
   generationRuns,
+  mode = 'running',
 }: {
   generationRuns: GenerationPromptRun[]
+  mode?: 'running' | 'selected'
 }) {
   const runningCount = generationRuns.filter((run) => run.status === 'running').length
+  const headerLabel =
+    mode === 'selected'
+      ? 'Selected generation'
+      : runningCount > 1
+        ? `Running ${runningCount} generations`
+        : runningCount === 1
+          ? 'Running generation'
+          : 'Last generation'
+  const statusLabel =
+    mode === 'selected'
+      ? 'raw prompt + segmentation data'
+      : runningCount
+        ? 'streaming tool tokens'
+        : 'tool calls complete'
+
   return (
     <div className="prompt-observer" aria-label="Image generation prompt">
       <div className="prompt-observer-head">
-        <span>
-          {runningCount > 1
-            ? `Running ${runningCount} generations`
-            : runningCount === 1
-              ? 'Running generation'
-              : 'Last generation'}
-        </span>
-        <em>{runningCount ? 'streaming tool tokens' : 'tool calls complete'}</em>
+        <span>{headerLabel}</span>
+        <em>{statusLabel}</em>
       </div>
       {generationRuns.map((run) => (
         <article className="prompt-packet" key={run.request.id}>
