@@ -26,6 +26,13 @@ npm run lint
 
 GitHub Pages deploys from the `main` branch via `.github/workflows/deploy-pages.yml`.
 
+Public frontend endpoint variables can be set as GitHub Actions repository variables:
+
+```text
+VITE_IMAGE_GENERATION_ENDPOINT
+VITE_CHAT_ENDPOINT
+```
+
 Live URL:
 
 ```text

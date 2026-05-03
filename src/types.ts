@@ -131,3 +131,36 @@ export type CreativeGenerationResult = {
   provider: 'endpoint' | 'mock'
   promptSummary: string
 }
+
+export type AssistantChatRequest = {
+  id: string
+  createdAt: string
+  prompt: string
+  editedMessageId?: string
+  asset: CreativeAsset
+  selectedVariant: ImageVariant
+  selectedSegment: SegmentAnnotation
+  selectedSegments: SegmentAnnotation[]
+  committedScalars: AestheticScalar[]
+  draftScalars: AestheticScalar[]
+  pendingScalarChanges: ScalarGenerationChange[]
+  chatContext: ChatMessage[]
+  latestTrace: {
+    control: string
+    what: string
+    why: string
+    ingredients: string[]
+  }
+  savedIdeas: Array<{
+    label: string
+    score: number
+    ingredients: string[]
+  }>
+}
+
+export type AssistantChatResponse = {
+  content: string
+  activity?: string
+  focus?: string
+  provider: 'endpoint' | 'mock'
+}

@@ -46,6 +46,7 @@ import type {
   SegmentSuggestion,
   StylePreset,
 } from './types'
+import { requestAssistantChat } from './chat'
 import { projectSegmentsForRequest, requestCreativeGeneration } from './generation'
 
 type EditorMode = 'edit' | 'score' | 'hybrid'
@@ -702,6 +703,7 @@ function App() {
   const chatResolveTimer = useRef<number | undefined>(undefined)
   const chatStreamTimer = useRef<number | undefined>(undefined)
   const chatStreamMessage = useRef<{ id: string; content: string } | null>(null)
+  const chatRequestCounter = useRef(0)
   const [selectedAssetId, setSelectedAssetId] = useState(assets[0].id)
   const [selectedVersion, setSelectedVersion] = useState(assets[0].version)
   const [selectedStylePresetId, setSelectedStylePresetId] = useState('current')
@@ -2253,24 +2255,103 @@ function App() {
     }, 1050)
   }
 
+  function buildAssistantChatRequest({
+    prompt,
+    nextMessages,
+    editedMessageId,
+    nextDraftScalars,
+    trace,
+  }: {
+    prompt: string
+    nextMessages: ChatMessage[]
+    editedMessageId: string
+    nextDraftScalars: AestheticScalar[]
+    trace: ChangeTrace
+  }) {
+    const selectedVariantForChat =
+      workingVariants.find((variant) => variant.id === selectedVariantId) ??
+      workingVariants.find((variant) => variant.id === 'updated') ??
+      workingVariants[0]
+    const selectedSegmentsForChat = (selectedSegmentIds.length ? selectedSegmentIds : [activeSegment.id])
+      .map((id) => activeVariantSegments.find((segment) => segment.id === id))
+      .filter(Boolean) as SegmentAnnotation[]
+
+    return {
+      id: `chat-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      prompt,
+      editedMessageId: editedMessageId || undefined,
+      asset: activeCanvasAsset,
+      selectedVariant: selectedVariantForChat,
+      selectedSegment: activeSegment,
+      selectedSegments: selectedSegmentsForChat,
+      committedScalars: scalars,
+      draftScalars: nextDraftScalars,
+      pendingScalarChanges: scalarChangesBetween(scalars, nextDraftScalars),
+      chatContext: nextMessages.slice(-10),
+      latestTrace: {
+        control: trace.control,
+        what: trace.what,
+        why: trace.why,
+        ingredients: trace.ingredients,
+      },
+      savedIdeas: savedIdeas.map((idea) => ({
+        label: idea.label,
+        score: idea.score,
+        ingredients: idea.ingredients,
+      })),
+    }
+  }
+
+  async function queueAssistantModelReply(
+    request: ReturnType<typeof buildAssistantChatRequest>,
+    focus = 'Calling chat model',
+  ) {
+    const requestNumber = chatRequestCounter.current + 1
+    chatRequestCounter.current = requestNumber
+    window.clearTimeout(chatThinkTimer.current)
+    window.clearTimeout(chatResolveTimer.current)
+    finishStreamingMessage()
+
+    setChatDraft({
+      id: `draft-${request.id}`,
+      phase: 'Thinking',
+      lines: ['Reading image context', 'Checking selected segment', 'Reviewing staged changes'],
+    })
+    chatThinkTimer.current = window.setTimeout(() => {
+      setChatDraft({
+        id: `draft-${request.id}`,
+        phase: 'Composing',
+        lines: [focus, 'Preparing response'],
+      })
+    }, 420)
+
+    const reply = await requestAssistantChat(request)
+    if (chatRequestCounter.current !== requestNumber) return
+
+    window.clearTimeout(chatThinkTimer.current)
+    window.clearTimeout(chatResolveTimer.current)
+    setChatDraft(null)
+    streamAssistantReply(reply.content, reply.activity ?? 'Worked with model >')
+  }
+
   function processChatPrompt(trimmed: string, editedMessageId = '') {
     if (!trimmed) return
     const lower = trimmed.toLowerCase()
-    setMessages((current) => {
-      if (editedMessageId) {
-        return current.map((message) =>
+    const nextMessages = editedMessageId
+      ? messages.map((message) =>
           message.id === editedMessageId ? { ...message, content: trimmed } : message,
         )
-      }
+      : [
+          ...messages,
+          {
+            id: `user-${Date.now()}`,
+            role: 'user',
+            content: trimmed,
+          } satisfies ChatMessage,
+        ]
 
-      const userMessage: ChatMessage = {
-        id: `user-${Date.now()}`,
-        role: 'user',
-        content: trimmed,
-      }
-
-      return [...current, userMessage]
-    })
+    setMessages(nextMessages)
     if (lower.includes('fail') || lower.includes('simulate failure')) {
       failWork()
       queueAssistantReply(
@@ -2281,41 +2362,48 @@ function App() {
       return
     }
     let appliedTrace: ChangeTrace | undefined
+    let nextDraftScalars = draftScalars
     if (lower.includes('candid') || lower.includes('face')) {
+      const nextValue = Math.min(100, scalarValue(draftScalars, 'staging') + 8)
       appliedTrace = stageScalarChange(
         'staging',
-        Math.min(100, scalarValue(draftScalars, 'staging') + 8),
+        nextValue,
+      )
+      nextDraftScalars = draftScalars.map((scalar) =>
+        scalar.id === 'staging' ? { ...scalar, value: nextValue } : scalar,
       )
     } else if (lower.includes('literal') || lower.includes('abstraction')) {
+      const nextValue = Math.max(0, scalarValue(draftScalars, 'abstraction') - 8)
       appliedTrace = stageScalarChange(
         'abstraction',
-        Math.max(0, scalarValue(draftScalars, 'abstraction') - 8),
+        nextValue,
+      )
+      nextDraftScalars = draftScalars.map((scalar) =>
+        scalar.id === 'abstraction' ? { ...scalar, value: nextValue } : scalar,
       )
     } else if (lower.includes('warmer') || lower.includes('warmth')) {
+      const nextValue = Math.min(100, scalarValue(draftScalars, 'materiality') + 8)
       appliedTrace = stageScalarChange(
         'materiality',
-        Math.min(100, scalarValue(draftScalars, 'materiality') + 8),
+        nextValue,
+      )
+      nextDraftScalars = draftScalars.map((scalar) =>
+        scalar.id === 'materiality' ? { ...scalar, value: nextValue } : scalar,
       )
     } else {
       startWork('applying', lastChange)
     }
-    const nextStep =
-      savedIdeas.length < 2
-        ? 'Save two ideas, then combine them into a remix.'
-        : 'You have enough saved signal to combine ideas or generate a remix.'
-    const stateNote = appliedTrace
-      ? `Applied: ${appliedTrace.what}`
-      : `Latest trace: ${lastChange.what}`
-    const reply =
-      lower.includes('what should i do next') || lower.includes('next')
-        ? `Next: ${nextStep} Current focus is ${activeSegment.label}; latest change is ${lastChange.control}.`
-        : appliedTrace
-          ? `Staged: ${appliedTrace.what} Use Remix Image to generate the committed image.`
-          : `Applied state-aware guidance to ${activeSegment.label}. ${stateNote}`
-    queueAssistantReply(
-      reply,
-      appliedTrace ? `Staging ${appliedTrace.control}` : 'Reading latest trace',
-      lower.includes('what should i do next') || lower.includes('next') ? 'Thought for 2s >' : 'Worked for 1s >',
+    const trace = appliedTrace ?? lastChange
+    const chatRequest = buildAssistantChatRequest({
+      prompt: trimmed,
+      nextMessages,
+      editedMessageId,
+      nextDraftScalars,
+      trace,
+    })
+    void queueAssistantModelReply(
+      chatRequest,
+      appliedTrace ? `Staging ${appliedTrace.control}` : 'Calling chat model',
     )
   }
 
