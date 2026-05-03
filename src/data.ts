@@ -141,6 +141,11 @@ const originalVisualContext: ImageVariant['visualContext'] = {
     'small italic subcopy under the headline',
     'lower-left CTA button',
   ],
+  copywriting: [
+    '“You smell so good! I noticed the minute you walked in”',
+    'My barista this morning',
+    'SHOP BRALESS NOW',
+  ],
   avoid: [
     'extra people',
     'new product category',
@@ -158,6 +163,11 @@ const remixVisualContext: ImageVariant['visualContext'] = {
     'Radiate Confidence / Feel Beautiful headline structure',
     'small italic morning/barista subcopy',
     'lower-left CTA button',
+  ],
+  copywriting: [
+    'Radiate Confidence. Feel Beautiful Inside & Out',
+    'My barista this morning yet.',
+    'SHOP BRALESS NOW',
   ],
 }
 

@@ -520,12 +520,85 @@ function sourceLockLines(variant: ImageVariant) {
   return [
     `Source read: ${context.summary}`,
     ...context.locks.map((lock) => `Lock: ${lock}`),
+    ...copywritingForVariant(variant).map((line) => `Exact copywriting: ${line}`),
     ...context.textAnchors.map((anchor) => `Text/layout anchor: ${anchor}`),
   ]
 }
 
 function sourceAvoidanceLines(variant: ImageVariant) {
   return variant.visualContext?.avoid ?? []
+}
+
+function copywritingForVariant(variant: ImageVariant) {
+  return variant.visualContext?.copywriting ?? []
+}
+
+function normalizeCopywriting(lines: string[]) {
+  return lines
+    .map((line) => line.replace(/[“”"]/g, '').replace(/\s+/g, ' ').trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join(' | ')
+}
+
+function uniqueCopySets(copySets: string[][]) {
+  const seen = new Set<string>()
+
+  return copySets.filter((copySet) => {
+    const normalized = normalizeCopywriting(copySet)
+    if (!normalized || seen.has(normalized)) return false
+
+    seen.add(normalized)
+    return true
+  })
+}
+
+function copywritingPolicyForRequest({
+  intent,
+  sourceVariant,
+  imageInputs,
+}: {
+  intent: CreativeGenerationRequest['intent']
+  sourceVariant: ImageVariant
+  imageInputs: ImageInputReference[]
+}) {
+  const sourceCopy = copywritingForVariant(sourceVariant)
+  const inputCopySets = uniqueCopySets(
+    [
+      sourceCopy,
+      ...imageInputs.map((input) => input.copywriting ?? []),
+    ].filter((copySet) => copySet.length > 0),
+  )
+  const copyLines = sourceCopy.length
+    ? sourceCopy
+    : imageInputs.find((input) => input.copywriting?.length)?.copywriting ?? []
+  const exactCopyBlock = copyLines.map((line) => `- ${line}`).join('\n')
+
+  if (intent === 'image-blend') {
+    if (inputCopySets.length <= 1) {
+      return [
+        'Copywriting policy: image blend with matching source copy. Preserve the exact same headline, subcopy, CTA, product text, and brand/product language from the sources.',
+        exactCopyBlock ? `Exact copy to preserve:\n${exactCopyBlock}` : '',
+        'Blend photography, styling, crop, and visual treatment only.',
+      ]
+        .filter(Boolean)
+        .join('\n')
+    }
+
+    return [
+      'Copywriting policy: image blend with different source copy sets. The result may make a conceptual copy blend if text appears, because the sources disagree.',
+      'Do not invent unsupported claims, new product names, or unrelated CTA language. Keep any generated text grounded in the supplied source copy sets.',
+      `Source copy sets:\n${inputCopySets
+        .map((copySet, index) => `Set ${index + 1}: ${copySet.join(' / ')}`)
+        .join('\n')}`,
+    ].join('\n')
+  }
+
+  return [
+    'Copywriting policy: preserve exact source copy. Only photography, lighting, composition, styling, crop, and visual treatment may change.',
+    'Do not rewrite, paraphrase, shorten, translate, embellish, or replace the headline, subcopy, CTA, product text, or brand/product language.',
+    exactCopyBlock ? `Exact copy to preserve:\n${exactCopyBlock}` : 'If text is visible in the source image, keep it exactly as shown.',
+  ].join('\n')
 }
 
 function scalarPromptDirective(scalar: AestheticScalar) {
@@ -553,11 +626,23 @@ function scalarPromptDirective(scalar: AestheticScalar) {
 
 function visualContextForGeneratedRequest(request: CreativeGenerationRequest): ImageVariant['visualContext'] {
   const sourceContext = request.sourceVariant.visualContext
+  const sourceCopySets = uniqueCopySets(
+    [
+      copywritingForVariant(request.sourceVariant),
+      ...request.imageInputs.map((input) => input.copywriting ?? []),
+    ].filter((copySet) => copySet.length > 0),
+  )
+  const copywriting =
+    request.intent === 'image-blend' && sourceCopySets.length > 1
+      ? Array.from(new Set(sourceCopySets.flat()))
+      : copywritingForVariant(request.sourceVariant)
+
   return {
     summary: `${request.outputTitle} generated from ${request.sourceVariant.title}. ${request.latestTrace.what}`,
     locks: sourceContext?.locks ?? [
       `preserve the source image structure from ${request.sourceVariant.title}`,
     ],
+    copywriting,
     textAnchors: sourceContext?.textAnchors ?? [
       `preserve visible ad text regions from ${request.sourceVariant.title}`,
     ],
@@ -571,11 +656,15 @@ function visualContextForGeneratedRequest(request: CreativeGenerationRequest): I
 
 function buildNegativePrompt({
   sourceVariant,
+  imageInputs,
+  intent,
   focusedSegments,
   scalarChanges,
   chatContext,
 }: {
   sourceVariant: ImageVariant
+  imageInputs: ImageInputReference[]
+  intent: CreativeGenerationRequest['intent']
   focusedSegments: SegmentAnnotation[]
   scalarChanges: CreativeGenerationRequest['scalarChanges']
   chatContext: ChatMessage[]
@@ -585,10 +674,20 @@ function buildNegativePrompt({
     .find((message) => message.role === 'user' && message.content.trim())?.content
   const segmentNames = focusedSegments.map((segment) => segment.label).join(', ')
   const changedScalars = scalarChanges.map((change) => change.label).join(', ')
+  const copySets = uniqueCopySets(
+    [
+      copywritingForVariant(sourceVariant),
+      ...imageInputs.map((input) => input.copywriting ?? []),
+    ].filter((copySet) => copySet.length > 0),
+  )
+  const mustPreserveCopy = intent !== 'image-blend' || copySets.length <= 1
 
   return [
     `Do not ignore the selected canvas source (${sourceVariant.title}).`,
     segmentNames ? `Do not lose the selected SAM focus (${segmentNames}).` : '',
+    mustPreserveCopy
+      ? 'Do not change, rewrite, paraphrase, replace, or hallucinate visible ad copywriting. Preserve source text exactly.'
+      : 'Do not invent unsupported claims while blending copy from different source images.',
     changedScalars ? `Do not apply scalar directions outside the staged controls (${changedScalars}).` : '',
     userInstruction ? `Do not contradict the latest user chat instruction: ${userInstruction}.` : '',
     ...sourceAvoidanceLines(sourceVariant).map((item) => `Avoid ${item}.`),
@@ -652,8 +751,8 @@ function sceneDescriptionForVariant({
         ? `Color state comes from controls: ${colorScalars.map(scalarPositionLine).join('; ')}.`
         : `Color should follow selected source pixels and current controls.`,
     typography: typeSegments.length
-      ? `Respect selected text/CTA segments: ${typeSegments.map(segmentPromptLine).join(' | ')}.`
-      : `Preserve any visible ad text structure from the attached source unless changed by staged scalar/chat context${changedScalarLabels ? `: ${changedScalarLabels}` : '.'}`,
+      ? `Respect selected text/CTA segment geometry without changing the source copy: ${typeSegments.map(segmentPromptLine).join(' | ')}.`
+      : `Preserve the exact visible source copywriting and text placement while the photographic treatment changes${changedScalarLabels ? `: ${changedScalarLabels}` : '.'}`,
   }
 }
 
@@ -1631,6 +1730,7 @@ function App() {
       url: absoluteImageUrl(variant.image),
       role: index === 0 ? 'source' : 'reference',
       mediaType: mediaTypeForImage(variant.image),
+      copywriting: copywritingForVariant(variant),
     }))
   }
 
@@ -1672,8 +1772,15 @@ function App() {
     const imageInputSummary = imageInputs
       .map((input, index) => imageInputLine(input, index))
       .join('\n')
+    const copywritingPolicy = copywritingPolicyForRequest({
+      intent,
+      sourceVariant,
+      imageInputs,
+    })
     const negativePrompt = buildNegativePrompt({
       sourceVariant,
+      imageInputs,
+      intent,
       focusedSegments,
       scalarChanges,
       chatContext,
@@ -1694,6 +1801,7 @@ function App() {
       `Asset: ${activeCanvasAsset.name}; channel ${activeCanvasAsset.channel}; version ${activeCanvasAsset.version}`,
       `Canvas context:\n${generationInputs}`,
       `Source preservation:\n${sourceLockLines(sourceVariant).map((line) => `- ${line}`).join('\n')}`,
+      copywritingPolicy,
       `Selected SAM context:\n${selectedSegments.length ? selectedSegments.map((line) => `- ${line}`).join('\n') : `- ${activeSegment.label}: no additional segment selection`}`,
       `Aesthetic controls:\n${scalarSnapshot.map((line) => `- ${line}`).join('\n')}`,
       `Scalar interpretation:\n${scalarDirectives.map((line) => `- ${line}`).join('\n')}`,
@@ -1720,6 +1828,10 @@ function App() {
         {
           label: 'Selected SAM',
           value: focusedSegments.map((segment) => segment.label).join(', ') || activeSegment.label,
+        },
+        {
+          label: 'Copywriting',
+          value: copywritingPolicy,
         },
         {
           label: 'Adjustments',

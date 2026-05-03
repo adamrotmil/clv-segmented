@@ -63,6 +63,14 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Image generation prompt')).toContainText('Image inputs')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Canvas context')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Source preservation')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Copywriting policy')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('preserve exact source copy')
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'Radiate Confidence. Feel Beautiful Inside & Out',
+  )
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'Do not rewrite, paraphrase',
+  )
   await expect(page.getByLabel('Image generation prompt')).toContainText('Staged control changes')
   await expect(page.getByLabel('Prompt assembly lane')).toBeVisible()
   await expect(page.getByLabel('Image generation lane')).toContainText('scalar-remix')
@@ -619,6 +627,12 @@ test('dragging one artboard onto another creates a blended variant', async ({ pa
   await expect(updatedStack).toHaveClass(/drop-target/)
   await page.mouse.up()
 
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'image blend with different source copy sets',
+  )
+  await expect(page.getByLabel('Image generation prompt')).toContainText('conceptual copy blend')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Radiate Confidence')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('You smell so good')
   await expect(updatedStack).not.toHaveClass(/drop-target/)
   await expect(page.locator('.artboard-row .creative-stack').filter({ hasText: 'Remix 2' })).toBeVisible()
   await expect(page.locator('.variant-strip').getByText(/Remix 2/)).toBeVisible()

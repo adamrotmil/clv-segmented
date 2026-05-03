@@ -18,6 +18,7 @@ export type ImageVariant = {
   visualContext?: {
     summary: string
     locks: string[]
+    copywriting?: string[]
     textAnchors: string[]
     avoid: string[]
   }
@@ -142,6 +143,7 @@ export type ImageInputReference = {
   url: string
   role: 'source' | 'reference'
   mediaType?: string
+  copywriting?: string[]
 }
 
 export type SceneDescription = {
