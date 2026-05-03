@@ -1110,6 +1110,7 @@ button {
   transform-origin: top center;
   transition: transform 120ms ease;
   will-change: transform;
+  --artboard-stack-height: 668px;
 }
 
 .canvas-scroll.is-panning .canvas-world,
@@ -1121,7 +1122,7 @@ button {
   position: relative;
   display: grid;
   grid-template-columns: repeat(var(--artboard-columns, 2), 275px);
-  grid-auto-rows: max-content;
+  grid-auto-rows: var(--artboard-stack-height);
   column-gap: 30px;
   row-gap: 44px;
   width: max-content;
@@ -1582,7 +1583,7 @@ button {
 
 .segment-flyout {
   position: absolute;
-  z-index: 8;
+  z-index: 45;
   width: 164px;
   padding: 12px 12px 10px;
   border: 1px solid #e0e1e6;
@@ -1675,6 +1676,11 @@ button {
   justify-content: flex-end;
   gap: 12px;
   overflow: hidden;
+  pointer-events: none;
+}
+
+.canvas-panel.has-segment-flyout .variant-strip {
+  pointer-events: none;
 }
 
 .variant-thumb {
@@ -1687,6 +1693,11 @@ button {
   background: #fff;
   text-align: left;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  pointer-events: auto;
+}
+
+.canvas-panel.has-segment-flyout .variant-thumb {
+  pointer-events: none;
 }
 
 .variant-thumb.selected {

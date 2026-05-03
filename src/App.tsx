@@ -996,6 +996,7 @@ function typographyPolicyForRequest({
   imageInputs: ImageInputReference[]
 }) {
   const sourceLines = typographyDnaLines(sourceVariant)
+  const sourceFamily = sourceVariant.visualContext?.typography?.family
   const referenceLines = imageInputs
     .filter((input) => input.role === 'reference')
     .map((input) =>
@@ -1006,7 +1007,9 @@ function typographyPolicyForRequest({
 
   return [
     'Typography brand lock: before remixing, perform a source image DNA read from imageInputs[0] and preserve the exact same font family and text rendering as the source image.',
-    'If the source uses Inter, use Inter. If the source uses Mulish, use Mulish. If vision identifies another brand font, use that exact font family and matching fallback style.',
+    sourceFamily
+      ? `If the source uses ${sourceFamily}, use ${sourceFamily}. If vision identifies a closer brand font from the source pixels, use that exact font family and matching fallback style.`
+      : 'If the source uses Inter, use Inter. If the source uses Mulish, use Mulish. If vision identifies another brand font, use that exact font family and matching fallback style.',
     'When Helvetica Neue typography reference images are provided, use them as additional glyph grounding for Helvetica Neue/neutral grotesk letterforms while keeping imageInputs[0] as the primary ad/photo source.',
     'Keep glyph geometry, x-height, weight, casing, kerning/tracking, line-height, text alignment, stroke contrast, CTA label style, and text block placement from the source.',
     'Only photographic aesthetics may change unless the user explicitly asks to change typography. Do not substitute generic sans, serif, script, display, condensed, rounded, or decorative fonts.',
@@ -1302,7 +1305,10 @@ function brandCategoryForPrompt(asset: CreativeGenerationRequest['asset'], sourc
   const copy = copywritingForVariant(sourceVariant).join(' ')
   const product = productDnaLines(sourceVariant).join(' ')
 
-  if (/braless|intimates|bralette|beauty|skin|makeup|container/i.test(`${copy} ${product}`)) {
+  if (/byredo|bal d|afrique|fragrance|perfume|eau de parfum|braless|intimates|bralette|beauty|skin|makeup|container/i.test(`${copy} ${product}`)) {
+    if (/byredo|bal d|afrique|fragrance|perfume|eau de parfum/i.test(`${copy} ${product}`)) {
+      return 'a luxury fragrance/beauty brand'
+    }
     return 'a beauty/intimates brand'
   }
 
@@ -1571,13 +1577,14 @@ function useArtboardDrag(
   const [localPositions, setLocalPositions] = useState<Record<string, DragOffset>>({})
   const positions = controlledPositions ?? localPositions
   const [dragState, setDragState] = useState<ArtboardDragState | null>(null)
+  const dragStateRef = useRef<ArtboardDragState | null>(null)
   const positionsRef = useRef<Record<string, DragOffset>>({})
 
   useEffect(() => {
     positionsRef.current = positions
   }, [positions])
 
-  function commitPositions(nextPositions: Record<string, DragOffset>) {
+  const commitPositions = useCallback((nextPositions: Record<string, DragOffset>) => {
     positionsRef.current = nextPositions
     if (onPositionsChange) {
       onPositionsChange(nextPositions)
@@ -1585,15 +1592,56 @@ function useArtboardDrag(
     }
 
     setLocalPositions(nextPositions)
-  }
+  }, [onPositionsChange])
 
-  function updatePosition(id: string, position: DragOffset) {
+  const updatePosition = useCallback((id: string, position: DragOffset) => {
     const nextPositions = {
       ...positionsRef.current,
       [id]: position,
     }
     commitPositions(nextPositions)
-  }
+  }, [commitPositions])
+
+  const moveActiveDrag = useCallback((clientX: number, clientY: number) => {
+    const activeDrag = dragStateRef.current
+    if (!activeDrag) return
+
+    const dragScale = activeDrag.scale || 1
+    const x = activeDrag.originX + (clientX - activeDrag.startX) / dragScale
+    const y = activeDrag.originY + (clientY - activeDrag.startY) / dragScale
+
+    updatePosition(activeDrag.id, {
+      x: clampDragOffset(x, 640),
+      y: clampDragOffset(y, 520),
+    })
+  }, [updatePosition])
+
+  useEffect(() => {
+    if (!dragState) return undefined
+
+    function handlePointerMove(event: globalThis.PointerEvent) {
+      const activeDrag = dragStateRef.current
+      if (!activeDrag || activeDrag.pointerId !== event.pointerId) return
+      moveActiveDrag(event.clientX, event.clientY)
+    }
+
+    function handlePointerEnd(event: globalThis.PointerEvent) {
+      const activeDrag = dragStateRef.current
+      if (!activeDrag || activeDrag.pointerId !== event.pointerId) return
+      dragStateRef.current = null
+      setDragState(null)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerEnd)
+    window.addEventListener('pointercancel', handlePointerEnd)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerEnd)
+      window.removeEventListener('pointercancel', handlePointerEnd)
+    }
+  }, [dragState, moveActiveDrag])
 
   function setPositions(nextPositions: Record<string, DragOffset>) {
     commitPositions(nextPositions)
@@ -1614,7 +1662,7 @@ function useArtboardDrag(
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
     onSelect(id)
-    setDragState({
+    const nextDragState = {
       id,
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -1622,32 +1670,30 @@ function useArtboardDrag(
       originX: origin.x,
       originY: origin.y,
       scale: scale || 1,
-    })
+    }
+    dragStateRef.current = nextDragState
+    setDragState(nextDragState)
   }
 
   function moveDrag(event: PointerEvent<HTMLElement>) {
-    if (!dragState || dragState.pointerId !== event.pointerId) return
+    const activeDrag = dragStateRef.current
+    if (!activeDrag || activeDrag.pointerId !== event.pointerId) return
 
-    const dragScale = dragState.scale || 1
-    const x = dragState.originX + (event.clientX - dragState.startX) / dragScale
-    const y = dragState.originY + (event.clientY - dragState.startY) / dragScale
-
-    updatePosition(dragState.id, {
-      x: clampDragOffset(x, 640),
-      y: clampDragOffset(y, 520),
-    })
+    moveActiveDrag(event.clientX, event.clientY)
   }
 
   function endDrag(event: PointerEvent<HTMLElement>) {
-    if (!dragState || dragState.pointerId !== event.pointerId) return undefined
+    const activeDrag = dragStateRef.current
+    if (!activeDrag || activeDrag.pointerId !== event.pointerId) return undefined
 
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
     const result = {
-      id: dragState.id,
+      id: activeDrag.id,
       positions: positionsRef.current,
     }
+    dragStateRef.current = null
     setDragState(null)
     return result
   }
@@ -1667,7 +1713,7 @@ const artboardMetrics = {
   size: 275,
   gap: 30,
   rowGap: 44,
-  stackHeight: 294,
+  stackHeight: 668,
 }
 
 function displaySizeForVariant(variant: ImageVariant, size: 'normal' | 'large' = 'normal') {
@@ -1897,6 +1943,7 @@ function useCanvasPan() {
 
   return {
     pan,
+    setPan,
     panning: Boolean(panState),
     wheelFocused,
     beginPan,
@@ -5431,7 +5478,7 @@ function CanvasWorkspace({
     targetId: string
     factor: string
   } | null>(null)
-  const artboardScale = zoom / 78
+  const artboardScale = zoom / 100
   const artboardDrag = useArtboardDrag(
     artboardScale,
     onSelectVariant,
@@ -5441,6 +5488,7 @@ function CanvasWorkspace({
   const canvasPan = useCanvasPan()
   const [canvasScrollRef, canvasViewportWidth] = useElementWidth<HTMLDivElement>()
   const appliedAssistantActionId = useRef('')
+  const autoFocusedGeneratingVariantId = useRef('')
   useCanvasWheelGestures({
     scrollRef: canvasScrollRef,
     wheelFocused: canvasPan.wheelFocused,
@@ -5468,6 +5516,7 @@ function CanvasWorkspace({
     '--pan-y': `${canvasPan.pan.y}px`,
     '--zoom': artboardScale,
     '--artboard-columns': gridColumns,
+    '--artboard-stack-height': `${artboardMetrics.stackHeight}px`,
   } as CSSProperties
   const dropTargetId = findOverlappedArtboard(
     canvasVariants,
@@ -5493,6 +5542,7 @@ function CanvasWorkspace({
     ? canvasVariants.find((variant) => variant.id === variantDetails.variantId) ?? null
     : null
   const hasSegmentSelection = selectedSegmentIds.length > 0 || Boolean(selectedSegmentId)
+  const generatingVariant = canvasVariants.find((variant) => variant.status === 'generating') ?? null
 
   function setComparisonIds(next: string[] | ((current: string[]) => string[])) {
     onComparisonIdsChange(typeof next === 'function' ? next(comparisonIds) : next)
@@ -5534,6 +5584,41 @@ function CanvasWorkspace({
       )
     }
   }, [artboardDrag, assistantCanvasAction, canvasVariants, gridColumns])
+
+  useEffect(() => {
+    if (!generatingVariant || autoFocusedGeneratingVariantId.current === generatingVariant.id) {
+      return
+    }
+
+    autoFocusedGeneratingVariantId.current = generatingVariant.id
+    const targetIndex = canvasVariants.findIndex((variant) => variant.id === generatingVariant.id)
+    if (targetIndex < 0) return
+
+    const targetOrigin = artboardOrigin(
+      targetIndex,
+      artboardDrag.positions[generatingVariant.id],
+      gridColumns,
+    )
+    const targetTop = targetOrigin.y * artboardScale
+    if (targetTop < 260) return
+
+    const targetScreenTop = Math.max(
+      320,
+      Math.min(590, (canvasScrollRef.current?.clientHeight ?? 760) - 60),
+    )
+    canvasPan.setPan((current) => ({
+      ...current,
+      y: Math.min(0, targetScreenTop - targetTop),
+    }))
+  }, [
+    artboardDrag.positions,
+    artboardScale,
+    canvasPan,
+    canvasScrollRef,
+    canvasVariants,
+    generatingVariant,
+    gridColumns,
+  ])
 
   function endArtboardDrag(event: PointerEvent<HTMLElement>) {
     const result = artboardDrag.endDrag(event)
@@ -5619,6 +5704,7 @@ function CanvasWorkspace({
     'canvas-panel',
     generatedVariants.length > 0 ? 'has-variant-strip' : '',
     hasPendingChanges ? 'has-remix-actions' : '',
+    hasSegmentSelection ? 'has-segment-flyout' : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -7600,7 +7686,7 @@ function ScoreControlsPanel({
           onAssetClick()
         }}
       >
-        <span>TikTok - Variant A</span>
+        <span>BYREDO - Bal d'Afrique</span>
         <ChevronDown size={18} />
       </button>
       {variant === 'score' ? (

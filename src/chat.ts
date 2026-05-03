@@ -196,6 +196,9 @@ function themeLabelForVariant(variant: CanvasVariantSnapshot) {
     context.includes('candid') ||
     context.includes('face') ||
     context.includes('human') ||
+    context.includes('adult') ||
+    context.includes('people') ||
+    context.includes('figures') ||
     context.includes('emotional') ||
     context.includes('staging')
   ) {

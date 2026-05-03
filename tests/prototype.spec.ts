@@ -88,7 +88,7 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Image generation prompt')).toContainText('gpt-image-2')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Image Prompt')
   await expect(page.getByLabel('Image generation prompt')).toContainText(
-    'Create a square 1:1 premium social ad for a beauty/intimates brand',
+    'Create a vertical premium social ad matching the selected source aspect ratio (853:1844)',
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText(
     'imageInputs[0]: source; id updated; title Remix 1',
@@ -115,16 +115,14 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Image generation prompt')).toContainText('Product identity lock')
   await expect(page.getByLabel('Image generation prompt')).toContainText('exact same advertised product')
   await expect(page.getByLabel('Image generation prompt')).toContainText(
-    'dark espresso-brown cylindrical beauty product container',
+    "BYREDO Bal d'Afrique eau de parfum bottle",
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText('Typography brand lock')
   await expect(page.getByLabel('Image generation prompt')).toContainText('exact same font family')
   await expect(page.getByLabel('Image generation prompt')).toContainText('glyph grounding')
-  await expect(page.getByLabel('Image generation prompt')).toContainText('font family Inter')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('font family BYREDO-style')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Source image DNA / vision read')
-  await expect(page.getByLabel('Image generation prompt')).toContainText(
-    'Radiate Confidence. Feel Beautiful Inside & Out',
-  )
+  await expect(page.getByLabel('Image generation prompt')).toContainText('BYREDO')
   await expect(page.getByLabel('Image generation prompt')).toContainText(
     'Do not rewrite, paraphrase',
   )
@@ -239,18 +237,18 @@ test('remix from a canvas source sends source-lock and max abstraction context',
   await expect(promptObserver).toContainText('exact product package')
   await expect(promptObserver).toContainText('Do not replace the source with a new ad concept')
   await expect(promptObserver).toContainText('Source-fidelity remix gate')
-  await expect(promptObserver).toContainText('Lock: one human subject only')
+  await expect(promptObserver).toContainText('Lock: two seated adults')
   await expect(promptObserver).toContainText('Product identity lock')
   await expect(promptObserver).toContainText('same SKU/package')
   await expect(promptObserver).toContainText('Typography brand lock')
-  await expect(promptObserver).toContainText('If the source uses Inter, use Inter')
-  await expect(promptObserver).toContainText('Avoid extra people')
+  await expect(promptObserver).toContainText('If the source uses BYREDO-style')
+  await expect(promptObserver).toContainText('Avoid extra people beyond the two source figures')
 })
 
 test('asset and version selectors update the active editor context', async ({ page }) => {
   await page.goto('/')
 
-  await page.getByRole('button', { name: /TikTok - Variant A/ }).click()
+  await page.getByRole('button', { name: /BYREDO - Bal d'Afrique/ }).click()
   await page
     .getByLabel('Creative assets')
     .getByRole('button', { name: /Meta - Variant B/ })
@@ -458,9 +456,12 @@ test('generated remixes appear as full-size canvas nodes and tidy back to grid',
     Math.abs((remixGridBox?.x ?? 0) - (originalBox?.x ?? 0)) < 12
   expect(placedToRight || placedOnNextRow).toBe(true)
 
-  await page.mouse.move((remixGridBox?.x ?? 0) + 24, (remixGridBox?.y ?? 0) + 24)
+  const remixTitleBox = await remixStack.getByRole('button', { name: 'Remix 2', exact: true }).boundingBox()
+  expect(remixTitleBox).not.toBeNull()
+
+  await page.mouse.move((remixTitleBox?.x ?? 0) + 18, (remixTitleBox?.y ?? 0) + 10)
   await page.mouse.down()
-  await page.mouse.move((remixGridBox?.x ?? 0) + 92, (remixGridBox?.y ?? 0) + 62, { steps: 5 })
+  await page.mouse.move((remixTitleBox?.x ?? 0) + 86, (remixTitleBox?.y ?? 0) + 48, { steps: 5 })
   await page.mouse.up()
 
   const movedBox = await remixStack.boundingBox()
@@ -910,9 +911,11 @@ test('dragging one artboard onto another creates a blended variant', async ({ pa
   await page.mouse.up()
 
   await expect(page.getByLabel('Image generation prompt')).toContainText(
-    'image blend with different source copy sets',
+    'image blend with matching source copy',
   )
-  await expect(page.getByLabel('Image generation prompt')).toContainText('conceptual copy blend')
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'Blend photography, styling, crop, and visual treatment only',
+  )
   await expect(page.getByLabel('Image generation prompt')).toContainText('Blend scalar midpoint')
   await expect(page.getByLabel('Image generation prompt')).toContainText(
     'Staging midpoint: Original Image 78/100 + Remix 1 78/100 -> 78/100',
@@ -920,8 +923,8 @@ test('dragging one artboard onto another creates a blended variant', async ({ pa
   await expect(page.getByLabel('Image generation prompt')).toContainText(
     'Aesthetic direction from sliders',
   )
-  await expect(page.getByLabel('Image generation prompt')).toContainText('Radiate Confidence')
-  await expect(page.getByLabel('Image generation prompt')).toContainText('You smell so good')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('BYREDO')
+  await expect(page.getByLabel('Image generation prompt')).toContainText("BAL D’AFRIQUE")
   await expect(updatedStack).not.toHaveClass(/drop-target/)
   await expect(page.locator('.artboard-row .creative-stack').filter({ hasText: 'Remix 2' })).toBeVisible()
   await expect(page.locator('.variant-strip').getByText(/Remix 2/)).toBeVisible()
