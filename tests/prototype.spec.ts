@@ -62,6 +62,7 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Image generation prompt')).toContainText('imageInputs')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Image inputs')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Canvas context')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Source preservation')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Staged control changes')
   await expect(page.getByLabel('Image generation prompt')).toContainText('active canvas node: Remix 1')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Recent chat')
@@ -83,6 +84,24 @@ test('new remix generation reserves a shimmering target frame before resolving',
     .getAttribute('style')
 
   expect(remixEmotionGeometry).not.toBe(updatedEmotionGeometry)
+})
+
+test('remix from a canvas source sends source-lock and max abstraction context', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Remix 1', exact: true }).click()
+  await page.getByLabel('Abstraction').fill('100')
+  await page.getByRole('button', { name: 'Remix 1', exact: true }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Remix from this' }).click()
+
+  const promptObserver = page.getByLabel('Image generation prompt')
+  await expect(promptObserver).toBeVisible()
+  await expect(promptObserver).toContainText('active canvas node: Remix 1')
+  await expect(promptObserver).toContainText('Abstraction: 100/100')
+  await expect(promptObserver).toContainText('abstract the selected source')
+  await expect(promptObserver).toContainText('Do not replace the source with a new ad concept')
+  await expect(promptObserver).toContainText('Lock: one human subject only')
+  await expect(promptObserver).toContainText('Avoid extra people')
 })
 
 test('asset and version selectors update the active editor context', async ({ page }) => {

@@ -124,6 +124,42 @@ export const updatedSegments: SegmentAnnotation[] = [
   },
 ]
 
+const originalVisualContext: ImageVariant['visualContext'] = {
+  summary:
+    'Square social ad creative with one seated person in a warm interior crop, large white headline copy across the middle, dark product held near the lower center, and a compact CTA in the lower-left corner.',
+  locks: [
+    'one human subject only',
+    'same seated/cropped body arrangement',
+    'dark product remains held near the lower center',
+    'headline region stays across the center of the frame',
+    'CTA remains in the lower-left region',
+    'warm wall/shadow backdrop remains recognizable',
+  ],
+  textAnchors: [
+    'large central headline',
+    'small italic subcopy under the headline',
+    'lower-left CTA button',
+  ],
+  avoid: [
+    'extra people',
+    'new product category',
+    'new brand mark or invented bottle label',
+    'full layout replacement',
+    'moving the product out of the hand/lower-center region',
+  ],
+}
+
+const remixVisualContext: ImageVariant['visualContext'] = {
+  ...originalVisualContext,
+  summary:
+    'Square social ad remix with one seated person in the same warm interior layout, face more visible, dark product held near the lower center, large white headline copy over the torso, italic subcopy below, and lower-left CTA.',
+  textAnchors: [
+    'Radiate Confidence / Feel Beautiful headline structure',
+    'small italic morning/barista subcopy',
+    'SHOP BRALESS NOW lower-left CTA',
+  ],
+}
+
 export const initialVariants: ImageVariant[] = [
   {
     id: 'original',
@@ -131,6 +167,7 @@ export const initialVariants: ImageVariant[] = [
     kind: 'original',
     image: originalTile,
     score: 74,
+    visualContext: originalVisualContext,
     segments: originalSegments,
   },
   {
@@ -140,6 +177,7 @@ export const initialVariants: ImageVariant[] = [
     image: updatedTile,
     score: 83,
     delta: 7,
+    visualContext: remixVisualContext,
     segments: updatedSegments,
   },
 ]

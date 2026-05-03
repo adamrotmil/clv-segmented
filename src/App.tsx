@@ -476,8 +476,9 @@ function sourceVariantLine(variant: ImageVariant, label = promptRoleForVariant(v
   const ingredients = variant.ingredients?.length ? `; ingredients ${variant.ingredients.join(', ')}` : ''
   const lineage = variant.sourceIds?.length ? `; sources ${variant.sourceIds.join(', ')}` : ''
   const filter = variant.filter ? `; current render filter ${variant.filter}` : ''
+  const visualSummary = variant.visualContext?.summary ? `; source read ${variant.visualContext.summary}` : ''
 
-  return `${label}: ${variant.title}; id ${variant.id}; ES ${variant.score}%${ingredients}${lineage}${filter}`
+  return `${label}: ${variant.title}; id ${variant.id}; ES ${variant.score}%${ingredients}${lineage}${filter}${visualSummary}`
 }
 
 function imageInputLine(input: ImageInputReference, index: number) {
@@ -489,6 +490,67 @@ function chatPromptLines(chatContext: ChatMessage[]) {
     .filter((message) => message.content.trim())
     .slice(-6)
     .map((message) => `${message.role}: ${message.content.trim()}`)
+}
+
+function sourceLockLines(variant: ImageVariant) {
+  const context = variant.visualContext
+  if (!context) {
+    return [
+      `Treat ${variant.title} as the visual source of truth.`,
+      `Keep the same source composition, subject count, product placement, and ad layout unless the selected state explicitly changes them.`,
+    ]
+  }
+
+  return [
+    `Source read: ${context.summary}`,
+    ...context.locks.map((lock) => `Lock: ${lock}`),
+    ...context.textAnchors.map((anchor) => `Text/layout anchor: ${anchor}`),
+  ]
+}
+
+function sourceAvoidanceLines(variant: ImageVariant) {
+  return variant.visualContext?.avoid ?? []
+}
+
+function scalarPromptDirective(scalar: AestheticScalar) {
+  const value = Math.round(scalar.value)
+  if (scalar.id === 'abstraction') {
+    if (value >= 82) {
+      return `${scalar.label}: ${value}/100 means abstract the selected source through treatment, texture, shape language, and visual style while keeping the source locks intact. Do not replace the source with a new ad concept.`
+    }
+    if (value <= 35) {
+      return `${scalar.label}: ${value}/100 means keep the source literal and concrete; avoid surreal reinterpretation.`
+    }
+  }
+  if (scalar.id === 'staging' && value >= 75) {
+    return `${scalar.label}: ${value}/100 means increase candidness inside the selected source composition, not by introducing a new scene.`
+  }
+  if (scalar.id === 'materiality' && value >= 65) {
+    return `${scalar.label}: ${value}/100 means make surface/process cues more tactile while preserving product and layout anchors.`
+  }
+  if (scalar.id === 'stopping-power' && value >= 70) {
+    return `${scalar.label}: ${value}/100 means raise thumb-stop intensity without changing the source subject count or product category.`
+  }
+
+  return scalarPositionLine(scalar)
+}
+
+function visualContextForGeneratedRequest(request: CreativeGenerationRequest): ImageVariant['visualContext'] {
+  const sourceContext = request.sourceVariant.visualContext
+  return {
+    summary: `${request.outputTitle} generated from ${request.sourceVariant.title}. ${request.latestTrace.what}`,
+    locks: sourceContext?.locks ?? [
+      `preserve the source image structure from ${request.sourceVariant.title}`,
+    ],
+    textAnchors: sourceContext?.textAnchors ?? [
+      `preserve visible ad text regions from ${request.sourceVariant.title}`,
+    ],
+    avoid: sourceContext?.avoid ?? [
+      'extra people',
+      'new product category',
+      'unrelated visual concept',
+    ],
+  }
 }
 
 function buildNegativePrompt({
@@ -513,6 +575,7 @@ function buildNegativePrompt({
     segmentNames ? `Do not lose the selected SAM focus (${segmentNames}).` : '',
     changedScalars ? `Do not apply scalar directions outside the staged controls (${changedScalars}).` : '',
     userInstruction ? `Do not contradict the latest user chat instruction: ${userInstruction}.` : '',
+    ...sourceAvoidanceLines(sourceVariant).map((item) => `Avoid ${item}.`),
     `Do not invent unsupported product, brand, audience, or claim context beyond the supplied request packet.`,
   ]
     .filter(Boolean)
@@ -1107,6 +1170,7 @@ function App() {
       filter: `${imageFilterForScalars(assetScalars)} brightness(1.01)`,
       ingredients: ['Imported asset', selectedAsset.channel, selectedVersion],
       sourceIds: [selectedVariantId],
+      visualContext: initialVariants[1].visualContext,
     }
     setVariants((current) => [...current, assetDraft])
     setSelectedVariantId(nextId)
@@ -1508,6 +1572,7 @@ function App() {
       .filter(Boolean) as SegmentAnnotation[]
     const scalarAdjustments = scalarChanges.map(scalarAdjustmentLine)
     const scalarSnapshot = scalarRecipeSummary(nextScalars)
+    const scalarDirectives = nextScalars.map(scalarPromptDirective)
     const chatLines = chatPromptLines(chatContext)
     const chatText = chatLines.join('\n')
     const savedIdeaContext = savedIdeas
@@ -1538,8 +1603,10 @@ function App() {
       `Intent: ${intent}`,
       `Asset: ${activeCanvasAsset.name}; channel ${activeCanvasAsset.channel}; version ${activeCanvasAsset.version}`,
       `Canvas context:\n${generationInputs}`,
+      `Source preservation:\n${sourceLockLines(sourceVariant).map((line) => `- ${line}`).join('\n')}`,
       `Selected SAM context:\n${selectedSegments.length ? selectedSegments.map((line) => `- ${line}`).join('\n') : `- ${activeSegment.label}: no additional segment selection`}`,
       `Aesthetic controls:\n${scalarSnapshot.map((line) => `- ${line}`).join('\n')}`,
+      `Scalar interpretation:\n${scalarDirectives.map((line) => `- ${line}`).join('\n')}`,
       `Staged control changes:\n${changedControls.map((line) => `- ${line}`).join('\n')}`,
       `Scene assembly:\n- Subject/source: ${sceneDescription.subject}\n- Setting inference: ${sceneDescription.setting}\n- Composition: ${sceneDescription.composition}\n- Camera/framing: ${sceneDescription.camera}\n- Lighting: ${sceneDescription.lighting}\n- Color: ${sceneDescription.color}\n- Typography/text: ${sceneDescription.typography}`,
       `Current edit context: ${trace.what} ${trace.why}`,
@@ -1736,6 +1803,7 @@ function App() {
       filter: request.baseFilter,
       ingredients: request.latestTrace.ingredients,
       sourceIds: request.sourceIds,
+      visualContext: visualContextForGeneratedRequest(request),
       segments: projectSegmentsForRequest(request),
       status: 'generating',
     }
@@ -1823,6 +1891,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: generation.segments,
       status: 'ready',
     }
@@ -1998,6 +2067,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: generation.segments,
       status: 'ready',
     }
@@ -2091,6 +2161,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: generation.segments,
       status: 'ready',
     }
@@ -2200,6 +2271,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: generation.segments,
       status: 'ready',
     }
@@ -2369,6 +2441,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: generation.segments,
       status: 'ready',
     }
@@ -2467,6 +2540,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: generation.segments,
       status: 'ready',
     }

@@ -15,6 +15,12 @@ export type ImageVariant = {
   filter?: string
   ingredients?: string[]
   sourceIds?: string[]
+  visualContext?: {
+    summary: string
+    locks: string[]
+    textAnchors: string[]
+    avoid: string[]
+  }
   segments?: SegmentAnnotation[]
   status?: 'ready' | 'generating'
 }
