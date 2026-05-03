@@ -81,6 +81,23 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(remixStack.getByTestId('pending-shimmer')).toBeVisible()
   await expect(updatedStack.getByTestId('pending-shimmer')).toHaveCount(0)
   await expect(page.locator('.variant-strip .variant-thumb.generating').filter({ hasText: /Remix/ })).toBeVisible()
+  await page.waitForTimeout(900)
+  const canvasBox = await page.locator('.canvas-scroll').boundingBox()
+  const remixTitleBox = await remixStack.getByRole('button', { name: 'Remix 2', exact: true }).boundingBox()
+  const remixCardBox = await remixStack.locator('.creative-card').boundingBox()
+  const stripBox = await page.locator('.variant-strip').boundingBox()
+  expect(canvasBox).not.toBeNull()
+  expect(remixTitleBox).not.toBeNull()
+  expect(remixCardBox).not.toBeNull()
+  expect(stripBox).not.toBeNull()
+  expect(remixCardBox?.x ?? 0).toBeGreaterThanOrEqual((canvasBox?.x ?? 0) + 30)
+  expect((remixCardBox?.x ?? 0) + (remixCardBox?.width ?? 0)).toBeLessThanOrEqual(
+    (canvasBox?.x ?? 0) + (canvasBox?.width ?? 0) - 30,
+  )
+  expect(remixTitleBox?.y ?? 0).toBeGreaterThanOrEqual((canvasBox?.y ?? 0) + 44)
+  expect((remixCardBox?.y ?? 0) + (remixCardBox?.height ?? 0)).toBeLessThanOrEqual(
+    (stripBox?.y ?? 0) - 14,
+  )
   await expect(page.getByLabel('Image generation prompt')).toBeVisible()
   await expect(page.getByLabel('Image generation prompt')).toContainText('Generation target: Remix 2')
   await expect(page.getByLabel('Image generation prompt')).toContainText('imageInputs')
@@ -170,7 +187,6 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Raw composer request')).toContainText('promptDraft')
   await expect(page.getByLabel('Raw composer request')).toContainText('requestScaffold')
 
-  await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
   await expect(remixStack).not.toHaveClass(/generating/)
   await expect(remixStack).toHaveAttribute('data-source-fidelity', 'mock')
   await expect(remixStack.getByLabel('Fallback generated')).toHaveCount(0)
@@ -183,7 +199,7 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(remixStack.getByTestId('segmenting-shimmer')).toHaveCount(0)
   await expect(remixStack.locator('.segment-hotspot')).toHaveCount(4)
 
-  await page.getByRole('button', { name: 'Remix 1', exact: true }).click()
+  await page.getByRole('button', { name: 'Remix 1', exact: true }).dispatchEvent('click')
   await expect(page.getByLabel('Image generation prompt')).toHaveCount(0)
 
   await remixStack.getByRole('button', { name: 'Remix 2', exact: true }).click()

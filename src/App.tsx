@@ -1817,6 +1817,90 @@ function findOverlappedArtboard(
   )
 }
 
+function artboardRowWidth(columns: number) {
+  const safeColumns = Math.max(1, columns)
+  return safeColumns * artboardMetrics.size + (safeColumns - 1) * artboardMetrics.gap
+}
+
+function fitAxisIntoViewport({
+  start,
+  end,
+  min,
+  max,
+  current,
+}: {
+  start: number
+  end: number
+  min: number
+  max: number
+  current: number
+}) {
+  const safeMin = Math.min(min, max - 80)
+  const safeMax = Math.max(max, safeMin + 80)
+  const size = end - start
+  const available = safeMax - safeMin
+
+  if (size > available) return current + safeMin - start
+  if (start < safeMin) return current + safeMin - start
+  if (end > safeMax) return current - (end - safeMax)
+  return current
+}
+
+function panForArtboardVisibility({
+  origin,
+  size,
+  pan,
+  scale,
+  viewportWidth,
+  viewportHeight,
+  paddingTop,
+  columns,
+  hasVariantStrip,
+}: {
+  origin: DragOffset
+  size: { width: number; height: number }
+  pan: DragOffset
+  scale: number
+  viewportWidth: number
+  viewportHeight: number
+  paddingTop: number
+  columns: number
+  hasVariantStrip: boolean
+}) {
+  const safeScale = scale || 1
+  const rowWidth = artboardRowWidth(columns) * safeScale
+  const rowLeft = viewportWidth / 2 - rowWidth / 2
+  const titleSegmentAndScoreInset = 74 * safeScale
+  const breathing = Math.min(56, Math.max(34, viewportWidth * 0.055))
+  const topBreathing = Math.min(82, Math.max(58, viewportHeight * 0.08))
+  const bottomInset = hasVariantStrip
+    ? Math.min(150, Math.max(116, viewportHeight * 0.16))
+    : Math.min(78, Math.max(54, viewportHeight * 0.08))
+  const baseLeft = rowLeft + origin.x * safeScale
+  const baseTop = paddingTop + origin.y * safeScale - 6 * safeScale
+  const left = baseLeft + pan.x
+  const right = left + size.width * safeScale
+  const top = baseTop + pan.y
+  const bottom = top + size.height * safeScale + titleSegmentAndScoreInset
+
+  return {
+    x: fitAxisIntoViewport({
+      start: left,
+      end: right,
+      min: breathing,
+      max: viewportWidth - breathing,
+      current: pan.x,
+    }),
+    y: fitAxisIntoViewport({
+      start: top,
+      end: bottom,
+      min: topBreathing,
+      max: viewportHeight - bottomInset,
+      current: pan.y,
+    }),
+  }
+}
+
 function arrangedPositionsForGroups(
   variants: ImageVariant[],
   action: Extract<AssistantCanvasAction, { type: 'arrange-canvas' }>,
@@ -5722,23 +5806,28 @@ function CanvasWorkspace({
       artboardDrag.positions[generatingVariant.id],
       gridColumns,
     )
-    const targetTop = targetOrigin.y * artboardScale
-    if (targetTop < 260) return
+    const viewport = canvasScrollRef.current
+    if (!viewport) return
 
-    const targetScreenTop = Math.max(
-      320,
-      Math.min(590, (canvasScrollRef.current?.clientHeight ?? 760) - 60),
-    )
-    canvasPan.animatePanTo({
-      x: canvasPan.pan.x,
-      y: Math.min(0, targetScreenTop - targetTop),
+    const targetPan = panForArtboardVisibility({
+      origin: targetOrigin,
+      size: displaySizeForVariant(generatingVariant),
+      pan: canvasPan.pan,
+      scale: artboardScale,
+      viewportWidth: viewport.clientWidth,
+      viewportHeight: viewport.clientHeight,
+      paddingTop: Number.parseFloat(window.getComputedStyle(viewport).paddingTop) || 0,
+      columns: gridColumns,
+      hasVariantStrip: generatedVariants.length > 0,
     })
+    canvasPan.animatePanTo(targetPan)
   }, [
     artboardDrag.positions,
     artboardScale,
     canvasPan,
     canvasScrollRef,
     canvasVariants,
+    generatedVariants.length,
     generatingVariant,
     gridColumns,
   ])
