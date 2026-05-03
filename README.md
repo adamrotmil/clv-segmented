@@ -30,6 +30,7 @@ Public frontend endpoint variables can be set as GitHub Actions repository varia
 
 ```text
 VITE_IMAGE_GENERATION_ENDPOINT
+VITE_IMAGE_SEGMENTATION_ENDPOINT
 VITE_CHAT_ENDPOINT
 ```
 

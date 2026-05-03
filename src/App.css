@@ -1249,6 +1249,11 @@ button {
   opacity: 0.72;
 }
 
+.creative-stack.segmenting .score-wrap,
+.creative-stack.segmenting .last-applied {
+  opacity: 0.82;
+}
+
 .creative-card img {
   display: block;
   width: 100%;
@@ -1293,6 +1298,71 @@ button {
   background-size: 220% 100%;
   pointer-events: none;
   animation: shimmer 850ms ease-in-out infinite;
+}
+
+.sam-scan-shimmer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: block;
+  overflow: hidden;
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.sam-scan-shimmer::before,
+.sam-scan-shimmer::after {
+  position: absolute;
+  content: "";
+}
+
+.sam-scan-shimmer::before {
+  top: 0;
+  bottom: 0;
+  left: -26%;
+  width: 32%;
+  background:
+    linear-gradient(90deg, transparent, rgba(87, 126, 255, 0.2), transparent),
+    linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0));
+  animation: sam-scan 1.25s ease-in-out infinite;
+}
+
+.sam-scan-shimmer::after {
+  inset: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.72);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(47, 107, 255, 0.14);
+}
+
+.sam-scan-shimmer span,
+.segmentation-failed-note {
+  position: absolute;
+  left: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: rgba(19, 19, 22, 0.72);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  backdrop-filter: blur(8px);
+}
+
+.sam-scan-shimmer span {
+  top: 8px;
+}
+
+.segmentation-failed-note {
+  top: 8px;
+  z-index: 6;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .score-wrap {
@@ -1359,6 +1429,11 @@ button {
     0 3px 10px rgba(0, 0, 0, 0.18);
 }
 
+.segment-hotspot.segment-source-projected {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.62);
+}
+
 .segment-hotspot.muted {
   opacity: 0.42;
 }
@@ -1419,6 +1494,12 @@ button {
   box-shadow:
     0 0 0 1px rgba(17, 18, 23, 0.14),
     0 2px 7px rgba(0, 0, 0, 0.12);
+}
+
+.segment-label.segment-source-projected {
+  background: rgba(255, 255, 255, 0.88);
+  color: #5d5f67;
+  font-style: italic;
 }
 
 .segment-label.muted {
@@ -1561,6 +1642,10 @@ button {
   opacity: 0.72;
 }
 
+.variant-thumb.segmenting img {
+  opacity: 0.88;
+}
+
 .variant-thumb img {
   display: block;
   width: 100%;
@@ -1608,6 +1693,18 @@ button {
   background-size: 220% 100%;
   pointer-events: none;
   animation: shimmer 850ms ease-in-out infinite;
+}
+
+.thumb-sam-scan {
+  position: absolute;
+  top: 4px;
+  bottom: 44px;
+  left: 4px;
+  width: 20px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, transparent, rgba(47, 107, 255, 0.24), transparent);
+  pointer-events: none;
+  animation: sam-scan 1.2s ease-in-out infinite;
 }
 
 .node-context-menu {
@@ -2582,19 +2679,22 @@ button {
 }
 
 .trace-panel.has-generation {
-  max-height: 302px;
+  max-height: 248px;
 }
 
 .trace-panel.has-generation .trace-scroll {
-  max-height: 302px;
+  max-height: 248px;
+  padding: 10px 11px 11px;
 }
 
 .trace-panel.has-generation::after {
-  height: 26px;
+  height: 58px;
   background: linear-gradient(
     180deg,
     #fff 0%,
-    rgba(255, 255, 255, 0.9) 48%,
+    #fff 25%,
+    rgba(255, 255, 255, 0.94) 48%,
+    rgba(255, 255, 255, 0.64) 78%,
     rgba(255, 255, 255, 0) 100%
   );
 }
@@ -2732,7 +2832,7 @@ button {
 
 .prompt-observer {
   display: grid;
-  gap: 10px;
+  gap: 7px;
   color: #202126;
 }
 
@@ -2745,51 +2845,178 @@ button {
 
 .prompt-observer-head {
   justify-content: space-between;
-  color: #7a7a7c;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 16px;
+  color: #8b8c91;
+  font-size: 10px;
+  font-weight: 450;
+  line-height: 14px;
 }
 
 .prompt-observer-head em {
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: #f1f8f2;
-  color: #064f25;
+  color: #9a9ba0;
   font-style: normal;
-  font-weight: 500;
+  font-weight: 450;
 }
 
 .prompt-packet {
   display: grid;
-  gap: 8px;
+  gap: 5px;
 }
 
 .prompt-packet + .prompt-packet {
-  padding-top: 10px;
+  padding-top: 8px;
   border-top: 1px solid rgba(19, 19, 22, 0.08);
 }
 
 .prompt-packet-title {
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
 
 .prompt-packet-title strong {
   overflow: hidden;
   color: #131316;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
-  line-height: 16px;
+  line-height: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .prompt-packet-title span {
   flex: 0 0 auto;
-  color: #7a7a7c;
-  font-size: 11px;
-  line-height: 16px;
+  color: #8b8c91;
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.observability-stream {
+  display: grid;
+  gap: 1px;
+  padding-top: 1px;
+}
+
+.stream-row {
+  display: grid;
+  grid-template-columns: 37px 74px minmax(0, 1fr);
+  align-items: start;
+  gap: 5px;
+  min-height: 15px;
+  color: #3b3c42;
+  font-size: 10px;
+  letter-spacing: 0;
+  line-height: 14px;
+}
+
+.stream-row + .stream-row {
+  border-top: 1px solid rgba(19, 19, 22, 0.035);
+}
+
+.stream-row-lane,
+.stream-row-role {
+  overflow: hidden;
+  color: #94959b;
+  font-size: 9.5px;
+  font-weight: 450;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stream-row-lane {
+  color: #707178;
+}
+
+.lane-image .stream-row-lane {
+  color: #21643b;
+}
+
+.lane-sam .stream-row-lane {
+  color: #2453b3;
+}
+
+.lane-chat .stream-row-lane {
+  color: #5b4a96;
+}
+
+.stream-row-tokens {
+  min-width: 0;
+  color: #303138;
+  overflow-wrap: anywhere;
+}
+
+.stream-row-tokens span {
+  display: inline;
+  margin-right: 3px;
+  color: inherit;
+}
+
+.stream-row.streaming .stream-row-tokens span {
+  animation: stream-token-pulse 1.65s ease-in-out infinite;
+  animation-delay: calc(var(--token-index) * 38ms);
+}
+
+.stream-row.queued .stream-row-tokens {
+  color: #767880;
+}
+
+.stream-row.failed .stream-row-lane,
+.stream-row.failed .stream-row-role,
+.stream-row.failed .stream-row-tokens {
+  color: #8a1f24;
+}
+
+.stream-raw-payloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 3px;
+}
+
+.stream-raw-payload {
+  min-width: 0;
+}
+
+.stream-raw-payload summary {
+  cursor: pointer;
+  color: #86878c;
+  font-size: 9.5px;
+  font-weight: 450;
+  line-height: 13px;
+  list-style: none;
+}
+
+.stream-raw-payload summary::-webkit-details-marker {
+  display: none;
+}
+
+.stream-raw-payload summary::before {
+  display: inline-block;
+  margin-right: 4px;
+  color: #9b9ca1;
+  content: "›";
+  transform: translateY(-0.5px);
+  transition: transform 120ms ease;
+}
+
+.stream-raw-payload[open] {
+  flex-basis: 100%;
+}
+
+.stream-raw-payload[open] summary::before {
+  transform: rotate(90deg) translateX(1px);
+}
+
+.stream-raw-payload pre {
+  max-height: 180px;
+  margin: 5px 0 0;
+  padding: 7px 8px;
+  overflow: auto;
+  border: 1px solid rgba(19, 19, 22, 0.07);
+  border-radius: 6px;
+  background: #fbfbfb;
+  color: #303138;
+  font: 400 10px/14px var(--font-system);
+  white-space: pre-wrap;
 }
 
 .prompt-packet pre {
@@ -2910,54 +3137,6 @@ button {
   max-height: 220px;
   margin-top: 6px;
   overflow: auto;
-}
-
-.prompt-image-inputs {
-  display: flex;
-  gap: 7px;
-  overflow-x: auto;
-  padding-bottom: 1px;
-}
-
-.prompt-image-inputs figure {
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  align-items: center;
-  flex: 0 0 136px;
-  gap: 7px;
-  min-width: 0;
-  margin: 0;
-  padding: 5px;
-  border: 1px solid rgba(19, 19, 22, 0.08);
-  border-radius: 7px;
-  background: #fafafa;
-}
-
-.prompt-image-inputs img {
-  width: 38px;
-  height: 38px;
-  border-radius: 5px;
-  object-fit: cover;
-}
-
-.prompt-image-inputs figcaption {
-  min-width: 0;
-  overflow: hidden;
-  color: #202126;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.prompt-image-inputs figcaption span {
-  display: block;
-  color: #8c8d93;
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 12px;
-  text-transform: capitalize;
 }
 
 .prompt-context {
@@ -3604,6 +3783,16 @@ button {
   }
 }
 
+@keyframes sam-scan {
+  0% {
+    transform: translateX(0);
+  }
+
+  100% {
+    transform: translateX(430%);
+  }
+}
+
 @keyframes text-shimmer {
   0% {
     background-position: 180% 0;
@@ -3624,6 +3813,17 @@ button {
   45% {
     background: #eef3ff;
     color: #173b93;
+  }
+}
+
+@keyframes stream-token-pulse {
+  0%,
+  100% {
+    opacity: 0.58;
+  }
+
+  40% {
+    opacity: 1;
   }
 }
 

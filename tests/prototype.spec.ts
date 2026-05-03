@@ -73,24 +73,34 @@ test('new remix generation reserves a shimmering target frame before resolving',
     'Do not rewrite, paraphrase',
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText('Staged control changes')
-  await expect(page.getByLabel('Prompt assembly lane')).toBeVisible()
-  await expect(page.getByLabel('Image generation lane')).toContainText('scalar-remix')
-  await expect(page.getByLabel('SAM segmentation lane')).toContainText('segment-anything')
-  await expect(page.getByLabel('Prompt assembly tokens')).toContainText('Generation')
-  await page.getByText('Raw SAM payload').click()
-  await expect(page.getByLabel('Raw SAM payload')).toContainText('projectedSegments')
-  await page.getByText('Raw image payload').click()
-  await expect(page.getByLabel('Raw image payload')).toContainText('negativePrompt')
+  await expect(page.getByLabel('Generation observability stream')).toBeVisible()
+  await expect(page.getByLabel('Generation observability stream')).toContainText('scalar-remix')
+  await expect(page.getByLabel('Generation observability stream')).toContainText('segmentation')
+  await expect(page.getByLabel('Generation observability stream')).toContainText('Generation target')
+  const traceScroll = page.locator('.trace-panel.has-generation .trace-scroll')
+  await expect(traceScroll).toBeVisible()
+  const scrollMetrics = await traceScroll.evaluate((element) => ({
+    top: element.scrollTop,
+    max: element.scrollHeight - element.clientHeight,
+  }))
+  expect(scrollMetrics.max - scrollMetrics.top).toBeLessThan(4)
   await expect(page.getByLabel('Image generation prompt')).toContainText('active canvas node: Remix 1')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Recent chat')
   await expect(page.getByLabel('Image generation prompt')).not.toContainText('Lifestyle beauty ad')
   await expect(page.getByLabel('Image generation prompt')).not.toContainText('Warm indoor')
-  await expect(page.getByLabel('Image inputs in generation payload').locator('img')).toHaveCount(1)
+  await expect(page.getByLabel('Generation observability stream')).toContainText('imageInputs')
+  await page.getByText('Raw SAM payload').click()
+  await expect(page.getByLabel('Raw SAM payload')).toContainText('projectedFallbackPreview')
+  await page.getByText('Raw image payload').click()
+  await expect(page.getByLabel('Raw image payload')).toContainText('negativePrompt')
   await expect(page.locator('.variant-strip .variant-thumb.generating').filter({ hasText: /Remix/ })).toBeVisible()
 
   await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
   await expect(remixStack).not.toHaveClass(/generating/)
   await expect(remixStack.getByTestId('pending-shimmer')).toHaveCount(0)
+  await expect(remixStack.getByTestId('segmenting-shimmer')).toBeVisible()
+  await expect(remixStack.locator('.segment-hotspot')).toHaveCount(0)
+  await expect(remixStack.getByTestId('segmenting-shimmer')).toHaveCount(0)
   await expect(remixStack.locator('.segment-hotspot')).toHaveCount(4)
 
   const updatedEmotionGeometry = await updatedStack

@@ -24,6 +24,8 @@ export type ImageVariant = {
   }
   segments?: SegmentAnnotation[]
   status?: 'ready' | 'generating'
+  segmentationStatus?: 'idle' | 'segmenting' | 'ready' | 'failed'
+  segmentationError?: string
 }
 
 export type CreativeGenerationIntent =
@@ -73,6 +75,13 @@ export type SegmentAnnotation = {
   y: number
   width: number
   height: number
+  mask?: {
+    type: 'polygon' | 'rle'
+    data: unknown
+  }
+  confidence?: number
+  source?: 'manual' | 'sam' | 'vision' | 'projected'
+  labelSource?: 'vision' | 'heuristic' | 'manual'
   delta: number
   suggestions: SegmentSuggestion[]
 }
@@ -206,9 +215,32 @@ export type CreativeGenerationResult = {
   filter: string
   ingredients: string[]
   sourceIds: string[]
-  segments?: SegmentAnnotation[]
   provider: 'endpoint' | 'mock'
   promptSummary: string
+}
+
+export type SegmentImageRequest = {
+  variantId: string
+  requestId?: string
+  imageUrl: string
+  imageWidth: number
+  imageHeight: number
+  semanticHints: string[]
+  context?: {
+    title?: string
+    sourceVariantId?: string
+    generationIntent?: CreativeGenerationIntent
+    selectedSegmentLabel?: string
+  }
+}
+
+export type SegmentImageResult = {
+  variantId: string
+  segments: SegmentAnnotation[]
+  provider: 'endpoint' | 'mock'
+  toolName: string
+  semanticHints: string[]
+  rawPayload?: unknown
 }
 
 export type AssistantChatRequest = {

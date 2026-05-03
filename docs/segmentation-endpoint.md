@@ -1,108 +1,94 @@
 # Segmentation Endpoint Contract
 
-The frontend already accepts per-image segmentation geometry on generated variants. A Cloudflare Worker can return these `segments` in the same response as image generation, so every new remix can draw SAM-style boxes around the important areas of that specific image.
+Segmentation is a separate stage from image generation. The frontend renders a generated or imported image as soon as it is available, sets the variant to `segmentationStatus: "segmenting"`, and only renders segment boxes after `/segment` returns.
+
+If no segmentation endpoint is configured, the app uses projected fallback boxes marked as `source: "projected"` and `labelSource: "heuristic"`. Those fallback boxes are intentionally not presented as real SAM masks.
+
+The bundled Cloudflare Worker now calls OpenAI vision localization from `/segment` and returns pixel-derived boxes marked as `source: "vision"` and `labelSource: "vision"`. This gives the app real per-image boxes without adding another secret. If you later connect SAM/SAM2, return `source: "sam"` and optional `mask` data in the same shape.
 
 ## Frontend Configuration
 
-Set the deployed app build variable:
+Set either endpoint variable in the deployed app build:
 
 ```bash
 VITE_IMAGE_GENERATION_ENDPOINT=https://your-worker.your-subdomain.workers.dev/generate
+VITE_IMAGE_SEGMENTATION_ENDPOINT=https://your-worker.your-subdomain.workers.dev/segment
 ```
 
-The endpoint may generate the image, call a segmentation model, and return both the image and normalized segment boxes. If `segments` is missing, the prototype falls back to deterministic projected boxes so the UI remains usable.
+If `VITE_IMAGE_SEGMENTATION_ENDPOINT` is omitted and `VITE_IMAGE_GENERATION_ENDPOINT` ends in `/generate`, the frontend derives the sibling `/segment` URL.
+
+## Variant State
+
+Generated and imported variants use explicit segmentation state:
+
+```ts
+type ImageVariant = {
+  segments?: SegmentAnnotation[]
+  segmentationStatus?: "idle" | "segmenting" | "ready" | "failed"
+  segmentationError?: string
+}
+```
+
+While `segmenting`, the canvas shows the image plus a scanning overlay and does not render segment boxes. On failure, the image remains visible and segment boxes stay hidden unless a fallback response explicitly returns projected annotations.
 
 ## Request Shape
 
-The app sends a `CreativeGenerationRequest` JSON payload. The `imagePrompt` object is the exact downstream generation prompt and context rendered in the Assistant observability box while generation is running. Its prompt text is assembled from the current canvas selection, image inputs, selected SAM segments, scalar values, staged scalar changes, saved ideas, trace state, and recent chat messages. Important fields for generation and segmentation:
-
 ```ts
+POST /segment
 {
-  id: string
-  model: "gpt-image-2" | string
-  intent: "scalar-remix" | "idea-combine" | "segment-edit" | "image-blend"
-  outputTitle: string
-  sourceVariant: {
-    id: string
-    title: string
-    image: string
-    segments?: SegmentAnnotation[]
-  }
-  sourceIds: string[]
-  imageInputs: Array<{
-    id: string
-    title: string
-    url: string
-    role: "source" | "reference"
-    mediaType?: string
-  }>
-  selectedSegment: SegmentAnnotation
-  scalars: AestheticScalar[]
-  scalarChanges: ScalarGenerationChange[]
-  chatContext: ChatMessage[]
-  promptHints: string[]
-  sceneDescription: {
-    subject: string
-    setting: string
-    composition: string
-    camera: string
-    lighting: string
-    color: string
-    typography: string
-  }
-  imagePrompt: {
-    prompt: string
-    negativePrompt: string
-    context: Array<{ label: string; value: string }>
-    promptHints: string[]
+  "variantId": "remix-123",
+  "requestId": "remix-123",
+  "imageUrl": "https://...",
+  "imageWidth": 1024,
+  "imageHeight": 1024,
+  "semanticHints": [
+    "face",
+    "headline copy",
+    "product",
+    "CTA",
+    "body",
+    "background"
+  ],
+  "context": {
+    "title": "Remix 2",
+    "sourceVariantId": "updated",
+    "generationIntent": "scalar-remix",
+    "selectedSegmentLabel": "Emotional engagement"
   }
 }
 ```
 
 ## Response Shape
 
-Return as much as the Worker can produce. The app will fill missing optional fields.
-
 ```ts
 {
-  title?: string
-  image?: string
-  score?: number
-  delta?: number
-  filter?: string
-  ingredients?: string[]
-  sourceIds?: string[]
-  promptSummary?: string
-  segments?: SegmentAnnotation[]
+  "variantId": "remix-123",
+  "toolName": "sam.segment-anything",
+  "semanticHints": ["face", "product", "CTA"],
+  "segments": [
+    {
+      "id": "emotion",
+      "label": "Emotional engagement",
+      "x": 62.4,
+      "y": 7.2,
+      "width": 22.1,
+      "height": 20.8,
+      "confidence": 0.91,
+      "source": "sam",
+      "labelSource": "vision",
+      "mask": { "type": "polygon", "data": [] },
+      "delta": 7,
+      "suggestions": []
+    }
+  ],
+  "rawPayload": {}
 }
 ```
 
-Each segment should use percent coordinates relative to the rendered image:
+Coordinates are percentages relative to the rendered image. `mask` is optional; the current UI renders boxes but keeps the type ready for polygon or RLE masks.
 
-```ts
-{
-  id: "emotion" | "resonance" | "product" | "cta" | string
-  label: string
-  x: number
-  y: number
-  width: number
-  height: number
-  delta: number
-  suggestions: Array<{
-    id: string
-    label: string
-    impact: number
-  }>
-}
-```
+## Important
 
-## Recommended Worker Flow
+SAM/SAM2 gives masks, not semantic labels. A production pipeline should run mask generation first, then label or merge masks with a vision model/classifier so UI concepts such as face, CTA, product, headline, and background are reliable.
 
-1. Receive the generation request.
-2. Use `imagePrompt.prompt` as the text prompt, `imagePrompt.negativePrompt` as the negative guardrail, and pass `imageInputs` as real image references/uploads to `gpt-image-2` through the image edits path when source images are present.
-3. Generate or fetch the new image.
-4. Run segmentation/object localization on the generated image.
-5. Map model output to the four product concepts the UI currently expects: emotional engagement, creative resonance, product placement, CTA.
-6. Return the generated image plus normalized `segments`.
-
-For true SAM masks, keep pixel masks server-side and return the bounding boxes for the prototype. The UI contract can later add polygon or mask URLs without changing the current interaction model.
+The current Cloudflare Worker includes `/segment` as a contract endpoint and analyzes the requested image pixels with OpenAI vision by default. It falls back to projected heuristic annotations only when vision localization fails.

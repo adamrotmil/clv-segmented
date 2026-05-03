@@ -47,11 +47,18 @@ import type {
   ImageVariant,
   SceneDescription,
   SegmentAnnotation,
+  SegmentImageResult,
   SegmentSuggestion,
   StylePreset,
 } from './types'
 import { requestAssistantChat } from './chat'
-import { projectSegmentsForRequest, requestCreativeGeneration } from './generation'
+import { requestCreativeGeneration } from './generation'
+import {
+  buildSegmentImageRequest,
+  defaultSemanticHints,
+  projectSegmentsForRequest,
+  requestImageSegmentation,
+} from './segmentation'
 
 type EditorMode = 'edit' | 'score' | 'hybrid'
 type PendingPhase = 'idle' | 'analyzing' | 'applying' | 'remixing' | 'failed'
@@ -83,14 +90,23 @@ type HistoryEntry = ChangeTrace & {
 type GenerationPromptRun = {
   request: CreativeGenerationRequest
   status: 'running' | 'completed'
+  segmentationStatus: 'queued' | 'segmenting' | 'completed' | 'failed'
+  imageUrl?: string
+  segmentationResult?: SegmentImageResult
+  segmentationError?: string
 }
 
-type ObservabilityLane = {
+type ObservabilityStreamRow = {
+  id: string
+  lane: 'prompt' | 'image' | 'sam' | 'chat' | 'context'
+  role: string
+  status: 'streaming' | 'queued' | 'completed' | 'failed'
+  tokens: string[]
+}
+
+type ObservabilityRawPayload = {
   id: string
   label: string
-  role: string
-  status: 'streaming' | 'queued' | 'completed'
-  tokens: string[]
   detailsLabel: string
   details: string
 }
@@ -367,6 +383,31 @@ function applySegmentScalarNudge(scalars: AestheticScalar[], suggestion: Segment
   })
 }
 
+function segmentResultRole(result?: SegmentImageResult) {
+  if (!result) return 'fallback preview'
+  const sources = new Set(result.segments.map((segment) => segment.source ?? 'sam'))
+
+  if (sources.size === 1 && sources.has('projected')) return 'projected fallback'
+  if (sources.has('sam')) return 'final masks'
+  if (sources.has('vision')) return 'vision boxes'
+  return 'segmentation boxes'
+}
+
+function segmentResultSummary(result: SegmentImageResult) {
+  const role = segmentResultRole(result)
+
+  if (role === 'projected fallback') {
+    return `${result.segments.length} projected fallback segments`
+  }
+  if (role === 'final masks') {
+    return `${result.segments.length} SAM segments returned`
+  }
+  if (role === 'vision boxes') {
+    return `${result.segments.length} vision localization boxes returned`
+  }
+  return `${result.segments.length} segmentation boxes returned`
+}
+
 function formatTraceValue(scalar: AestheticScalar, value: number) {
   return `${scalar.label} ${Math.round(value)}`
 }
@@ -435,6 +476,13 @@ function nextRemixTitle(variants: ImageVariant[]) {
 
 function variantRoleLabel(variant: ImageVariant) {
   return variant.id === 'original' ? 'baseline' : 'remix'
+}
+
+function segmentsForVariant(variant?: ImageVariant) {
+  if (!variant) return segments
+  if (variant.segments?.length) return variant.segments
+  if (variant.kind === 'generated') return []
+  return segments
 }
 
 function absoluteImageUrl(image: string) {
@@ -1205,7 +1253,7 @@ function App() {
     [scalars, variants, workingScore],
   )
   const selectedVariant = workingVariants.find((variant) => variant.id === selectedVariantId)
-  const activeVariantSegments = selectedVariant?.segments?.length ? selectedVariant.segments : segments
+  const activeVariantSegments = segmentsForVariant(selectedVariant)
   const selectedSegment = activeVariantSegments.find((segment) => segment.id === selectedSegmentId) ?? null
   const activeSegment = selectedSegment ?? activeVariantSegments[0] ?? segments[0]
   const editorLayoutStyle = {
@@ -1360,9 +1408,19 @@ function App() {
       ingredients: ['Imported asset', selectedAsset.channel, selectedVersion],
       sourceIds: [selectedVariantId],
       visualContext: initialVariants[1].visualContext,
+      segments: [],
+      status: 'ready',
+      segmentationStatus: 'segmenting',
     }
     setVariants((current) => [...current, assetDraft])
     setSelectedVariantId(nextId)
+    void segmentVariantImage({
+      variantId: nextId,
+      imageUrl: assetDraft.image,
+      sourceSegments: activeVariantSegments,
+      title: assetDraft.title,
+      sourceVariantId: selectedVariantId,
+    })
     recordPrototypeAction(
       'Asset draft added',
       'Added an asset draft to the canvas variant strip.',
@@ -1976,17 +2034,32 @@ function App() {
     setGenerationPromptRuns((current) =>
       [
         ...current.filter((item) => item.request.id !== request.id),
-        { request, status: 'running' as const },
+        {
+          request,
+          status: 'running' as const,
+          segmentationStatus: 'queued' as const,
+        },
       ].slice(-4),
     )
   }
 
-  function releaseGenerationRequest(requestId: string) {
+  function updateGenerationRequestRun(
+    requestId: string,
+    patch: Partial<Omit<GenerationPromptRun, 'request'>>,
+  ) {
     setGenerationPromptRuns((current) =>
       current.map((item) =>
-        item.request.id === requestId ? { ...item, status: 'completed' as const } : item,
+        item.request.id === requestId ? { ...item, ...patch } : item,
       ),
     )
+  }
+
+  function releaseGenerationRequest(requestId: string, imageUrl: string) {
+    updateGenerationRequestRun(requestId, {
+      status: 'completed',
+      imageUrl,
+      segmentationStatus: 'segmenting',
+    })
   }
 
   function queueGeneratingVariant(request: CreativeGenerationRequest, predictedScore: number) {
@@ -2006,8 +2079,9 @@ function App() {
       ingredients: request.latestTrace.ingredients,
       sourceIds: request.sourceIds,
       visualContext: visualContextForGeneratedRequest(request),
-      segments: projectSegmentsForRequest(request),
+      segments: [],
       status: 'generating',
+      segmentationStatus: 'idle',
     }
 
     setVariants((current) =>
@@ -2024,6 +2098,122 @@ function App() {
         ? current.map((variant) => (variant.id === nextVariant.id ? nextVariant : variant))
         : [...current, nextVariant],
     )
+  }
+
+  function setVariantSegmentationTask(input: string, output = 'Segmenting image pixels') {
+    setAgentTasks((current) =>
+      current.map((task) =>
+        task.id === 'segment'
+          ? {
+              ...task,
+              status: agentPaused ? 'paused' : 'running',
+              input,
+              output,
+              test: 'Waiting for segmentation response',
+            }
+          : task,
+      ),
+    )
+  }
+
+  async function segmentVariantImage({
+    variantId,
+    imageUrl,
+    generationRequest,
+    sourceSegments,
+    title,
+    sourceVariantId,
+  }: {
+    variantId: string
+    imageUrl: string
+    generationRequest?: CreativeGenerationRequest
+    sourceSegments: SegmentAnnotation[]
+    title?: string
+    sourceVariantId?: string
+  }) {
+    const segmentRequest = buildSegmentImageRequest({
+      variantId,
+      imageUrl: absoluteImageUrl(imageUrl),
+      generationRequest,
+      title,
+      sourceVariantId,
+    })
+
+    setVariantSegmentationTask(
+      segmentRequest.context?.title ?? variantId,
+      `Running ${segmentRequest.semanticHints.slice(0, 4).join(', ')} segmentation`,
+    )
+
+    try {
+      const result = await requestImageSegmentation(segmentRequest, sourceSegments)
+      if (!result.segments.length) {
+        throw new Error('No segments returned')
+      }
+
+      setVariants((current) =>
+        current.map((variant) =>
+          variant.id === variantId
+            ? {
+                ...variant,
+                segments: result.segments,
+                segmentationStatus: 'ready',
+                segmentationError: undefined,
+              }
+            : variant,
+        ),
+      )
+      if (generationRequest) {
+        updateGenerationRequestRun(generationRequest.id, {
+          segmentationStatus: 'completed',
+          segmentationResult: result,
+        })
+      }
+      setAgentTasks((current) =>
+        current.map((task) =>
+          task.id === 'segment'
+            ? {
+                ...task,
+                status: 'done',
+                output: segmentResultSummary(result),
+                test: segmentResultRole(result) === 'projected fallback' ? 'Fallback marked' : 'Segments visible',
+              }
+            : task,
+        ),
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Segmentation failed'
+
+      setVariants((current) =>
+        current.map((variant) =>
+          variant.id === variantId
+            ? {
+                ...variant,
+                segments: [],
+                segmentationStatus: 'failed',
+                segmentationError: message,
+              }
+            : variant,
+        ),
+      )
+      if (generationRequest) {
+        updateGenerationRequestRun(generationRequest.id, {
+          segmentationStatus: 'failed',
+          segmentationError: message,
+        })
+      }
+      setAgentTasks((current) =>
+        current.map((task) =>
+          task.id === 'segment'
+            ? {
+                ...task,
+                status: 'failed',
+                output: message,
+                test: 'No segment boxes rendered',
+              }
+            : task,
+        ),
+      )
+    }
   }
 
   async function remixImage() {
@@ -2094,8 +2284,9 @@ function App() {
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
       visualContext: visualContextForGeneratedRequest(generationRequest),
-      segments: generation.segments,
+      segments: [],
       status: 'ready',
+      segmentationStatus: 'segmenting',
     }
     const trace: ChangeTrace = {
       ...pendingTrace,
@@ -2124,7 +2315,13 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock image response ready')
-    releaseGenerationRequest(generationRequest.id)
+    releaseGenerationRequest(generationRequest.id, generation.image)
+    void segmentVariantImage({
+      variantId: nextId,
+      imageUrl: generation.image,
+      generationRequest,
+      sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
+    })
     setToast('Remix generated')
     window.setTimeout(() => setToast(''), 1800)
   }
@@ -2270,8 +2467,9 @@ function App() {
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
       visualContext: visualContextForGeneratedRequest(generationRequest),
-      segments: generation.segments,
+      segments: [],
       status: 'ready',
+      segmentationStatus: 'segmenting',
     }
     const trace: ChangeTrace = {
       ...pendingTrace,
@@ -2299,7 +2497,13 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock image response ready')
-    releaseGenerationRequest(generationRequest.id)
+    releaseGenerationRequest(generationRequest.id, generation.image)
+    void segmentVariantImage({
+      variantId: nextId,
+      imageUrl: generation.image,
+      generationRequest,
+      sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
+    })
     setToast(sources.length === 2 ? 'Ideas combined' : 'Remix generated')
     window.setTimeout(() => setToast(''), 1800)
   }
@@ -2364,8 +2568,9 @@ function App() {
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
       visualContext: visualContextForGeneratedRequest(generationRequest),
-      segments: generation.segments,
+      segments: [],
       status: 'ready',
+      segmentationStatus: 'segmenting',
     }
     const trace: ChangeTrace = {
       ...pendingTrace,
@@ -2394,7 +2599,13 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock source response ready')
-    releaseGenerationRequest(generationRequest.id)
+    releaseGenerationRequest(generationRequest.id, generation.image)
+    void segmentVariantImage({
+      variantId: nextId,
+      imageUrl: generation.image,
+      generationRequest,
+      sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
+    })
     setToast('Source remix generated')
     window.setTimeout(() => setToast(''), 1800)
   }
@@ -2474,8 +2685,9 @@ function App() {
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
       visualContext: visualContextForGeneratedRequest(generationRequest),
-      segments: generation.segments,
+      segments: [],
       status: 'ready',
+      segmentationStatus: 'segmenting',
     }
     const trace: ChangeTrace = {
       ...pendingTrace,
@@ -2504,7 +2716,13 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock delta response ready')
-    releaseGenerationRequest(generationRequest.id)
+    releaseGenerationRequest(generationRequest.id, generation.image)
+    void segmentVariantImage({
+      variantId: nextId,
+      imageUrl: generation.image,
+      generationRequest,
+      sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
+    })
     setToast('Delta remix generated')
     window.setTimeout(() => setToast(''), 1800)
   }
@@ -2644,8 +2862,9 @@ function App() {
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
       visualContext: visualContextForGeneratedRequest(generationRequest),
-      segments: generation.segments,
+      segments: [],
       status: 'ready',
+      segmentationStatus: 'segmenting',
     }
     const trace: ChangeTrace = {
       ...pendingTrace,
@@ -2673,7 +2892,13 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock segment response ready')
-    releaseGenerationRequest(generationRequest.id)
+    releaseGenerationRequest(generationRequest.id, generation.image)
+    void segmentVariantImage({
+      variantId: nextId,
+      imageUrl: generation.image,
+      generationRequest,
+      sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
+    })
     setToast('Segment edit applied')
     window.setTimeout(() => setToast(''), 1600)
   }
@@ -2743,8 +2968,9 @@ function App() {
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
       visualContext: visualContextForGeneratedRequest(generationRequest),
-      segments: generation.segments,
+      segments: [],
       status: 'ready',
+      segmentationStatus: 'segmenting',
     }
     const trace: ChangeTrace = {
       ...pendingTrace,
@@ -2771,7 +2997,13 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint blend received' : 'Mock blend response ready')
-    releaseGenerationRequest(generationRequest.id)
+    releaseGenerationRequest(generationRequest.id, generation.image)
+    void segmentVariantImage({
+      variantId: nextId,
+      imageUrl: generation.image,
+      generationRequest,
+      sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
+    })
     setToast('Images blended')
     window.setTimeout(() => setToast(''), 1600)
   }
@@ -2917,7 +3149,7 @@ function App() {
       sourceIds: variant.sourceIds,
       ingredients: variant.ingredients,
       visualSummary: variant.visualContext?.summary,
-      segments: variant.segments?.length ? variant.segments : segments,
+      segments: segmentsForVariant(variant),
       position: canvasPositions[variant.id],
     }))
   }
@@ -4313,11 +4545,14 @@ function CanvasWorkspace({
                 type="button"
                 className={`variant-thumb ${selectedVariantId === variant.id ? 'selected' : ''} ${
                   variant.status === 'generating' ? 'generating' : ''
+                } ${
+                  variant.segmentationStatus === 'segmenting' ? 'segmenting' : ''
                 }`}
                 onClick={() => onSelectVariant(variant.id)}
               >
                 <img src={variant.image} alt="" style={{ filter: variant.filter }} />
                 {variant.status === 'generating' ? <span className="thumb-shimmer" /> : null}
+                {variant.segmentationStatus === 'segmenting' ? <span className="thumb-sam-scan" /> : null}
                 <span>{variant.title}</span>
                 {variant.ingredients?.length ? (
                   <small>Sources: {variant.ingredients.slice(0, 2).join(' + ')}</small>
@@ -4808,8 +5043,10 @@ function CreativeArtboard({
   pendingPhase?: PendingPhase
 }) {
   const title = titleOverride ?? variant.title
-  const variantSegments = variant.segments?.length ? variant.segments : segments
+  const variantSegments = segmentsForVariant(variant)
   const isGenerating = variant.status === 'generating'
+  const isSegmenting = variant.segmentationStatus === 'segmenting'
+  const segmentationFailed = variant.segmentationStatus === 'failed'
   const isPending = isGenerating || (pendingPhase !== 'idle' && pendingPhase !== 'failed')
   const activeSegment = variantSegments.find((segment) => segment.id === selectedSegmentId) ?? null
   const selectedSegmentSet =
@@ -4839,10 +5076,11 @@ function CreativeArtboard({
     <div
       className={`creative-stack ${size === 'large' ? 'large' : ''} ${
         selected ? 'selected' : ''
-      } ${secondarySelected ? 'secondary-selected' : ''} ${isGenerating ? 'generating' : ''} ${dragging ? 'dragging' : ''} ${dropTarget ? 'drop-target' : ''} ${
+      } ${secondarySelected ? 'secondary-selected' : ''} ${isGenerating ? 'generating' : ''} ${isSegmenting ? 'segmenting' : ''} ${segmentationFailed ? 'segmentation-failed' : ''} ${dragging ? 'dragging' : ''} ${dropTarget ? 'drop-target' : ''} ${
         combineSource ? 'combine-source' : ''
       }`}
       style={stackStyle}
+      data-segmentation-status={variant.segmentationStatus ?? 'ready'}
     >
       <button
         className="creative-title"
@@ -4881,14 +5119,28 @@ function CreativeArtboard({
           </span>
         ) : null}
         {isPending ? <span className="artboard-shimmer" data-testid="pending-shimmer" /> : null}
-        {annotationsVisible ? (
+        {isSegmenting ? (
+          <span
+            className="sam-scan-shimmer"
+            data-testid="segmenting-shimmer"
+            aria-label={`${title} segmentation running`}
+          >
+            <span>SAM segmenting</span>
+          </span>
+        ) : null}
+        {segmentationFailed ? (
+          <span className="segmentation-failed-note">
+            {variant.segmentationError ?? 'Segmentation failed'}
+          </span>
+        ) : null}
+        {annotationsVisible && !isSegmenting && !segmentationFailed && variantSegments.length ? (
           <div className="segment-hit-layer" aria-label="Image segments">
             {variantSegments.map((segment) => (
               <button
                 key={segment.id}
                 className={`segment-hotspot ${
                   selectedSegmentSet.includes(segment.id) && segmentFocus ? 'selected' : ''
-                } ${hasFocusedSelection && !selectedSegmentSet.includes(segment.id) ? 'muted' : ''}`}
+                } ${hasFocusedSelection && !selectedSegmentSet.includes(segment.id) ? 'muted' : ''} segment-source-${segment.source ?? 'manual'}`}
                 style={{
                   left: `${segment.x}%`,
                   top: `${segment.y}%`,
@@ -4910,7 +5162,7 @@ function CreativeArtboard({
                 key={`${segment.id}-label`}
                 className={`segment-label segment-label-${segment.id} ${
                   selectedSegmentSet.includes(segment.id) && segmentFocus ? 'selected' : ''
-                } ${hasFocusedSelection && !selectedSegmentSet.includes(segment.id) ? 'muted' : ''}`}
+                } ${hasFocusedSelection && !selectedSegmentSet.includes(segment.id) ? 'muted' : ''} segment-source-${segment.source ?? 'manual'}`}
                 style={{
                   left: `${segment.x}%`,
                   top: `${segment.y}%`,
@@ -5324,6 +5576,21 @@ function InteractionTrace({
   const isPending = pendingPhase !== 'idle' && pendingPhase !== 'failed'
   const runningGenerationRuns = generationRuns.filter((run) => run.status === 'running')
   const hasGenerationPackets = runningGenerationRuns.length > 0
+  const traceScrollRef = useRef<HTMLDivElement | null>(null)
+  const generationStreamKey = runningGenerationRuns
+    .map((run) => `${run.request.id}:${run.status}:${run.request.outputTitle}:${run.request.imagePrompt.prompt.length}`)
+    .join('|')
+
+  useEffect(() => {
+    if (!hasGenerationPackets) return
+    const scrollElement = traceScrollRef.current
+    if (!scrollElement) return
+    const animationFrame = window.requestAnimationFrame(() => {
+      scrollElement.scrollTop = scrollElement.scrollHeight
+    })
+    return () => window.cancelAnimationFrame(animationFrame)
+  }, [generationStreamKey, hasGenerationPackets, pendingPhase])
+
   return (
     <section
       className={`trace-panel ${compact ? 'compact' : ''} ${
@@ -5331,7 +5598,7 @@ function InteractionTrace({
       }`}
       aria-label="Interaction trace"
     >
-      <div className="trace-scroll" tabIndex={0}>
+      <div className="trace-scroll" ref={traceScrollRef} tabIndex={0}>
         {isPending ? <div className="trace-shimmer" data-testid="trace-shimmer" /> : null}
         {pendingPhase === 'failed' ? (
           <div className="trace-error" role="alert">
@@ -5421,67 +5688,117 @@ function GenerationPromptTrace({
   return (
     <div className="prompt-observer" aria-label="Image generation prompt">
       <div className="prompt-observer-head">
-        <span>Parallel calls</span>
-        <em>
+        <span>
           {runningCount > 1
-            ? `${runningCount} running`
+            ? `Running ${runningCount} generations`
             : runningCount === 1
-              ? 'Running'
-              : 'Last sent'}
-        </em>
+              ? 'Running generation'
+              : 'Last generation'}
+        </span>
+        <em>{runningCount ? 'streaming tool tokens' : 'tool calls complete'}</em>
       </div>
-      {generationRuns.map(({ request, status }) => (
-        <article className="prompt-packet" key={request.id}>
+      {generationRuns.map((run) => (
+        <article className="prompt-packet" key={run.request.id}>
           <div className="prompt-packet-title">
-            <strong>{request.outputTitle}</strong>
-            <span>{status === 'running' ? request.intent : `sent · ${request.intent}`}</span>
+            <strong>{run.request.outputTitle}</strong>
+            <span>
+              {run.request.model} · {run.status === 'running' ? run.request.intent : `sent · ${run.request.intent}`}
+            </span>
           </div>
-          <div className="tool-lane-grid" aria-label={`Parallel tool calls for ${request.outputTitle}`}>
-            {observabilityLanesForRequest(request, status).map((lane) => (
-              <ToolCallLane key={`${request.id}-${lane.id}`} lane={lane} />
+          <div className="stream-raw-payloads" aria-label={`Raw tool payloads for ${run.request.outputTitle}`}>
+            {observabilityRawPayloadsForRequest(run).map((payload) => (
+              <details
+                className="stream-raw-payload"
+                key={`${run.request.id}-${payload.id}`}
+                aria-label={payload.detailsLabel}
+              >
+                <summary>{payload.label}</summary>
+                <pre>{payload.details}</pre>
+              </details>
             ))}
           </div>
-          {request.imageInputs.length ? (
-            <div className="prompt-image-inputs" aria-label="Image inputs in generation payload">
-              {request.imageInputs.map((input) => (
-                <figure key={`${request.id}-${input.id}`}>
-                  <img src={input.url} alt="" />
-                  <figcaption>
-                    <span>{input.role}</span>
-                    {input.title}
-                  </figcaption>
-                </figure>
-              ))}
-            </div>
-          ) : null}
-          <dl className="prompt-context">
-            {request.imagePrompt.context.map((item) => (
-              <div key={`${request.id}-${item.label}`}>
-                <dt>{item.label}</dt>
-                <dd>{item.value}</dd>
-              </div>
+          <div
+            className="observability-stream"
+            aria-label="Generation observability stream"
+            aria-live="polite"
+          >
+            {observabilityStreamRowsForRequest(run).map((row) => (
+              <ObservabilityStreamRowItem key={`${run.request.id}-${row.id}`} row={row} />
             ))}
-          </dl>
+          </div>
         </article>
       ))}
     </div>
   )
 }
 
-function laneTokens(text: string, limit = 18) {
-  return text
-    .replace(/\s+/g, ' ')
-    .trim()
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, limit)
+function streamTokens(text: string, limit = 180) {
+  const tokens =
+    text
+      .replace(/\s+/g, ' ')
+      .trim()
+      .match(/"[^"]+"|[\w:/.'’+-]+|[%→&=]|[^\s]/g) ?? []
+
+  return tokens.slice(0, limit)
 }
 
-function observabilityLanesForRequest(
-  request: CreativeGenerationRequest,
-  status: GenerationPromptRun['status'],
-): ObservabilityLane[] {
-  const laneStatus = status === 'running' ? 'streaming' : 'completed'
+function chunkTokens(tokens: string[], chunkSize: number) {
+  const chunks: string[][] = []
+  for (let index = 0; index < tokens.length; index += chunkSize) {
+    chunks.push(tokens.slice(index, index + chunkSize))
+  }
+  return chunks
+}
+
+function appendStreamRows(
+  rows: ObservabilityStreamRow[],
+  {
+    id,
+    lane,
+    role,
+    status,
+    text,
+    maxTokens = 160,
+    chunkSize = 16,
+  }: {
+    id: string
+    lane: ObservabilityStreamRow['lane']
+    role: string
+    status: ObservabilityStreamRow['status']
+    text: string
+    maxTokens?: number
+    chunkSize?: number
+  },
+) {
+  chunkTokens(streamTokens(text, maxTokens), chunkSize).forEach((tokens, index) => {
+    rows.push({
+      id: `${id}-${index}`,
+      lane,
+      role,
+      status,
+      tokens,
+    })
+  })
+}
+
+function observabilityPayloadDataForRequest(run: GenerationPromptRun): {
+  laneStatus: ObservabilityStreamRow['status']
+  samLaneStatus: ObservabilityStreamRow['status']
+  selectedSegments: SegmentAnnotation[]
+  projectedFallbackPreview: SegmentAnnotation[]
+  imagePayload: Record<string, unknown>
+  samPayload: Record<string, unknown>
+} {
+  const { request } = run
+  const laneStatus = run.status === 'running' ? 'streaming' : 'completed'
+  const samLaneStatus =
+    run.segmentationStatus === 'queued'
+      ? 'queued'
+      : run.segmentationStatus === 'segmenting'
+        ? 'streaming'
+        : run.segmentationStatus === 'failed'
+          ? 'failed'
+          : 'completed'
   const selectedSegments = request.selectedSegment
     ? [
         request.selectedSegment,
@@ -5490,15 +5807,30 @@ function observabilityLanesForRequest(
         ),
       ]
     : request.sourceVariant.segments ?? []
+  const projectedFallbackPreview = projectSegmentsForRequest(
+    request,
+    run.imageUrl ?? request.fallbackImage,
+  )
+  const segmentRequest = buildSegmentImageRequest({
+    variantId: request.id,
+    imageUrl: run.imageUrl ?? request.fallbackImage,
+    generationRequest: request,
+  })
   const samPayload = {
-    tool: 'sam.segment-anything',
+    tool: run.segmentationResult?.toolName ?? 'pending-segmentation',
     requestId: request.id,
-    status: laneStatus,
-    source: request.imageInputs[0] ?? null,
+    status: run.segmentationStatus,
+    imageUrl: run.imageUrl ?? null,
+    segmentRequest,
     selectedSegment: request.selectedSegment,
     sourceSegments: request.sourceVariant.segments ?? [],
     focusSegments: selectedSegments.slice(0, 4),
-    projectedSegments: projectSegmentsForRequest(request),
+    semanticHints: segmentRequest.semanticHints,
+    masksReturned: run.segmentationResult?.segments.length ?? 0,
+    finalSegments: run.segmentationResult?.segments ?? [],
+    projectedFallbackPreview,
+    rawResult: run.segmentationResult?.rawPayload,
+    error: run.segmentationError,
   }
   const imagePayload = {
     model: request.model,
@@ -5511,84 +5843,177 @@ function observabilityLanesForRequest(
     context: request.imagePrompt.context,
     promptHints: request.imagePrompt.promptHints,
   }
-  const promptContext = [
-    `Generation target: ${request.outputTitle}`,
-    `Intent: ${request.intent}`,
-    `Source: ${request.sourceVariant.title}`,
-    `Selected SAM: ${request.selectedSegment.label}`,
-    `Image inputs: ${request.imageInputs.map((input) => `${input.role}:${input.title}`).join(', ')}`,
-    `Recent chat: ${request.chatContext
+
+  return { laneStatus, samLaneStatus, selectedSegments, projectedFallbackPreview, imagePayload, samPayload }
+}
+
+function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
+  const { request } = run
+  const { laneStatus, samLaneStatus, selectedSegments, projectedFallbackPreview } =
+    observabilityPayloadDataForRequest(run)
+  const rows: ObservabilityStreamRow[] = []
+  const imageInputSummary =
+    request.imageInputs.map((input) => `${input.role}:${input.title}`).join(', ') || 'none'
+  const recentChat =
+    request.chatContext
       .slice(-3)
       .map((message) => `${message.role}: ${message.content}`)
-      .join(' | ') || 'none'}`,
-  ].join('\n')
+      .join(' | ') || 'none'
+  const sourceCopy = request.imageInputs
+    .flatMap((input) => input.copywriting ?? [])
+    .filter(Boolean)
+    .join(' | ')
+  const scalarSummary =
+    request.scalarChanges
+      .map((change) => `${change.label}: ${change.before}/100 -> ${change.after}/100 toward ${change.marker ?? change.highLabel}`)
+      .join(' · ') || 'none'
+
+  appendStreamRows(rows, {
+    id: 'target',
+    lane: 'prompt',
+    role: 'context',
+    status: laneStatus,
+    text: `Generation target: ${request.outputTitle} intent=${request.intent} model=${request.model} active canvas node: ${request.sourceVariant.title}`,
+  })
+  appendStreamRows(rows, {
+    id: 'inputs',
+    lane: 'image',
+    role: request.model,
+    status: laneStatus,
+    text: `Image inputs imageInputs=${imageInputSummary} sourceIds=${request.sourceIds.join(', ')} input_fidelity=high`,
+  })
+  appendStreamRows(rows, {
+    id: 'context',
+    lane: 'context',
+    role: 'packet',
+    status: laneStatus,
+    text: `Context packet: ${request.imagePrompt.context
+      .map((item) => item.label)
+      .join(' · ')} · active canvas node: ${request.sourceVariant.title}`,
+    maxTokens: 90,
+  })
+  appendStreamRows(rows, {
+    id: 'scalars',
+    lane: 'context',
+    role: 'aesthetics',
+    status: laneStatus,
+    text: `Staged control changes: ${scalarSummary} Aesthetic controls=${request.scalars
+      .map((scalar) => `${scalar.label}: ${scalar.value}/100`)
+      .join(' · ')}`,
+    maxTokens: 150,
+  })
+  appendStreamRows(rows, {
+    id: 'chat',
+    lane: 'chat',
+    role: 'recent',
+    status: laneStatus,
+    text: `Recent chat: ${recentChat}`,
+    maxTokens: 130,
+  })
+  appendStreamRows(rows, {
+    id: 'copy',
+    lane: 'prompt',
+    role: 'copy lock',
+    status: laneStatus,
+    text: `Copywriting policy: preserve exact source copy; Source preservation: Do not rewrite, paraphrase, translate, crop, distort, or replace readable ad copy. sourceCopy=${sourceCopy}`,
+    maxTokens: 150,
+  })
+  appendStreamRows(rows, {
+    id: 'sam-focus',
+    lane: 'sam',
+    role: run.segmentationResult?.toolName ?? 'queued',
+    status: samLaneStatus,
+    text: `segmentation status=${run.segmentationStatus} image=${run.imageUrl ?? 'waiting-for-generated-image'} hints=${defaultSemanticHints.join(', ')} returned=${run.segmentationResult?.segments.length ?? 0} source=${request.sourceVariant.title} focus=${selectedSegments
+      .slice(0, 4)
+      .map((segment) => `${segment.label} bbox=${segment.x}/${segment.y}/${segment.width}/${segment.height}`)
+      .join(' · ')}`,
+    maxTokens: 150,
+  })
+  appendStreamRows(rows, {
+    id: 'sam-fallback',
+    lane: 'sam',
+    role: segmentResultRole(run.segmentationResult),
+    status: samLaneStatus,
+    text:
+      run.segmentationResult && segmentResultRole(run.segmentationResult) !== 'projected fallback'
+        ? `finalSegments=${run.segmentationResult.segments
+            .map((segment) => `${segment.label}:${segment.x}/${segment.y}/${segment.width}/${segment.height}`)
+            .join(' · ')}`
+        : `projectedFallbackPreview=${projectedFallbackPreview
+            .map((segment) => `${segment.label}:${segment.x}/${segment.y}/${segment.width}/${segment.height}`)
+            .join(' · ')}`,
+    maxTokens: 130,
+  })
+  appendStreamRows(rows, {
+    id: 'image',
+    lane: 'image',
+    role: request.model,
+    status: laneStatus,
+    text: `POST /v1/images/edits model=${request.model} intent=${request.intent} output=${request.outputTitle} negativePrompt=${request.imagePrompt.negativePrompt} promptHints=${request.imagePrompt.promptHints.join(' · ')}`,
+    maxTokens: 190,
+  })
+  appendStreamRows(rows, {
+    id: 'prompt',
+    lane: 'prompt',
+    role: 'assembled',
+    status: laneStatus,
+    text: `prompt ${request.imagePrompt.prompt}`,
+    maxTokens: 260,
+  })
+
+  return rows
+}
+
+function observabilityRawPayloadsForRequest(run: GenerationPromptRun): ObservabilityRawPayload[] {
+  const { request } = run
+  const { imagePayload, samPayload } = observabilityPayloadDataForRequest(run)
+  const promptPayload = {
+    requestId: request.id,
+    prompt: request.imagePrompt.prompt,
+    context: request.imagePrompt.context,
+    promptHints: request.imagePrompt.promptHints,
+    recentChat: request.chatContext.slice(-8),
+    scalarChanges: request.scalarChanges,
+  }
 
   return [
     {
       id: 'prompt',
-      label: 'Prompt assembly',
-      role: 'context builder',
-      status: laneStatus,
-      tokens: laneTokens(`${promptContext} ${request.imagePrompt.prompt}`, 24),
+      label: 'Raw prompt context',
       detailsLabel: 'Raw prompt context',
-      details: request.imagePrompt.prompt,
+      details: JSON.stringify(promptPayload, null, 2),
     },
     {
       id: 'image',
-      label: 'Image generation',
-      role: request.model,
-      status: laneStatus,
-      tokens: laneTokens(
-        `${request.intent} ${request.outputTitle} ${request.imagePrompt.negativePrompt} ${request.imagePrompt.promptHints.join(' ')}`,
-        22,
-      ),
+      label: 'Raw image payload',
       detailsLabel: 'Raw image payload',
       details: JSON.stringify(imagePayload, null, 2),
     },
     {
       id: 'sam',
-      label: 'SAM segmentation',
-      role: 'segment-anything',
-      status: laneStatus,
-      tokens: laneTokens(
-        `tool sam.segment-anything source ${request.sourceVariant.title} focus ${selectedSegments
-          .slice(0, 4)
-          .map((segment) => `${segment.label} bbox ${segment.x}/${segment.y}/${segment.width}/${segment.height}`)
-          .join(' ')}`,
-        24,
-      ),
+      label: 'Raw SAM payload',
       detailsLabel: 'Raw SAM payload',
       details: JSON.stringify(samPayload, null, 2),
     },
   ]
 }
 
-function ToolCallLane({ lane }: { lane: ObservabilityLane }) {
+function ObservabilityStreamRowItem({ row }: { row: ObservabilityStreamRow }) {
   return (
-    <section
-      className={`tool-call-lane ${lane.status}`}
-      aria-label={`${lane.label} lane`}
+    <div
+      className={`stream-row ${row.status} lane-${row.lane}`}
+      aria-label={`${row.lane} token stream`}
     >
-      <div className="tool-call-head">
-        <span>{lane.label}</span>
-        <em>{lane.role}</em>
-      </div>
-      <div className="tool-token-stream" aria-label={`${lane.label} tokens`}>
-        {lane.tokens.map((token, index) => (
-          <span
-            key={`${lane.id}-${index}-${token}`}
-            className="tool-token"
-            style={{ '--token-index': index } as CSSProperties}
-          >
-            {token}
+      <span className="stream-row-lane">{row.lane}</span>
+      <span className="stream-row-role">{row.role}</span>
+      <div className="stream-row-tokens">
+        {row.tokens.map((token, index) => (
+          <span key={`${row.id}-${index}-${token}`} style={{ '--token-index': index } as CSSProperties}>
+            {token}{' '}
           </span>
         ))}
       </div>
-      <details className="tool-call-details" aria-label={lane.detailsLabel}>
-        <summary>{lane.detailsLabel}</summary>
-        <pre>{lane.details}</pre>
-      </details>
-    </section>
+    </div>
   )
 }
 
