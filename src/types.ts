@@ -10,6 +10,10 @@ export type ImageVariant = {
   title: string
   kind: 'original' | 'updated' | 'generated'
   image: string
+  mediaSize?: {
+    width: number
+    height: number
+  }
   score: number
   delta?: number
   filter?: string
@@ -144,6 +148,7 @@ export type CanvasVariantSnapshot = {
   imageUrl: string
   score: number
   delta?: number
+  mediaSize?: ImageVariant['mediaSize']
   sourceIds?: string[]
   ingredients?: string[]
   visualSummary?: string
@@ -211,6 +216,10 @@ export type ImageInputReference = {
   role: 'source' | 'reference'
   referenceType?: 'creative' | 'typography'
   mediaType?: string
+  mediaSize?: {
+    width: number
+    height: number
+  }
   description?: string
   copywriting?: string[]
   scalarRecipe?: AestheticScalar[]

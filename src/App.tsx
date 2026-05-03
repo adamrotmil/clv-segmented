@@ -690,6 +690,20 @@ function readImageFileAsDataUrl(file: File) {
   })
 }
 
+function readImageSize(imageUrl: string) {
+  return new Promise<ImageVariant['mediaSize']>((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => {
+      resolve({
+        width: image.naturalWidth || image.width,
+        height: image.naturalHeight || image.height,
+      })
+    }
+    image.onerror = () => reject(new Error('Image dimensions could not be read'))
+    image.src = imageUrl
+  })
+}
+
 function cleanUploadTitle(fileName: string) {
   const baseName = fileName.replace(/\.[^.]+$/, '').trim()
   return baseName || 'Imported image'
@@ -764,14 +778,16 @@ function promptRecipeForUploadedAsset(
   title: string,
   fileName: string,
   scalars: AestheticScalar[],
+  mediaSize?: ImageVariant['mediaSize'],
 ): PromptRecipe {
-  const visualRead = `${title} imported from device; full multimodal read should inspect the uploaded image pixels.`
+  const dimensions = mediaSize ? ` Natural dimensions ${mediaSize.width}x${mediaSize.height}.` : ''
+  const visualRead = `${title} imported from device; full multimodal read should inspect the uploaded image pixels.${dimensions}`
 
   return {
     visualRead,
     finalPrompt: [
       visualRead,
-      'Preserve the uploaded product, copy, typography, composition, and brand system as the source of truth.',
+      'Preserve the uploaded product, copy, typography, composition, aspect ratio, and brand system as the source of truth.',
       'Future remixes should use the selected scalar recipe and chat context while keeping normal remix changes photographic.',
     ].join(' '),
     negativePrompt:
@@ -793,7 +809,7 @@ function promptRecipeForUploadedAsset(
     observability: [
       {
         lane: 'context',
-        text: `Imported ${fileName} from device as ${title}.`,
+        text: `Imported ${fileName} from device as ${title}${mediaSize ? ` at ${mediaSize.width}x${mediaSize.height}` : ''}.`,
       },
       {
         lane: 'vision',
@@ -855,8 +871,11 @@ function imageInputLine(input: ImageInputReference, index: number) {
     : ''
   const referenceType = input.referenceType ? `; referenceType ${input.referenceType}` : ''
   const description = input.description ? `; description ${input.description}` : ''
+  const dimensions = input.mediaSize
+    ? `; dimensions ${input.mediaSize.width}x${input.mediaSize.height}`
+    : ''
 
-  return `imageInputs[${index}]: ${input.role}; id ${input.id}; title ${input.title}; media ${input.mediaType ?? 'image'}${referenceType}${description}${scalarRecipe}`
+  return `imageInputs[${index}]: ${input.role}; id ${input.id}; title ${input.title}; media ${input.mediaType ?? 'image'}${referenceType}${dimensions}${description}${scalarRecipe}`
 }
 
 function chatPromptLines(chatContext: ChatMessage[]) {
@@ -1290,6 +1309,24 @@ function brandCategoryForPrompt(asset: CreativeGenerationRequest['asset'], sourc
   return `${asset.channel} social campaign`
 }
 
+function aspectRatioPromptForVariant(sourceVariant: ImageVariant) {
+  const mediaSize = sourceVariant.mediaSize
+  if (!mediaSize?.width || !mediaSize.height) {
+    return 'Create a square 1:1 premium social ad'
+  }
+
+  const aspectRatio = mediaSize.width / mediaSize.height
+  const ratioLabel = `${mediaSize.width}:${mediaSize.height}`
+  if (aspectRatio < 0.72) {
+    return `Create a vertical premium social ad matching the selected source aspect ratio (${ratioLabel}); do not crop it into a square`
+  }
+  if (aspectRatio > 1.35) {
+    return `Create a landscape premium social ad matching the selected source aspect ratio (${ratioLabel}); do not crop it into a square`
+  }
+
+  return `Create a premium social ad matching the selected source aspect ratio (${ratioLabel})`
+}
+
 function exactCopyBlockForPrompt(sourceVariant: ImageVariant) {
   const copyLines = copywritingForVariant(sourceVariant)
   if (!copyLines.length) return 'Preserve every visible text string exactly as it appears in the attached source image.'
@@ -1345,7 +1382,7 @@ function imageModelPromptForRequest({
 
   return [
     'Image Prompt',
-    `Create a square 1:1 premium social ad for ${brandCategoryForPrompt(asset, sourceVariant)}. Use ${sourceVariant.title} as the selected canvas source and preserve its campaign identity while generating ${outputTitle}.`,
+    `${aspectRatioPromptForVariant(sourceVariant)} for ${brandCategoryForPrompt(asset, sourceVariant)}. Use ${sourceVariant.title} as the selected canvas source and preserve its campaign identity while generating ${outputTitle}.`,
     `Editorial lifestyle photography should be grounded in the source image DNA: ${sourceDna.join(' ')} The result should feel like a refined production-ready ad, not a layout mockup or UI screen.`,
     `Subject and scene: ${sceneDescription.subject} ${sceneDescription.setting} ${sceneDescription.composition}`,
     `Product: preserve ${productLines.join(' ')}. The product should remain premium, tactile, visible, correctly scaled, and recognizably the exact same advertised product from imageInputs[0].`,
@@ -1436,6 +1473,9 @@ function buildNegativePrompt({
     'Do not change, replace, rebrand, relabel, resize into a different SKU, or hallucinate the advertised product package. Preserve the exact source product identity and package markings.',
     'Do not change or substitute the source font family, glyph style, typography hierarchy, casing, tracking, line-height, CTA text style, or text block placement unless typography is explicitly requested as the edit target.',
     changedScalars ? `Do not apply scalar directions outside the staged controls (${changedScalars}).` : '',
+    sourceVariant.mediaSize
+      ? `Do not crop, pad, or reframe the source into a square. Preserve the source aspect ratio ${sourceVariant.mediaSize.width}x${sourceVariant.mediaSize.height}.`
+      : '',
     userInstruction ? `Do not contradict the latest user chat instruction: ${userInstruction}.` : '',
     ...sourceAvoidanceLines(sourceVariant).map((item) => `Avoid ${item}.`),
     `Do not invent unsupported product, brand, audience, or claim context beyond the supplied request packet.`,
@@ -1516,6 +1556,10 @@ function clampSidebarWidth(side: SidebarSide, width: number) {
 
 function clampDragOffset(value: number, limit: number) {
   return Math.max(-limit, Math.min(limit, value))
+}
+
+function generationMediaSizeForRequest(request: CreativeGenerationRequest) {
+  return request.sourceVariant.mediaSize
 }
 
 function useArtboardDrag(
@@ -1626,6 +1670,29 @@ const artboardMetrics = {
   stackHeight: 294,
 }
 
+function displaySizeForVariant(variant: ImageVariant, size: 'normal' | 'large' = 'normal') {
+  const baseWidth = size === 'large' ? 325 : artboardMetrics.size
+  const mediaSize = variant.mediaSize
+  if (!mediaSize?.width || !mediaSize.height) {
+    return { width: baseWidth, height: baseWidth }
+  }
+
+  const aspectRatio = mediaSize.width / mediaSize.height
+  let width = baseWidth
+  let height = width / aspectRatio
+  const maxHeight = size === 'large' ? 720 : 640
+
+  if (height > maxHeight) {
+    height = maxHeight
+    width = height * aspectRatio
+  }
+
+  return {
+    width: Math.round(width),
+    height: Math.round(height),
+  }
+}
+
 function artboardOrigin(index: number, position?: DragOffset, columns = Math.max(1, index + 1)) {
   const safeColumns = Math.max(1, columns)
   const column = index % safeColumns
@@ -1648,23 +1715,33 @@ function findOverlappedArtboard(
   if (sourceIndex < 0) return ''
 
   const sourceOrigin = artboardOrigin(sourceIndex, positions[draggingId], columns)
+  const sourceSize = displaySizeForVariant(variants[sourceIndex])
   const sourceCenter = {
-    x: sourceOrigin.x + artboardMetrics.size / 2,
-    y: sourceOrigin.y + artboardMetrics.size / 2,
+    x: sourceOrigin.x + sourceSize.width / 2,
+    y: sourceOrigin.y + sourceSize.height / 2,
   }
 
   return (
     variants.find((variant, index) => {
       if (variant.id === draggingId) return false
       const targetOrigin = artboardOrigin(index, positions[variant.id], columns)
+      const targetSize = displaySizeForVariant(variant)
       const targetCenter = {
-        x: targetOrigin.x + artboardMetrics.size / 2,
-        y: targetOrigin.y + artboardMetrics.size / 2,
+        x: targetOrigin.x + targetSize.width / 2,
+        y: targetOrigin.y + targetSize.height / 2,
       }
-      const overlapX = Math.max(0, artboardMetrics.size - Math.abs(sourceCenter.x - targetCenter.x))
-      const overlapY = Math.max(0, artboardMetrics.size - Math.abs(sourceCenter.y - targetCenter.y))
-      const overlapRatio = (overlapX * overlapY) / (artboardMetrics.size * artboardMetrics.size)
-      return overlapRatio > 0.34
+      const overlapX = Math.max(
+        0,
+        (sourceSize.width + targetSize.width) / 2 - Math.abs(sourceCenter.x - targetCenter.x),
+      )
+      const overlapY = Math.max(
+        0,
+        (sourceSize.height + targetSize.height) / 2 - Math.abs(sourceCenter.y - targetCenter.y),
+      )
+      const overlapRatio =
+        (overlapX * overlapY) /
+        Math.min(sourceSize.width * sourceSize.height, targetSize.width * targetSize.height)
+      return overlapRatio > 0.3
     })?.id ?? ''
   )
 }
@@ -2132,6 +2209,7 @@ function App() {
     const assetScalars = promptScalars
     const assetScore = projectedScore(assetScalars)
     const imageDataUrl = await readImageFileAsDataUrl(file)
+    const mediaSize = await readImageSize(imageDataUrl)
     const title = uniqueUploadTitle(file.name, variants)
     const nextId = `upload-${Date.now()}`
     const importedAsset: ImageVariant = {
@@ -2139,12 +2217,13 @@ function App() {
       title,
       kind: 'generated',
       image: imageDataUrl,
+      mediaSize,
       score: assetScore,
       delta: Math.max(1, projectedDelta(assetScalars)),
       ingredients: ['Uploaded from device', mediaType, selectedAsset.channel],
       sourceIds: [],
       scalarRecipe: cloneScalarRecipe(assetScalars),
-      promptRecipe: promptRecipeForUploadedAsset(title, file.name, assetScalars),
+      promptRecipe: promptRecipeForUploadedAsset(title, file.name, assetScalars, mediaSize),
       visualContext: uploadedAssetVisualContext(file.name, title),
       segments: [],
       status: 'ready',
@@ -2157,7 +2236,8 @@ function App() {
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: importedAsset.image,
-      sourceSegments: activeVariantSegments,
+      mediaSize: importedAsset.mediaSize,
+      sourceSegments: [],
       title: importedAsset.title,
     })
     recordPrototypeAction(
@@ -2305,6 +2385,7 @@ function App() {
       title: generation.title,
       kind: 'generated',
       image: generation.image,
+      mediaSize: generationMediaSizeForRequest(generationRequest),
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -2356,6 +2437,7 @@ function App() {
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
+      mediaSize: generationMediaSizeForRequest(generationRequest),
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
@@ -2708,6 +2790,7 @@ function App() {
       role: index === 0 ? 'source' : 'reference',
       referenceType: 'creative',
       mediaType: mediaTypeForImage(variant.image),
+      mediaSize: variant.mediaSize,
       copywriting: copywritingForVariant(variant),
       scalarRecipe: scalarRecipeForVariant(variant),
     })) satisfies ImageInputReference[]
@@ -3122,6 +3205,7 @@ function App() {
       title: request.outputTitle,
       kind: 'generated',
       image: request.fallbackImage,
+      mediaSize: generationMediaSizeForRequest(request),
       score: predictedScore,
       delta: Math.max(1, predictedScore - sourceVariant.score),
       filter: request.baseFilter,
@@ -3169,6 +3253,7 @@ function App() {
   async function segmentVariantImage({
     variantId,
     imageUrl,
+    mediaSize,
     generationRequest,
     sourceSegments,
     title,
@@ -3176,6 +3261,7 @@ function App() {
   }: {
     variantId: string
     imageUrl: string
+    mediaSize?: ImageVariant['mediaSize']
     generationRequest?: CreativeGenerationRequest
     sourceSegments: SegmentAnnotation[]
     title?: string
@@ -3184,6 +3270,7 @@ function App() {
     const segmentRequest = buildSegmentImageRequest({
       variantId,
       imageUrl: absoluteImageUrl(imageUrl),
+      mediaSize,
       generationRequest,
       title,
       sourceVariantId,
@@ -3432,6 +3519,7 @@ function App() {
       title: generation.title,
       kind: 'generated',
       image: generation.image,
+      mediaSize: generationMediaSizeForRequest(generationRequest),
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -3481,6 +3569,7 @@ function App() {
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
+      mediaSize: generationMediaSizeForRequest(generationRequest),
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
@@ -3548,6 +3637,7 @@ function App() {
       title: generation.title,
       kind: 'generated',
       image: generation.image,
+      mediaSize: generationMediaSizeForRequest(generationRequest),
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -3598,6 +3688,7 @@ function App() {
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
+      mediaSize: generationMediaSizeForRequest(generationRequest),
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
@@ -3674,6 +3765,7 @@ function App() {
       title: generation.title,
       kind: 'generated',
       image: generation.image,
+      mediaSize: generationMediaSizeForRequest(generationRequest),
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -3724,6 +3816,7 @@ function App() {
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
+      mediaSize: generationMediaSizeForRequest(generationRequest),
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
@@ -3861,6 +3954,7 @@ function App() {
       title: generation.title,
       kind: 'generated',
       image: generation.image,
+      mediaSize: generationMediaSizeForRequest(generationRequest),
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -3910,6 +4004,7 @@ function App() {
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
+      mediaSize: generationMediaSizeForRequest(generationRequest),
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
@@ -3986,6 +4081,7 @@ function App() {
       title: generation.title,
       kind: 'generated',
       image: generation.image,
+      mediaSize: generationMediaSizeForRequest(generationRequest),
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -4036,6 +4132,7 @@ function App() {
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
+      mediaSize: generationMediaSizeForRequest(generationRequest),
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
@@ -4181,6 +4278,7 @@ function App() {
       imageUrl: absoluteImageUrl(variant.image),
       score: variant.score,
       delta: variant.delta,
+      mediaSize: variant.mediaSize,
       sourceIds: variant.sourceIds,
       ingredients: variant.ingredients,
       visualSummary: variant.visualContext?.summary,
@@ -6198,6 +6296,8 @@ function CreativeArtboard({
   const stackStyle = {
     '--drag-x': `${position?.x ?? 0}px`,
     '--drag-y': `${position?.y ?? 0}px`,
+    '--card-width': `${displaySizeForVariant(variant, size).width}px`,
+    '--card-height': `${displaySizeForVariant(variant, size).height}px`,
   } as CSSProperties
 
   return (
@@ -7126,6 +7226,7 @@ function observabilityPayloadDataForRequest(run: GenerationPromptRun): {
   const segmentRequest = buildSegmentImageRequest({
     variantId: request.id,
     imageUrl: run.imageUrl ?? request.fallbackImage,
+    mediaSize: request.sourceVariant.mediaSize,
     generationRequest: request,
   })
   const samPayload = {

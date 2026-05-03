@@ -1132,7 +1132,7 @@ button {
 
 .creative-stack {
   position: relative;
-  width: 275px;
+  width: var(--card-width, 275px);
   transform: translate3d(var(--drag-x, 0px), var(--drag-y, 0px), 0);
   transition:
     transform 150ms cubic-bezier(0.2, 0, 0.2, 1),
@@ -1150,7 +1150,7 @@ button {
 }
 
 .creative-stack.large {
-  width: 325px;
+  width: var(--card-width, 325px);
 }
 
 .creative-title {
@@ -1192,8 +1192,8 @@ button {
 .creative-card {
   position: relative;
   display: block;
-  width: 275px;
-  height: 275px;
+  width: var(--card-width, 275px);
+  height: var(--card-height, 275px);
   padding: 0;
   overflow: visible;
   border: 0;
@@ -1215,8 +1215,8 @@ button {
 }
 
 .creative-stack.large .creative-card {
-  width: 325px;
-  height: 325px;
+  width: var(--card-width, 325px);
+  height: var(--card-height, 325px);
 }
 
 .creative-card.selected {

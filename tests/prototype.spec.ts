@@ -3,6 +3,9 @@ import path from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 
 const uploadAssetFixture = path.resolve('reference/image-1.png')
+const portraitUploadAssetFixture = path.resolve(
+  'src/assets/creative/byredo-bal-dafrique-source.jpg',
+)
 
 async function expectStableHover(locator: Locator) {
   const before = await locator.boundingBox()
@@ -22,6 +25,13 @@ async function uploadAssetFromDevice(page: Page) {
   await page.getByRole('button', { name: 'Add Asset', exact: true }).click()
   const fileChooser = await fileChooserPromise
   await fileChooser.setFiles(uploadAssetFixture)
+}
+
+async function uploadPortraitAssetFromDevice(page: Page) {
+  const fileChooserPromise = page.waitForEvent('filechooser')
+  await page.getByRole('button', { name: 'Add Asset', exact: true }).click()
+  const fileChooser = await fileChooserPromise
+  await fileChooser.setFiles(portraitUploadAssetFixture)
 }
 
 test('inline action summary shows slider effect, shimmer, explanation, and undo', async ({ page }) => {
@@ -554,6 +564,60 @@ test('uploaded device images become remixable canvas sources', async ({ page }) 
     'Preserve every visible text string exactly as it appears in the attached source image',
   )
   await expect(page.locator('.variant-strip').getByText('Remix 2')).toBeVisible()
+})
+
+test('uploaded portrait images keep aspect ratio and get upload-specific segments', async ({ page }) => {
+  await page.goto('/')
+
+  await uploadPortraitAssetFromDevice(page)
+  const uploadedStack = page
+    .locator('.artboard-row .creative-stack')
+    .filter({ hasText: 'byredo-bal-dafrique-source' })
+  await expect(uploadedStack).toBeVisible()
+
+  const cardBox = await uploadedStack.locator('.creative-card').boundingBox()
+  expect(cardBox).not.toBeNull()
+  expect((cardBox?.height ?? 0) / (cardBox?.width ?? 1)).toBeGreaterThan(2.05)
+  expect((cardBox?.height ?? 0) / (cardBox?.width ?? 1)).toBeLessThan(2.25)
+
+  const resonanceBox = uploadedStack
+    .locator('.segment-hotspot[aria-label="Creative resonance"]')
+  const ctaBox = uploadedStack.locator('.segment-hotspot[aria-label="CTA"]')
+  const productBox = uploadedStack
+    .locator('.segment-hotspot[aria-label="Product placement"]')
+  await expect(productBox).toBeVisible()
+
+  const resonanceBounds = await resonanceBox.boundingBox()
+  const ctaBounds = await ctaBox.boundingBox()
+  const productBounds = await productBox.boundingBox()
+  expect(resonanceBounds).not.toBeNull()
+  expect(ctaBounds).not.toBeNull()
+  expect(productBounds).not.toBeNull()
+
+  const cardLeft = cardBox?.x ?? 0
+  const cardTop = cardBox?.y ?? 0
+  const cardWidth = cardBox?.width ?? 1
+  const cardHeight = cardBox?.height ?? 1
+  const center = (box: { x: number; y: number; width: number; height: number }) => ({
+    x: (box.x + box.width / 2 - cardLeft) / cardWidth,
+    y: (box.y + box.height / 2 - cardTop) / cardHeight,
+  })
+
+  expect(center(resonanceBounds!).y).toBeLessThan(0.22)
+  expect(center(ctaBounds!).y).toBeLessThan(0.28)
+  expect(center(productBounds!).x).toBeGreaterThan(0.58)
+  expect(center(productBounds!).y).toBeGreaterThan(0.72)
+
+  await page.getByRole('button', { name: 'byredo-bal-dafrique-source', exact: true }).click()
+  await page.getByLabel('Abstraction').fill('92')
+  await page.getByRole('button', { name: 'Remix Image' }).click()
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'Create a vertical premium social ad matching the selected source aspect ratio',
+  )
+  await expect(page.getByLabel('Image generation prompt')).toContainText('dimensions 853x1844')
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'do not crop it into a square',
+  )
 })
 
 test('shift selecting canvas nodes creates an anchored comparison set', async ({ page }) => {
