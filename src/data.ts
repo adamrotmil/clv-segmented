@@ -126,11 +126,11 @@ export const updatedSegments: SegmentAnnotation[] = [
 
 const originalVisualContext: ImageVariant['visualContext'] = {
   summary:
-    'Square social ad creative with one seated person in a warm tan interior crop, dark marble surface at the left edge, large white headline copy across the middle, dark rectangular product package held near the lower center, blue denim visible in the lower frame, and a compact CTA in the lower-left corner.',
+    'Square social ad creative with one seated person in a warm tan interior crop, dark marble surface at the left edge, large white headline copy across the middle, dark espresso-brown cylindrical product container held near the lower center, blue denim visible in the lower frame, and a compact CTA in the lower-left corner.',
   locks: [
     'one human subject only',
     'same seated/cropped body arrangement',
-    'dark product remains held near the lower center',
+    'dark espresso-brown cylindrical product remains held near the lower center',
     'headline region stays across the center of the frame',
     'CTA remains in the lower-left region',
     'warm wall/shadow backdrop remains recognizable',
@@ -142,19 +142,19 @@ const originalVisualContext: ImageVariant['visualContext'] = {
     'lower-left CTA button',
   ],
   product: {
-    identity: 'the exact dark rectangular product package visible in the source image',
-    packageType: 'small dark rectangular beauty/apparel product package held near the lower-center hand area',
+    identity: 'the exact dark espresso-brown cylindrical beauty product container visible in the source image',
+    packageType: 'small dark cylindrical beauty product container held near the lower-center hand area',
     visualSignature: [
-      'dark glossy rectangular package',
-      'visible vertical light product lettering/mark on the package face',
-      'premium minimal black/dark colorway',
-      'package scale remains small relative to the hand and torso',
+      'espresso-brown satin cylindrical container',
+      'visible minimal vertical gold/light product lettering or logo mark on the container face',
+      'premium minimal dark warm colorway',
+      'container scale remains small relative to the hand and torso',
     ],
     labelText: ['preserve any visible package lettering or marks exactly as source pixels show them'],
     placement: 'held near the lower center of the frame, close to the hands/denim crop',
     preservation: [
       'same SKU/product object as the source, not a different bottle, tube, box, pouch, or product category',
-      'same silhouette, material finish, colorway, label orientation, visible logo/lettering, and scale',
+      'same cylindrical silhouette, satin material finish, espresso-brown colorway, label orientation, visible logo/lettering, and scale',
       'composition may move the product slightly, but it must remain the recognizable source package',
     ],
   },
@@ -173,9 +173,16 @@ const originalVisualContext: ImageVariant['visualContext'] = {
     ],
   },
   sourceDna: [
+    'premium square 1:1 social ad for a beauty/intimates brand',
+    'editorial lifestyle photography with warm cinematic realism, natural perspective, shallow depth of field, and a 50mm-lens feeling',
+    'adult woman seated casually in a low lounge chair, relaxed and confident, with face in the upper-right third',
+    'cream ribbed scoop-neck bralette or crop top with loose light-wash blue denim jeans',
+    'dark black-brown marble blocks or side table behind the subject on the left',
+    'golden-hour sunlight from camera-left with warm amber color temperature, strong directional highlights, and a crisp profile shadow on the wall to the right',
+    'slight film grain, soft commercial-fashion contrast, and authentic social ad styling',
     'warm tan editorial beauty-ad lighting',
     'square social crop with large native text overlay',
-    'exact dark rectangular source product package remains the advertised product',
+    'exact dark espresso-brown cylindrical source product remains the advertised product',
     'minimal sans typography integrated into the photography',
     'lower-left CTA and centered headline hierarchy',
   ],
@@ -196,7 +203,7 @@ const originalVisualContext: ImageVariant['visualContext'] = {
 const remixVisualContext: ImageVariant['visualContext'] = {
   ...originalVisualContext,
   summary:
-    'Square social ad remix with one seated person in the same warm tan interior layout, face visible in the upper-right crop, cream top and blue denim lower-frame crop, dark marble surface at the left edge, dark rectangular product package held near the lower center, large white headline copy over the torso, italic subcopy below, and lower-left CTA.',
+    'Square social ad remix with one seated person in the same warm tan interior layout, face visible in the upper-right crop, cream top and blue denim lower-frame crop, dark marble surface at the left edge, dark espresso-brown cylindrical product container held near the lower center, large white headline copy over the torso, italic subcopy below, and lower-left CTA.',
   typography: {
     ...originalVisualContext.typography,
     family: 'Inter',

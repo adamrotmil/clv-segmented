@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   CSSProperties,
   FormEvent,
@@ -753,29 +753,267 @@ function copywritingPolicyForRequest({
   ].join('\n')
 }
 
-function scalarPromptDirective(scalar: AestheticScalar) {
-  const value = Math.round(scalar.value)
-  if (scalar.id === 'abstraction') {
-    if (value >= 82) {
-      return `${scalar.label}: ${value}/100 means abstract the selected source through treatment, texture, shape language, and visual style while keeping the source locks intact. Do not replace the source with a new ad concept.`
-    }
-    if (value <= 35) {
-      return `${scalar.label}: ${value}/100 means keep the source literal and concrete; avoid surreal reinterpretation.`
-    }
-  }
-  if (scalar.id === 'staging' && value >= 75) {
-    return `${scalar.label}: ${value}/100 means increase candidness inside the selected source composition, not by introducing a new scene.`
-  }
-  if (scalar.id === 'materiality' && value >= 65) {
-    return `${scalar.label}: ${value}/100 means make surface/process cues more tactile while preserving product and layout anchors.`
-  }
-  if (scalar.id === 'stopping-power' && value >= 70) {
-    return `${scalar.label}: ${value}/100 means raise thumb-stop intensity without changing the source subject count or product category.`
-  }
+function scalarMovementPhrase(change?: CreativeGenerationRequest['scalarChanges'][number]) {
+  if (!change) return ''
 
-  return scalarPositionLine(scalar)
+  const delta = Math.round(change.after - change.before)
+  const magnitude =
+    Math.abs(delta) >= 45
+      ? 'dramatic'
+      : Math.abs(delta) >= 25
+        ? 'strong'
+        : Math.abs(delta) >= 10
+          ? 'clear'
+          : 'subtle'
+  const direction = delta >= 0 ? `increase toward ${change.highLabel}` : `decrease toward ${change.lowLabel}`
+
+  return ` This is a ${magnitude} ${direction} from the previous state.`
 }
 
+function scalarValueBand(value: number) {
+  if (value >= 94) return 'maximum'
+  if (value >= 82) return 'very high'
+  if (value >= 68) return 'high'
+  if (value >= 56) return 'slightly high'
+  if (value > 44) return 'balanced'
+  if (value > 32) return 'slightly low'
+  if (value > 18) return 'low'
+  if (value > 6) return 'very low'
+  return 'minimum'
+}
+
+function scalarPromptDirective(
+  scalar: AestheticScalar,
+  change?: CreativeGenerationRequest['scalarChanges'][number],
+) {
+  const value = Math.round(scalar.value)
+  const movement = scalarMovementPhrase(change)
+  const band = scalarValueBand(value)
+
+  switch (scalar.id) {
+    case 'abstraction':
+      if (value >= 82) {
+        return `${scalar.label}: use a very high level of abstraction in the image and not a literal depiction; abstract the selected source through treatment, texture, shape language, and visual style while keeping source locks intact. Do not replace the source with a new ad concept.${movement}`
+      }
+      if (value <= 35) {
+        return `${scalar.label}: keep the image literal, concrete, and directly photographic; avoid surreal or symbolic reinterpretation.${movement}`
+      }
+      return `${scalar.label}: keep abstraction balanced, with enough stylization to feel designed but enough literal photography to keep the ad immediately readable.${movement}`
+    case 'staging':
+      if (value >= 70) {
+        return `${scalar.label}: make the staging feel candid, relaxed, and naturally observed, as if captured in an editorial lifestyle moment rather than posed too deliberately.${movement}`
+      }
+      if (value <= 30) {
+        return `${scalar.label}: make the staging feel deliberately constructed, controlled, and campaign-directed, with clearer pose and prop placement.${movement}`
+      }
+      return `${scalar.label}: balance constructed ad craft with a believable candid posture.${movement}`
+    case 'novelty':
+      if (value >= 82) {
+        return `${scalar.label}: make the image very surreal and high-novelty, but keep the product, copy, and typography legible enough for a shoppable ad.${movement}`
+      }
+      if (value >= 53) {
+        return `${scalar.label}: the image should be just slightly surreal but not very surreal; add a small amount of freshness without making the concept feel strange.${movement}`
+      }
+      if (value <= 30) {
+        return `${scalar.label}: keep novelty low and familiar, with a safe, conventional social-ad read.${movement}`
+      }
+      return `${scalar.label}: keep novelty balanced, with enough freshness to avoid feeling generic.${movement}`
+    case 'materiality':
+      if (value >= 65) {
+        return `${scalar.label}: emphasize tactile material cues: fabric ribs, denim weave, satin product finish, marble veining, skin highlights, and real surface texture.${movement}`
+      }
+      if (value <= 35) {
+        return `${scalar.label}: make surfaces feel cleaner, more digital, and less tactile, while avoiding plastic or artificial-looking skin and product rendering.${movement}`
+      }
+      return `${scalar.label}: keep materiality natural and moderately tactile.${movement}`
+    case 'hardness':
+      if (value >= 65) {
+        return `${scalar.label}: use harder, more specular light edges and crisp highlights, especially on skin, marble, denim, and the product container.${movement}`
+      }
+      if (value <= 35) {
+        return `${scalar.label}: use softer diffusion, gentler highlights, and less crisp specularity.${movement}`
+      }
+      return `${scalar.label}: keep light hardness balanced between soft editorial warmth and crisp commercial highlights.${movement}`
+    case 'key':
+      if (value >= 70) {
+        return `${scalar.label}: keep the image high-key and bright enough for social readability without washing out the warm golden-hour contrast.${movement}`
+      }
+      if (value <= 35) {
+        return `${scalar.label}: keep the key lower and moodier, with deeper shadows and a more intimate warm interior feel.${movement}`
+      }
+      return `${scalar.label}: keep overall exposure balanced, neither too dark nor washed out.${movement}`
+    case 'chromatics':
+      if (value <= 35) {
+        return `${scalar.label}: chromatics should be less vivid and a bit more muted; preserve warm amber skin and wall tones but avoid oversaturation.${movement}`
+      }
+      if (value >= 70) {
+        return `${scalar.label}: chromatics should be vivid and saturated, with richer warm tones and stronger color separation while preserving natural skin.${movement}`
+      }
+      return `${scalar.label}: chromatics should feel natural and moderately warm, not overly saturated.${movement}`
+    case 'complexity':
+      if (value >= 70) {
+        return `${scalar.label}: allow more visual density and layered detail, while keeping the headline, product, and face easy to read.${movement}`
+      }
+      if (value <= 40) {
+        return `${scalar.label}: keep complexity restrained and minimalist, with a clean hierarchy and no extra props or distracting elements.${movement}`
+      }
+      return `${scalar.label}: keep complexity moderate and controlled.${movement}`
+    case 'balance':
+      if (value >= 65) {
+        return `${scalar.label}: introduce dynamic tension in the crop, pose, shadow, and text placement without making the layout feel unstable.${movement}`
+      }
+      if (value <= 35) {
+        return `${scalar.label}: keep balance more static, centered, and calm, with fewer asymmetrical tensions.${movement}`
+      }
+      return `${scalar.label}: balance calm composition with a little visual tension.${movement}`
+    case 'depth':
+      if (value >= 65) {
+        return `${scalar.label}: create deeper spatial layering with foreground body crop, midground product, and background wall/shadow separation.${movement}`
+      }
+      if (value <= 35) {
+        return `${scalar.label}: keep depth relatively planar and graphic so the ad text and main subject read immediately.${movement}`
+      }
+      return `${scalar.label}: use moderate depth with natural background separation.${movement}`
+    case 'groundedness':
+      if (value >= 70) {
+        return `${scalar.label}: keep the image strongly grounded in a believable room, real materials, and plausible lighting.${movement}`
+      }
+      if (value <= 35) {
+        return `${scalar.label}: allow the setting to feel less literal and more conceptual, but do not lose product or copy fidelity.${movement}`
+      }
+      return `${scalar.label}: keep the setting mostly grounded with subtle conceptual polish.${movement}`
+    case 'presence':
+      if (value >= 70) {
+        return `${scalar.label}: emphasize human presence, face visibility, warmth, posture, and emotional accessibility.${movement}`
+      }
+      if (value <= 20) {
+        return `${scalar.label}: make human presence minimal or partially withheld, but keep the selected source subject count and ad layout intact.${movement}`
+      }
+      return `${scalar.label}: keep human presence present but not overpowering.${movement}`
+    case 'gaze':
+      if (value >= 65) {
+        return `${scalar.label}: make gaze more direct or viewer-aware, increasing immediate connection without feeling forced.${movement}`
+      }
+      if (value <= 40) {
+        return `${scalar.label}: keep gaze more averted and editorial, suggesting confidence without direct address.${movement}`
+      }
+      return `${scalar.label}: keep gaze balanced between editorial avertedness and social connection.${movement}`
+    case 'valence':
+      if (value >= 70) {
+        return `${scalar.label}: keep emotional valence positive, confident, warm, and aspirational.${movement}`
+      }
+      if (value <= 35) {
+        return `${scalar.label}: allow a more restrained or serious emotional tone without making the ad feel cold or negative.${movement}`
+      }
+      return `${scalar.label}: keep emotional valence neutral-to-positive.${movement}`
+    case 'arousal':
+      if (value >= 70) {
+        return `${scalar.label}: increase energetic charge, visual urgency, and social-feed momentum without making the image chaotic.${movement}`
+      }
+      if (value <= 35) {
+        return `${scalar.label}: keep arousal calm, intimate, and low-pressure.${movement}`
+      }
+      return `${scalar.label}: keep arousal moderate, polished, and quietly engaging.${movement}`
+    case 'stopping-power':
+      if (value >= 70) {
+        return `${scalar.label}: raise thumb-stop intensity through contrast, face/product clarity, and visual immediacy without changing source identity.${movement}`
+      }
+      if (value <= 35) {
+        return `${scalar.label}: keep stopping power quiet and understated, prioritizing premium editorial restraint over loud attention hooks.${movement}`
+      }
+      return `${scalar.label}: keep stopping power moderate, with a clear but not shouty ad read.${movement}`
+    default:
+      return `${scalar.label}: ${band} value between ${scalar.lowLabel} and ${scalar.highLabel}; ${scalarPositionLine(scalar)}.${movement}`
+  }
+}
+
+function brandCategoryForPrompt(asset: CreativeGenerationRequest['asset'], sourceVariant: ImageVariant) {
+  const copy = copywritingForVariant(sourceVariant).join(' ')
+  const product = productDnaLines(sourceVariant).join(' ')
+
+  if (/braless|intimates|bralette|beauty|skin|makeup|container/i.test(`${copy} ${product}`)) {
+    return 'a beauty/intimates brand'
+  }
+
+  return `${asset.channel} social campaign`
+}
+
+function exactCopyBlockForPrompt(sourceVariant: ImageVariant) {
+  const copyLines = copywritingForVariant(sourceVariant)
+  if (!copyLines.length) return 'Preserve every visible text string exactly as it appears in the attached source image.'
+
+  return copyLines.map((line) => `- ${line}`).join('\n')
+}
+
+function aestheticDirectionBlock(
+  nextScalars: AestheticScalar[],
+  scalarChanges: CreativeGenerationRequest['scalarChanges'],
+) {
+  const changesById = new Map(scalarChanges.map((change) => [change.id, change]))
+  const changedScalars = nextScalars.filter((scalar) => changesById.has(scalar.id))
+  const unchangedScalars = nextScalars.filter((scalar) => !changesById.has(scalar.id))
+  const orderedScalars = [...changedScalars, ...unchangedScalars]
+
+  return orderedScalars.map((scalar) => scalarPromptDirective(scalar, changesById.get(scalar.id)))
+}
+
+function imageModelPromptForRequest({
+  asset,
+  outputTitle,
+  intent,
+  sourceVariant,
+  imageInputs,
+  focusedSegments,
+  nextScalars,
+  scalarChanges,
+  sceneDescription,
+  trace,
+  chatText,
+  promptHints,
+}: {
+  asset: CreativeGenerationRequest['asset']
+  outputTitle: string
+  intent: CreativeGenerationRequest['intent']
+  sourceVariant: ImageVariant
+  imageInputs: ImageInputReference[]
+  focusedSegments: SegmentAnnotation[]
+  nextScalars: AestheticScalar[]
+  scalarChanges: CreativeGenerationRequest['scalarChanges']
+  sceneDescription: SceneDescription
+  trace: ChangeTrace
+  chatText: string
+  promptHints: string[]
+}) {
+  const aestheticDirectives = aestheticDirectionBlock(nextScalars, scalarChanges)
+  const sourceDna = sourceDnaLines(sourceVariant)
+  const productLines = productDnaLines(sourceVariant)
+  const typographyLines = typographyDnaLines(sourceVariant)
+  const selectedSegmentLabels = focusedSegments.map((segment) => segment.label).join(', ')
+  const inputSummary = imageInputs.map((input, index) => imageInputLine(input, index)).join('\n')
+
+  return [
+    'Image Prompt',
+    `Create a square 1:1 premium social ad for ${brandCategoryForPrompt(asset, sourceVariant)}. Use ${sourceVariant.title} as the selected canvas source and preserve its campaign identity while generating ${outputTitle}.`,
+    `Editorial lifestyle photography should be grounded in the source image DNA: ${sourceDna.join(' ')} The result should feel like a refined production-ready ad, not a layout mockup or UI screen.`,
+    `Subject and scene: ${sceneDescription.subject} ${sceneDescription.setting} ${sceneDescription.composition}`,
+    `Product: preserve ${productLines.join(' ')}. The product should remain premium, tactile, visible, correctly scaled, and recognizably the exact same advertised product from imageInputs[0].`,
+    `Photography: ${sceneDescription.camera} ${sceneDescription.lighting} ${sceneDescription.color} Keep negative space and body position suitable for the existing text overlay.`,
+    `Aesthetic direction from sliders:\n${aestheticDirectives.map((line) => `- ${line}`).join('\n')}\nBlend these slider instructions into one coherent photographic treatment; do not execute them as separate visual ideas.`,
+    `Typography overlay must remain clean native ad typography. Preserve source typography DNA: ${typographyLines.join(' ')}. Text must stay crisp, accurately spelled, naturally integrated into the ad layout, and exactly match the source copy.`,
+    `Text exactly:\n${exactCopyBlockForPrompt(sourceVariant)}`,
+    `Selected SAM focus: ${selectedSegmentLabels || 'none'}. Use these regions to prioritize local changes without moving unrelated regions unnecessarily.`,
+    chatText ? `Recent chat direction to weave in naturally:\n${chatText}` : '',
+    promptHints.length ? `Additional prompt hints: ${promptHints.join(' | ')}.` : '',
+    `Current edit context: ${trace.what} ${trace.why}`,
+    intent === 'image-blend'
+      ? 'For blending, create a new peer remix that synthesizes the selected sources. If copy differs between sources, blend conceptually without inventing unsupported product claims.'
+      : 'For remixing, change photography only unless the user explicitly asked otherwise. Keep the existing copywriting, typography, CTA, product identity, and brand structure intact.',
+    `Image input references:\n${inputSummary}`,
+    'No text boxes, no badges, no borders, no UI elements, no explanatory annotations.',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
 function visualContextForGeneratedRequest(request: CreativeGenerationRequest): ImageVariant['visualContext'] {
   const sourceContext = request.sourceVariant.visualContext
   const sourceCopySets = uniqueCopySets(
@@ -1933,7 +2171,7 @@ function App() {
         .filter(Boolean) as SegmentAnnotation[])
     const scalarAdjustments = scalarChanges.map(scalarAdjustmentLine)
     const scalarSnapshot = scalarRecipeSummary(nextScalars)
-    const scalarDirectives = nextScalars.map(scalarPromptDirective)
+    const scalarDirectives = aestheticDirectionBlock(nextScalars, scalarChanges)
     const chatLines = chatPromptLines(chatContext)
     const chatText = chatLines.join('\n')
     const savedIdeaContext = savedIdeas
@@ -1975,7 +2213,23 @@ function App() {
     const changedControls = scalarAdjustments.length
       ? scalarAdjustments
       : ['No staged scalar deltas; use the committed scalar recipe below.']
+    const imageModelPrompt = imageModelPromptForRequest({
+      asset: activeCanvasAsset,
+      outputTitle,
+      intent,
+      sourceVariant,
+      imageInputs,
+      focusedSegments,
+      nextScalars,
+      scalarChanges,
+      sceneDescription,
+      trace,
+      chatText,
+      promptHints: uniquePromptHints,
+    })
     const prompt = [
+      imageModelPrompt,
+      `Operational Context`,
       `Generation target: ${outputTitle}`,
       `Intent: ${intent}`,
       `Asset: ${activeCanvasAsset.name}; channel ${activeCanvasAsset.channel}; version ${activeCanvasAsset.version}`,
@@ -5805,15 +6059,23 @@ function InteractionTrace({
     )
     .join('|')
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!hasGenerationPackets) return
     const scrollElement = traceScrollRef.current
     if (!scrollElement) return
-    const animationFrame = window.requestAnimationFrame(() => {
+    const placeScroll = () => {
       scrollElement.scrollTop =
         generationTraceMode === 'running' ? scrollElement.scrollHeight : 0
+    }
+    placeScroll()
+    const animationFrame = window.requestAnimationFrame(() => {
+      placeScroll()
     })
-    return () => window.cancelAnimationFrame(animationFrame)
+    const settleTimer = window.setTimeout(placeScroll, 50)
+    return () => {
+      window.cancelAnimationFrame(animationFrame)
+      window.clearTimeout(settleTimer)
+    }
   }, [generationStreamKey, generationTraceMode, hasGenerationPackets, pendingPhase])
 
   return (

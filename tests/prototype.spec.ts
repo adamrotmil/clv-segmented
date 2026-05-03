@@ -66,13 +66,25 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Image generation prompt')).toContainText('imageInputs')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Image inputs')
   await expect(page.getByLabel('Image generation prompt')).toContainText('gpt-image-2')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Image Prompt')
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'Create a square 1:1 premium social ad for a beauty/intimates brand',
+  )
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'Aesthetic direction from sliders',
+  )
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'the image should be just slightly surreal but not very surreal',
+  )
   await expect(page.getByLabel('Image generation prompt')).toContainText('Canvas context')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Source preservation')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Copywriting policy')
   await expect(page.getByLabel('Image generation prompt')).toContainText('preserve exact source copy')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Product identity lock')
   await expect(page.getByLabel('Image generation prompt')).toContainText('exact same advertised product')
-  await expect(page.getByLabel('Image generation prompt')).toContainText('dark rectangular product package')
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'dark espresso-brown cylindrical beauty product container',
+  )
   await expect(page.getByLabel('Image generation prompt')).toContainText('Typography brand lock')
   await expect(page.getByLabel('Image generation prompt')).toContainText('exact same font family')
   await expect(page.getByLabel('Image generation prompt')).toContainText('font family Inter')
@@ -98,7 +110,12 @@ test('new remix generation reserves a shimmering target frame before resolving',
     top: element.scrollTop,
     max: element.scrollHeight - element.clientHeight,
   }))
-  expect(scrollMetrics.max - scrollMetrics.top).toBeLessThan(4)
+  const traceMode = await page.locator('.prompt-observer-head').innerText()
+  if (traceMode.includes('Selected generation')) {
+    expect(scrollMetrics.top).toBeLessThan(4)
+  } else {
+    expect(scrollMetrics.max - scrollMetrics.top).toBeLessThan(4)
+  }
   await expect(page.getByLabel('Image generation prompt')).toContainText('active canvas node: Remix 1')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Recent chat')
   await expect(page.getByLabel('Image generation prompt')).not.toContainText('Lifestyle beauty ad')
@@ -160,6 +177,9 @@ test('remix from a canvas source sends source-lock and max abstraction context',
   await expect(promptObserver).toBeVisible()
   await expect(promptObserver).toContainText('active canvas node: Remix 1')
   await expect(promptObserver).toContainText('Abstraction: 100/100')
+  await expect(promptObserver).toContainText(
+    'use a very high level of abstraction in the image and not a literal depiction',
+  )
   await expect(promptObserver).toContainText('abstract the selected source')
   await expect(promptObserver).toContainText('Do not replace the source with a new ad concept')
   await expect(promptObserver).toContainText('Lock: one human subject only')
