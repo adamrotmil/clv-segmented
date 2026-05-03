@@ -2931,6 +2931,10 @@ button {
   color: #21643b;
 }
 
+.lane-vision .stream-row-lane {
+  color: #7a5b1f;
+}
+
 .lane-sam .stream-row-lane {
   color: #2453b3;
 }

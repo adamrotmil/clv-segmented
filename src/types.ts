@@ -16,6 +16,7 @@ export type ImageVariant = {
   ingredients?: string[]
   sourceIds?: string[]
   scalarRecipe?: AestheticScalar[]
+  promptRecipe?: PromptRecipe
   visualContext?: {
     summary: string
     locks: string[]
@@ -202,10 +203,59 @@ export type SceneDescription = {
 }
 
 export type ImagePromptPacket = {
+  requestScaffold: string
+  promptDraft: string
   prompt: string
   negativePrompt: string
   context: ImagePromptContextItem[]
   promptHints: string[]
+}
+
+export type PromptRecipe = {
+  visualRead: string
+  finalPrompt: string
+  negativePrompt: string
+  composedAt: string
+  model: string
+  preservationLocks?: {
+    product?: string
+    copy?: string
+    typography?: string
+  }
+  sliderInterpretation?: Array<{
+    id: string
+    label: string
+    value: number
+    instruction: string
+  }>
+  observability?: Array<{
+    lane: 'vision' | 'prompt' | 'image' | 'sam' | 'context'
+    text: string
+  }>
+  debug?: Record<string, unknown>
+}
+
+export type PromptComposerRequest = {
+  requestId: string
+  intent: CreativeGenerationIntent
+  outputTitle: string
+  model: string
+  composerModel: string
+  sourceVariantId: string
+  sourceIds: string[]
+  imageInputs: ImageInputReference[]
+  scalars: AestheticScalar[]
+  scalarChanges: ScalarGenerationChange[]
+  selectedSegments: SegmentAnnotation[]
+  chatContext: ChatMessage[]
+  promptDraft: string
+  requestScaffold: string
+  systemHints: string[]
+  preservation: {
+    product: string
+    copy: string
+    typography: string
+  }
 }
 
 export type CreativeGenerationRequest = {
@@ -240,6 +290,7 @@ export type CreativeGenerationRequest = {
   promptHints: string[]
   sceneDescription: SceneDescription
   imagePrompt: ImagePromptPacket
+  promptComposer: PromptComposerRequest
 }
 
 export type CreativeGenerationResult = {
@@ -253,6 +304,7 @@ export type CreativeGenerationResult = {
   sourceIds: string[]
   provider: 'endpoint' | 'mock'
   promptSummary: string
+  promptRecipe?: PromptRecipe
 }
 
 export type SegmentImageRequest = {

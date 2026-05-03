@@ -1,9 +1,16 @@
 import type {
   CreativeGenerationRequest,
   CreativeGenerationResult,
+  PromptRecipe,
 } from './types'
 
-type EndpointGenerationResult = Partial<Omit<CreativeGenerationResult, 'requestId' | 'provider'>>
+type EndpointGenerationResult = Partial<Omit<CreativeGenerationResult, 'requestId' | 'provider'>> & {
+  finalPrompt?: string
+  negativePrompt?: string
+  visualRead?: string
+  composerModel?: string
+  observability?: PromptRecipe['observability']
+}
 
 const generationEndpoint = import.meta.env.VITE_IMAGE_GENERATION_ENDPOINT?.trim()
 
@@ -18,7 +25,7 @@ function lastUserInstruction(request: CreativeGenerationRequest) {
 }
 
 function promptSummaryFor(request: CreativeGenerationRequest) {
-  if (request.imagePrompt?.prompt) return request.imagePrompt.prompt
+  if (request.imagePrompt?.promptDraft) return request.imagePrompt.promptDraft
 
   const scalarSummary = request.scalarChanges
     .map((change) => `${change.label} ${Math.round(change.before)}→${Math.round(change.after)}`)
@@ -32,6 +39,73 @@ function promptSummaryFor(request: CreativeGenerationRequest) {
     chatInstruction ? `Chat: ${chatInstruction}` : '',
     request.latestTrace.what,
   ]).join(' | ')
+}
+
+function mockPromptRecipeFor(request: CreativeGenerationRequest): PromptRecipe {
+  const contextValue = (label: string) =>
+    request.imagePrompt.context.find((item) => item.label === label)?.value ?? ''
+
+  return {
+    visualRead:
+      request.sourceVariant.visualContext?.summary ??
+      `Vision read would inspect ${request.sourceVariant.title} and selected image inputs.`,
+    finalPrompt: request.imagePrompt.promptDraft || request.imagePrompt.prompt,
+    negativePrompt: request.imagePrompt.negativePrompt,
+    composedAt: new Date().toISOString(),
+    model: `${request.promptComposer.composerModel}-mock`,
+    preservationLocks: {
+      product: contextValue('Product identity lock'),
+      copy: contextValue('Copywriting'),
+      typography: contextValue('Typography brand lock'),
+    },
+    sliderInterpretation: request.scalars.map((scalar) => ({
+      id: scalar.id,
+      label: scalar.label,
+      value: scalar.value,
+      instruction:
+        request.promptComposer.systemHints.find((hint) =>
+          hint.toLowerCase().includes(scalar.label.toLowerCase()),
+        ) ?? `${scalar.label} interpreted from ${scalar.value}/100 for prompt composition.`,
+    })),
+    observability: [
+      {
+        lane: 'vision',
+        text: `Mock composer read source image ${request.sourceVariant.title}; endpoint composer can replace this with a multimodal visual read.`,
+      },
+      {
+        lane: 'prompt',
+        text: 'Mock composer promoted the frontend prompt draft into the final prompt because no server composer response was available.',
+      },
+      {
+        lane: 'image',
+        text: `Final prompt is ready for ${request.model}.`,
+      },
+    ],
+    debug: {
+      requestScaffold: request.imagePrompt.requestScaffold,
+      promptComposerRequest: request.promptComposer,
+    },
+  }
+}
+
+function promptRecipeFromEndpoint(
+  request: CreativeGenerationRequest,
+  result: EndpointGenerationResult,
+): PromptRecipe {
+  if (result.promptRecipe) return result.promptRecipe
+
+  const fallbackRecipe = mockPromptRecipeFor(request)
+
+  if (!result.finalPrompt && !result.negativePrompt && !result.visualRead) return fallbackRecipe
+
+  return {
+    ...fallbackRecipe,
+    visualRead: result.visualRead ?? fallbackRecipe.visualRead,
+    finalPrompt: result.finalPrompt ?? fallbackRecipe.finalPrompt,
+    negativePrompt: result.negativePrompt ?? fallbackRecipe.negativePrompt,
+    model: result.composerModel ?? fallbackRecipe.model,
+    observability: result.observability ?? fallbackRecipe.observability,
+  }
 }
 
 function normalizeGenerationResult(
@@ -49,6 +123,7 @@ function normalizeGenerationResult(
     request.selectedSegment.label,
   ]).slice(0, 4)
   const projectedScore = Math.min(96, request.projectedScore + request.scoreLift)
+  const promptRecipe = promptRecipeFromEndpoint(request, result)
 
   return {
     requestId: request.id,
@@ -60,7 +135,8 @@ function normalizeGenerationResult(
     ingredients,
     sourceIds: result.sourceIds ?? request.sourceIds,
     provider,
-    promptSummary: result.promptSummary ?? promptSummaryFor(request),
+    promptSummary: result.promptSummary ?? promptRecipe.finalPrompt ?? promptSummaryFor(request),
+    promptRecipe,
   }
 }
 
@@ -96,7 +172,7 @@ async function simulateGeneration(request: CreativeGenerationRequest) {
     request,
     {
       filter: `${request.baseFilter} ${intentFilter}`,
-      promptSummary: promptSummaryFor(request),
+      promptRecipe: mockPromptRecipeFor(request),
     },
     'mock',
   )

@@ -45,6 +45,7 @@ import type {
   ImagePromptPacket,
   ImageInputReference,
   ImageVariant,
+  PromptRecipe,
   SceneDescription,
   SegmentAnnotation,
   SegmentImageResult,
@@ -92,13 +93,14 @@ type GenerationPromptRun = {
   status: 'running' | 'completed'
   segmentationStatus: 'queued' | 'segmenting' | 'completed' | 'failed'
   imageUrl?: string
+  promptRecipe?: PromptRecipe
   segmentationResult?: SegmentImageResult
   segmentationError?: string
 }
 
 type ObservabilityStreamRow = {
   id: string
-  lane: 'prompt' | 'image' | 'sam' | 'chat' | 'context'
+  lane: 'vision' | 'prompt' | 'image' | 'sam' | 'chat' | 'context'
   role: string
   status: 'streaming' | 'queued' | 'completed' | 'failed'
   tokens: string[]
@@ -196,6 +198,7 @@ const sidebarWidthBounds: Record<SidebarSide, { min: number; max: number }> = {
 }
 
 const imageGenerationModel = 'gpt-image-2'
+const promptComposerModel = 'gpt-5.5'
 
 const scoreScalarPreset: Record<string, Pick<AestheticScalar, 'value' | 'marker'>> = {
   staging: { value: 50, marker: 'Constructed' },
@@ -325,6 +328,46 @@ function midpointScalarRecipe(recipes: AestheticScalar[][], fallbackScalars: Aes
       marker: `Midpoint ${presetScalarDisplayValue(averagedValue)}`,
     }
   })
+}
+
+function seededPromptRecipeForVariant(variant: ImageVariant): PromptRecipe {
+  const sourceDna = variant.visualContext?.sourceDna ?? []
+
+  return {
+    visualRead: variant.visualContext?.summary ?? `${variant.title} visual source`,
+    finalPrompt: [
+      variant.visualContext?.summary,
+      sourceDna.join(' '),
+      `Preserve visible product, copy, typography, and layout hierarchy from ${variant.title}.`,
+    ]
+      .filter(Boolean)
+      .join(' '),
+    negativePrompt:
+      'Do not change source copy, product identity, typography family, or core campaign layout.',
+    composedAt: 'seed',
+    model: 'seeded-visual-dna',
+    preservationLocks: {
+      product: productDnaLines(variant).join(' '),
+      copy: copywritingForVariant(variant).join(' | '),
+      typography: typographyDnaLines(variant).join(' '),
+    },
+    sliderInterpretation: cloneScalarRecipe(initialScalars).map((scalar) => ({
+      id: scalar.id,
+      label: scalar.label,
+      value: scalar.value,
+      instruction: scalarPromptDirective(scalar),
+    })),
+    observability: [
+      {
+        lane: 'vision',
+        text: `Seeded visual DNA for ${variant.title}: ${variant.visualContext?.summary ?? 'source image read pending'}`,
+      },
+      {
+        lane: 'prompt',
+        text: `Seeded prompt recipe backfilled for ${variant.title}.`,
+      },
+    ],
+  }
 }
 
 function projectedDelta(scalars: AestheticScalar[]) {
@@ -1570,7 +1613,13 @@ function App() {
   const [scalars, setScalars] = useState(initialScalars)
   const [draftScalars, setDraftScalars] = useState(initialScalars)
   const [scoreScalars, setScoreScalars] = useState(() => applyScorePreset(initialScalars))
-  const [variants, setVariants] = useState(initialVariants)
+  const [variants, setVariants] = useState<ImageVariant[]>(() =>
+    initialVariants.map((variant) => ({
+      ...variant,
+      scalarRecipe: cloneScalarRecipe(variant.scalarRecipe ?? initialScalars),
+      promptRecipe: variant.promptRecipe ?? seededPromptRecipeForVariant(variant),
+    })),
+  )
   const [messages, setMessages] = useState(initialMessages)
   const [chatValue, setChatValue] = useState('')
   const [chatDraft, setChatDraft] = useState<ChatDraft | null>(null)
@@ -1619,6 +1668,7 @@ function App() {
           ? {
               ...variant,
               scalarRecipe: cloneScalarRecipe(variant.scalarRecipe ?? initialScalars),
+              promptRecipe: variant.promptRecipe ?? seededPromptRecipeForVariant(variant),
             }
           : variant.id === 'updated'
           ? {
@@ -1627,10 +1677,12 @@ function App() {
               delta: Math.max(0, workingScore - 76),
               filter: imageFilterForScalars(scalars),
               scalarRecipe: cloneScalarRecipe(scalars),
+              promptRecipe: variant.promptRecipe ?? seededPromptRecipeForVariant(variant),
             }
           : {
               ...variant,
               scalarRecipe: variant.scalarRecipe ? cloneScalarRecipe(variant.scalarRecipe) : undefined,
+              promptRecipe: variant.promptRecipe,
             },
       ),
     [scalars, variants, workingScore],
@@ -1790,6 +1842,8 @@ function App() {
       filter: `${imageFilterForScalars(assetScalars)} brightness(1.01)`,
       ingredients: ['Imported asset', selectedAsset.channel, selectedVersion],
       sourceIds: [selectedVariantId],
+      scalarRecipe: cloneScalarRecipe(assetScalars),
+      promptRecipe: seededPromptRecipeForVariant(initialVariants[1]),
       visualContext: initialVariants[1].visualContext,
       segments: [],
       status: 'ready',
@@ -2284,8 +2338,7 @@ function App() {
       chatText,
       promptHints: uniquePromptHints,
     })
-    const prompt = [
-      imageModelPrompt,
+    const requestScaffold = [
       `Operational Context`,
       `Generation target: ${outputTitle}`,
       `Intent: ${intent}`,
@@ -2308,8 +2361,11 @@ function App() {
     ]
       .filter(Boolean)
       .join('\n')
+    const prompt = [imageModelPrompt, requestScaffold].filter(Boolean).join('\n\n')
 
     return {
+      requestScaffold,
+      promptDraft: imageModelPrompt,
       prompt,
       negativePrompt,
       context: [
@@ -2439,6 +2495,30 @@ function App() {
       chatContext,
       focusedSegmentsOverride: focusedSegments,
     })
+    const promptContextValue = (label: string) =>
+      imagePrompt.context.find((item) => item.label === label)?.value ?? ''
+    const promptComposer = {
+      requestId: id,
+      intent,
+      outputTitle,
+      model: imageGenerationModel,
+      composerModel: promptComposerModel,
+      sourceVariantId: sourceVariant.id,
+      sourceIds,
+      imageInputs,
+      scalars: nextScalars,
+      scalarChanges,
+      selectedSegments: focusedSegments,
+      chatContext,
+      promptDraft: imagePrompt.promptDraft,
+      requestScaffold: imagePrompt.requestScaffold,
+      systemHints: uniquePromptHints,
+      preservation: {
+        product: promptContextValue('Product identity lock'),
+        copy: promptContextValue('Copywriting'),
+        typography: promptContextValue('Typography brand lock'),
+      },
+    }
     const selectedGenerationSegment = focusedSegments[0] ?? activeSegment
 
     return {
@@ -2473,6 +2553,7 @@ function App() {
       promptHints: uniquePromptHints,
       sceneDescription,
       imagePrompt,
+      promptComposer,
     }
   }
 
@@ -2516,10 +2597,15 @@ function App() {
     )
   }
 
-  function releaseGenerationRequest(requestId: string, imageUrl: string) {
+  function releaseGenerationRequest(
+    requestId: string,
+    imageUrl: string,
+    promptRecipe?: PromptRecipe,
+  ) {
     updateGenerationRequestRun(requestId, {
       status: 'completed',
       imageUrl,
+      promptRecipe,
       segmentationStatus: 'segmenting',
     })
   }
@@ -2747,6 +2833,7 @@ function App() {
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
       scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
+      promptRecipe: generation.promptRecipe,
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -2779,7 +2866,7 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock image response ready')
-    releaseGenerationRequest(generationRequest.id, generation.image)
+    releaseGenerationRequest(generationRequest.id, generation.image, generation.promptRecipe)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -2931,6 +3018,7 @@ function App() {
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
       scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
+      promptRecipe: generation.promptRecipe,
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -2962,7 +3050,7 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock image response ready')
-    releaseGenerationRequest(generationRequest.id, generation.image)
+    releaseGenerationRequest(generationRequest.id, generation.image, generation.promptRecipe)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -3039,6 +3127,7 @@ function App() {
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
       scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
+      promptRecipe: generation.promptRecipe,
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -3071,7 +3160,7 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock source response ready')
-    releaseGenerationRequest(generationRequest.id, generation.image)
+    releaseGenerationRequest(generationRequest.id, generation.image, generation.promptRecipe)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -3157,6 +3246,7 @@ function App() {
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
       scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
+      promptRecipe: generation.promptRecipe,
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -3189,7 +3279,7 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock delta response ready')
-    releaseGenerationRequest(generationRequest.id, generation.image)
+    releaseGenerationRequest(generationRequest.id, generation.image, generation.promptRecipe)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -3336,6 +3426,7 @@ function App() {
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
       scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
+      promptRecipe: generation.promptRecipe,
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -3367,7 +3458,7 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock segment response ready')
-    releaseGenerationRequest(generationRequest.id, generation.image)
+    releaseGenerationRequest(generationRequest.id, generation.image, generation.promptRecipe)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -3453,6 +3544,7 @@ function App() {
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
       scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
+      promptRecipe: generation.promptRecipe,
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -3485,7 +3577,7 @@ function App() {
       ].slice(0, 6),
     )
     completeWork(generation.provider === 'endpoint' ? 'Endpoint blend received' : 'Mock blend response ready')
-    releaseGenerationRequest(generationRequest.id, generation.image)
+    releaseGenerationRequest(generationRequest.id, generation.image, generation.promptRecipe)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -6131,7 +6223,7 @@ function InteractionTrace({
   const generationStreamKey = visibleGenerationRuns
     .map(
       (run) =>
-        `${run.request.id}:${run.status}:${run.segmentationStatus}:${run.segmentationResult?.segments.length ?? 0}:${run.request.outputTitle}:${run.request.imagePrompt.prompt.length}`,
+        `${run.request.id}:${run.status}:${run.segmentationStatus}:${run.segmentationResult?.segments.length ?? 0}:${run.request.outputTitle}:${run.request.imagePrompt.prompt.length}:${run.promptRecipe?.finalPrompt.length ?? 0}`,
     )
     .join('|')
 
@@ -6415,10 +6507,14 @@ function observabilityPayloadDataForRequest(run: GenerationPromptRun): {
     intent: request.intent,
     outputTitle: request.outputTitle,
     imageInputs: request.imageInputs,
-    prompt: request.imagePrompt.prompt,
-    negativePrompt: request.imagePrompt.negativePrompt,
+    finalPrompt: run.promptRecipe?.finalPrompt ?? request.imagePrompt.promptDraft,
+    promptComposerModel: run.promptRecipe?.model ?? request.promptComposer.composerModel,
+    promptDraft: request.imagePrompt.promptDraft,
+    requestScaffold: request.imagePrompt.requestScaffold,
+    negativePrompt: run.promptRecipe?.negativePrompt ?? request.imagePrompt.negativePrompt,
     context: request.imagePrompt.context,
     promptHints: request.imagePrompt.promptHints,
+    promptComposer: request.promptComposer,
   }
 
   return { laneStatus, samLaneStatus, selectedSegments, projectedFallbackPreview, imagePayload, samPayload }
@@ -6429,6 +6525,10 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
   const { laneStatus, samLaneStatus, selectedSegments, projectedFallbackPreview } =
     observabilityPayloadDataForRequest(run)
   const rows: ObservabilityStreamRow[] = []
+  const promptRecipe = run.promptRecipe
+  const finalPrompt = promptRecipe?.finalPrompt ?? request.imagePrompt.promptDraft
+  const finalNegativePrompt = promptRecipe?.negativePrompt ?? request.imagePrompt.negativePrompt
+  const composerStatus = promptRecipe ? 'completed' : laneStatus
   const imageInputSummary =
     request.imageInputs.map((input) => `${input.role}:${input.title}`).join(', ') || 'none'
   const recentChat =
@@ -6451,6 +6551,36 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
     role: 'context',
     status: laneStatus,
     text: `Generation target: ${request.outputTitle} intent=${request.intent} model=${request.model} active canvas node: ${request.sourceVariant.title}`,
+  })
+  appendStreamRows(rows, {
+    id: 'vision',
+    lane: 'vision',
+    role: promptRecipe?.model ?? request.promptComposer.composerModel,
+    status: composerStatus,
+    text: promptRecipe
+      ? `visualRead ${promptRecipe.visualRead}`
+      : `vision composer pending sourceImages=${request.imageInputs.map((input) => input.title).join(', ')} selectedSegments=${selectedSegments.slice(0, 3).map((segment) => segment.label).join(', ')}`,
+    maxTokens: 130,
+  })
+  appendStreamRows(rows, {
+    id: 'composer',
+    lane: 'prompt',
+    role: 'composer',
+    status: composerStatus,
+    text: promptRecipe
+      ? `compose-image-prompt completed finalPrompt model=${promptRecipe.model} scalarNotes=${promptRecipe.sliderInterpretation?.length ?? 0} preservationLocks=${Object.keys(promptRecipe.preservationLocks ?? {}).join(', ') || 'none'}`
+      : `compose-image-prompt request ready composerModel=${request.promptComposer.composerModel} promptDraft and requestScaffold will be authored into finalPrompt server-side`,
+    maxTokens: 150,
+  })
+  promptRecipe?.observability?.slice(0, 5).forEach((event, index) => {
+    appendStreamRows(rows, {
+      id: `composer-event-${index}`,
+      lane: event.lane,
+      role: 'composer',
+      status: 'completed',
+      text: event.text,
+      maxTokens: 110,
+    })
   })
   appendStreamRows(rows, {
     id: 'inputs',
@@ -6522,15 +6652,15 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
     lane: 'image',
     role: request.model,
     status: laneStatus,
-    text: `POST /v1/images/edits model=${request.model} intent=${request.intent} output=${request.outputTitle} negativePrompt=${request.imagePrompt.negativePrompt} promptHints=${request.imagePrompt.promptHints.join(' · ')}`,
+    text: `POST /v1/images/edits model=${request.model} intent=${request.intent} output=${request.outputTitle} finalPrompt=${finalPrompt} negativePrompt=${finalNegativePrompt}`,
     maxTokens: 190,
   })
   appendStreamRows(rows, {
     id: 'prompt',
     lane: 'prompt',
-    role: 'assembled',
+    role: promptRecipe ? 'final' : 'draft',
     status: laneStatus,
-    text: `prompt ${request.imagePrompt.prompt}`,
+    text: promptRecipe ? `composer-authored final prompt ${finalPrompt}` : `promptDraft ${request.imagePrompt.promptDraft}`,
     maxTokens: 260,
   })
 
@@ -6546,14 +6676,38 @@ function observabilityRawPayloadsForRequest(run: GenerationPromptRun): Observabi
     : 0
   const promptPayload = {
     requestId: request.id,
-    prompt: request.imagePrompt.prompt,
+    promptDraft: request.imagePrompt.promptDraft,
+    requestScaffold: request.imagePrompt.requestScaffold,
+    legacyCombinedPrompt: request.imagePrompt.prompt,
     context: request.imagePrompt.context,
     promptHints: request.imagePrompt.promptHints,
     recentChat: request.chatContext.slice(-8),
     scalarChanges: request.scalarChanges,
   }
+  const payloads: ObservabilityRawPayload[] = [
+    {
+      id: 'composer-request',
+      label: 'Raw composer request',
+      detailsLabel: 'Raw composer request',
+      kind: 'prompt',
+      summary: request.promptComposer.composerModel,
+      details: JSON.stringify(request.promptComposer, null, 2),
+    },
+  ]
+
+  if (run.promptRecipe) {
+    payloads.push({
+      id: 'composer-output',
+      label: 'Raw composer output',
+      detailsLabel: 'Raw composer output',
+      kind: 'prompt',
+      summary: run.promptRecipe.model,
+      details: JSON.stringify(run.promptRecipe, null, 2),
+    })
+  }
 
   return [
+    ...payloads,
     {
       id: 'prompt',
       label: 'Raw prompt context',

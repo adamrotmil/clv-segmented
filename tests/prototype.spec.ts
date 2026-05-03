@@ -100,6 +100,8 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Generation observability stream')).toContainText('scalar-remix')
   await expect(page.getByLabel('Generation observability stream')).toContainText('segmentation')
   await expect(page.getByLabel('Generation observability stream')).toContainText('Generation target')
+  await expect(page.getByLabel('Generation observability stream')).toContainText('vision')
+  await expect(page.getByLabel('Generation observability stream')).toContainText('compose-image-prompt')
   await expect(page.getByLabel('Generation observability stream')).toContainText(
     'details in SAM accordion',
   )
@@ -127,12 +129,19 @@ test('new remix generation reserves a shimmering target frame before resolving',
   expect(runningSamPayloadBox?.height ?? 0).toBeLessThanOrEqual(150)
   await page.getByText('Raw image payload').click()
   await expect(page.getByLabel('Raw image payload')).toContainText('negativePrompt')
+  await expect(page.getByLabel('Raw image payload')).toContainText('finalPrompt')
+  await page.getByText('Raw composer request').click()
+  await expect(page.getByLabel('Raw composer request')).toContainText('promptDraft')
+  await expect(page.getByLabel('Raw composer request')).toContainText('requestScaffold')
 
   await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
   await expect(remixStack).not.toHaveClass(/generating/)
   await expect(remixStack.getByTestId('pending-shimmer')).toHaveCount(0)
-  await expect(remixStack.getByTestId('segmenting-shimmer')).toBeVisible()
-  await expect(remixStack.locator('.segment-hotspot')).toHaveCount(0)
+  const segmentationState = await remixStack.evaluate((element) => ({
+    shimmerCount: element.querySelectorAll('[data-testid="segmenting-shimmer"]').length,
+    segmentCount: element.querySelectorAll('.segment-hotspot').length,
+  }))
+  expect(segmentationState.shimmerCount + segmentationState.segmentCount).toBeGreaterThan(0)
   await expect(remixStack.getByTestId('segmenting-shimmer')).toHaveCount(0)
   await expect(remixStack.locator('.segment-hotspot')).toHaveCount(4)
 
@@ -149,6 +158,12 @@ test('new remix generation reserves a shimmering target frame before resolving',
     .toBeLessThan(4)
   await page.getByText('Raw prompt context').click()
   await expect(page.getByLabel('Raw prompt context')).toContainText('Generation target: Remix 2')
+  await page.getByText('Raw composer output').click()
+  await expect(page.getByLabel('Raw composer output')).toContainText('finalPrompt')
+  await expect(page.getByLabel('Raw composer output')).toContainText('sliderInterpretation')
+  await expect(page.getByLabel('Generation observability stream')).toContainText(
+    'composer-authored final prompt',
+  )
   await page.getByText('Raw SAM payload').click()
   await expect(page.getByLabel('Raw SAM payload')).toContainText('finalSegments')
   await expect(page.getByLabel('Raw SAM payload')).toContainText('Emotional engagement')

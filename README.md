@@ -34,6 +34,12 @@ VITE_IMAGE_SEGMENTATION_ENDPOINT
 VITE_CHAT_ENDPOINT
 ```
 
+Endpoint contracts live in `docs/`:
+
+- `docs/generation-endpoint.md`
+- `docs/segmentation-endpoint.md`
+- `docs/chat-endpoint.md`
+
 Live URL:
 
 ```text
