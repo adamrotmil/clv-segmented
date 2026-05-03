@@ -56,6 +56,7 @@ import type {
   SegmentAnnotation,
   SegmentImageResult,
   SegmentSuggestion,
+  SourceFidelityReport,
   StylePreset,
 } from './types'
 import { requestAssistantChat } from './chat'
@@ -100,6 +101,8 @@ type GenerationPromptRun = {
   segmentationStatus: 'queued' | 'segmenting' | 'completed' | 'failed'
   imageUrl?: string
   promptRecipe?: PromptRecipe
+  providerMode?: string
+  sourceFidelity?: SourceFidelityReport
   segmentationResult?: SegmentImageResult
   segmentationError?: string
 }
@@ -1094,7 +1097,7 @@ function scalarPromptDirective(
   switch (scalar.id) {
     case 'abstraction':
       if (value >= 82) {
-        return `${scalar.label}: use a very high level of abstraction in the image and not a literal depiction; abstract the selected source through treatment, texture, shape language, and visual style while keeping source locks intact. Do not replace the source with a new ad concept.${movement}`
+        return `${scalar.label}: apply a highly abstract editorial treatment to lighting, color blocking, shadow geometry, texture, and background planes while preserving the subject's recognizable identity, exact product package, typography/copy placement, and overall campaign structure. Do not replace the source with a new ad concept.${movement}`
       }
       if (value <= 35) {
         return `${scalar.label}: keep the image literal, concrete, and directly photographic; avoid surreal or symbolic reinterpretation.${movement}`
@@ -1225,6 +1228,45 @@ function scalarPromptDirective(
       return `${scalar.label}: keep stopping power moderate, with a clear but not shouty ad read.${movement}`
     default:
       return `${scalar.label}: ${band} value between ${scalar.lowLabel} and ${scalar.highLabel}; ${scalarPositionLine(scalar)}.${movement}`
+  }
+}
+
+function sourceFidelityPolicyForRequest({
+  intent,
+  nextScalars,
+}: {
+  intent: CreativeGenerationRequest['intent']
+  nextScalars: AestheticScalar[]
+}) {
+  const abstraction = scalarValue(nextScalars, 'abstraction')
+  const abstractionGuard =
+    abstraction >= 82
+      ? 'At high abstraction, abstract treatment, lighting, color blocking, shadow geometry, texture, and background planes; preserve product, copy, typography, face/identity, and campaign structure.'
+      : 'Apply slider changes without relaxing product, copy, typography, identity, or source-layout preservation.'
+
+  return {
+    primaryRoute:
+      'Use a source-preserving image edit path as the primary route. The source image must be imageInputs[0], not only text context.',
+    fallbackPolicy:
+      'If source-preserving edit is blocked by safety or provider constraints, retry edit first with milder abstraction and stricter preservation language. If fallback generation is still required, return providerMode="safety-retry-generation" and sourceFidelity.confidence="low"; do not silently mark it as equivalent to an edit-based remix.',
+    criticChecks: [
+      'same product package/SKU retained',
+      'exact visible copy retained for normal remix mode',
+      'source typography family, weight, tracking, and placement equivalent',
+      'source identity and campaign composition still recognizable',
+      'requested slider change visibly expressed',
+      'result remains materially related to selected source image',
+    ],
+    regionLocks: [
+      intent === 'image-blend'
+        ? 'Product: preserve the primary source product unless selected sources clearly show the same product.'
+        : 'Product: strongly preserve exact package, material, label, colorway, and scale.',
+      'Typography/copy/CTA: preserve or re-render as native overlay; do not ask fallback generation to invent text.',
+      'Face/identity: preserve moderately unless the user explicitly asks to reduce human presence.',
+      'Background/lighting/shadow/color: allowed to carry the highest aesthetic change.',
+      'Clothing/body/scene geometry: allow partial photographic remix while maintaining source relationship.',
+      abstractionGuard,
+    ],
   }
 }
 
@@ -2261,6 +2303,7 @@ function App() {
       sourceIds: generation.sourceIds,
       scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
       promptRecipe: generation.promptRecipe,
+      sourceFidelity: generation.sourceFidelity,
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -2293,8 +2336,14 @@ function App() {
         ...current,
       ].slice(0, 6),
     )
-    completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock image response ready')
-    releaseGenerationRequest(generationRequest.id, generation.image, generation.promptRecipe)
+    completeWork(generationCompletionMessage(generation))
+    releaseGenerationRequest(
+      generationRequest.id,
+      generation.image,
+      generation.promptRecipe,
+      generation.providerMode,
+      generation.sourceFidelity,
+    )
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -2676,6 +2725,10 @@ function App() {
       sourceVariant,
       imageInputs,
     })
+    const sourceFidelityPolicy = sourceFidelityPolicyForRequest({
+      intent,
+      nextScalars,
+    })
     const productPolicy = productPolicyForRequest({
       sourceVariant,
       imageInputs,
@@ -2724,6 +2777,7 @@ function App() {
       `Asset: ${activeCanvasAsset.name}; channel ${activeCanvasAsset.channel}; version ${activeCanvasAsset.version}`,
       `Canvas context:\n${generationInputs}`,
       `Source preservation:\n${sourceLockLines(sourceVariant).map((line) => `- ${line}`).join('\n')}`,
+      `Source-fidelity remix gate:\n- ${sourceFidelityPolicy.primaryRoute}\n- ${sourceFidelityPolicy.fallbackPolicy}\n- Region locks:\n${sourceFidelityPolicy.regionLocks.map((line) => `  - ${line}`).join('\n')}\n- Critic checks:\n${sourceFidelityPolicy.criticChecks.map((line) => `  - ${line}`).join('\n')}`,
       `Source image DNA / vision read:\n${sourceDnaLines(sourceVariant).map((line) => `- ${line}`).join('\n')}`,
       copywritingPolicy,
       productPolicy,
@@ -2757,6 +2811,15 @@ function App() {
         {
           label: 'Selected SAM',
           value: focusedSegments.map((segment) => segment.label).join(', ') || activeSegment.label,
+        },
+        {
+          label: 'Source fidelity',
+          value: [
+            sourceFidelityPolicy.primaryRoute,
+            sourceFidelityPolicy.fallbackPolicy,
+            `Region locks: ${sourceFidelityPolicy.regionLocks.join(' | ')}`,
+            `Critic checks: ${sourceFidelityPolicy.criticChecks.join(' | ')}`,
+          ].join('\n'),
         },
         {
           label: 'Copywriting',
@@ -2876,6 +2939,10 @@ function App() {
     })
     const promptContextValue = (label: string) =>
       imagePrompt.context.find((item) => item.label === label)?.value ?? ''
+    const sourceFidelityPolicy = sourceFidelityPolicyForRequest({
+      intent,
+      nextScalars,
+    })
     const promptComposer = {
       requestId: id,
       intent,
@@ -2897,6 +2964,7 @@ function App() {
         copy: promptContextValue('Copywriting'),
         typography: promptContextValue('Typography brand lock'),
       },
+      sourceFidelity: sourceFidelityPolicy,
     }
     const selectedGenerationSegment = focusedSegments[0] ?? activeSegment
 
@@ -2980,13 +3048,30 @@ function App() {
     requestId: string,
     imageUrl: string,
     promptRecipe?: PromptRecipe,
+    providerMode?: string,
+    sourceFidelity?: SourceFidelityReport,
   ) {
     updateGenerationRequestRun(requestId, {
       status: 'completed',
       imageUrl,
       promptRecipe,
+      providerMode,
+      sourceFidelity,
       segmentationStatus: 'segmenting',
     })
+  }
+
+  function generationCompletionMessage(generation: Awaited<ReturnType<typeof requestCreativeGeneration>>) {
+    if (generation.sourceFidelity.mode === 'fallback-generation') {
+      return 'Fallback generated · source fidelity needs review'
+    }
+    if (generation.sourceFidelity.critic?.status === 'failed') {
+      return 'Image received · critic failed'
+    }
+    if (generation.sourceFidelity.critic?.status === 'needs-review') {
+      return 'Image received · critic review needed'
+    }
+    return generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock image response ready'
   }
 
   function queueGeneratingVariant(request: CreativeGenerationRequest, predictedScore: number) {
@@ -3317,6 +3402,7 @@ function App() {
       sourceIds: generation.sourceIds,
       scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
       promptRecipe: generation.promptRecipe,
+      sourceFidelity: generation.sourceFidelity,
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -3347,8 +3433,14 @@ function App() {
         ...current,
       ].slice(0, 6),
     )
-    completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock image response ready')
-    releaseGenerationRequest(generationRequest.id, generation.image, generation.promptRecipe)
+    completeWork(generationCompletionMessage(generation))
+    releaseGenerationRequest(
+      generationRequest.id,
+      generation.image,
+      generation.promptRecipe,
+      generation.providerMode,
+      generation.sourceFidelity,
+    )
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -3426,6 +3518,7 @@ function App() {
       sourceIds: generation.sourceIds,
       scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
       promptRecipe: generation.promptRecipe,
+      sourceFidelity: generation.sourceFidelity,
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -3457,8 +3550,14 @@ function App() {
         ...current,
       ].slice(0, 6),
     )
-    completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock source response ready')
-    releaseGenerationRequest(generationRequest.id, generation.image, generation.promptRecipe)
+    completeWork(generationCompletionMessage(generation))
+    releaseGenerationRequest(
+      generationRequest.id,
+      generation.image,
+      generation.promptRecipe,
+      generation.providerMode,
+      generation.sourceFidelity,
+    )
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -3545,6 +3644,7 @@ function App() {
       sourceIds: generation.sourceIds,
       scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
       promptRecipe: generation.promptRecipe,
+      sourceFidelity: generation.sourceFidelity,
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -3576,8 +3676,14 @@ function App() {
         ...current,
       ].slice(0, 6),
     )
-    completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock delta response ready')
-    releaseGenerationRequest(generationRequest.id, generation.image, generation.promptRecipe)
+    completeWork(generationCompletionMessage(generation))
+    releaseGenerationRequest(
+      generationRequest.id,
+      generation.image,
+      generation.promptRecipe,
+      generation.providerMode,
+      generation.sourceFidelity,
+    )
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -3725,6 +3831,7 @@ function App() {
       sourceIds: generation.sourceIds,
       scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
       promptRecipe: generation.promptRecipe,
+      sourceFidelity: generation.sourceFidelity,
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -3755,8 +3862,14 @@ function App() {
         ...current,
       ].slice(0, 6),
     )
-    completeWork(generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock segment response ready')
-    releaseGenerationRequest(generationRequest.id, generation.image, generation.promptRecipe)
+    completeWork(generationCompletionMessage(generation))
+    releaseGenerationRequest(
+      generationRequest.id,
+      generation.image,
+      generation.promptRecipe,
+      generation.providerMode,
+      generation.sourceFidelity,
+    )
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -3843,6 +3956,7 @@ function App() {
       sourceIds: generation.sourceIds,
       scalarRecipe: cloneScalarRecipe(generationRequest.scalars),
       promptRecipe: generation.promptRecipe,
+      sourceFidelity: generation.sourceFidelity,
       visualContext: visualContextForGeneratedRequest(generationRequest),
       segments: [],
       status: 'ready',
@@ -3874,8 +3988,14 @@ function App() {
         ...current,
       ].slice(0, 6),
     )
-    completeWork(generation.provider === 'endpoint' ? 'Endpoint blend received' : 'Mock blend response ready')
-    releaseGenerationRequest(generationRequest.id, generation.image, generation.promptRecipe)
+    completeWork(generationCompletionMessage(generation))
+    releaseGenerationRequest(
+      generationRequest.id,
+      generation.image,
+      generation.promptRecipe,
+      generation.providerMode,
+      generation.sourceFidelity,
+    )
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -5512,6 +5632,8 @@ function CanvasWorkspace({
                   variant.status === 'generating' ? 'generating' : ''
                 } ${
                   variant.segmentationStatus === 'segmenting' ? 'segmenting' : ''
+                } ${
+                  variant.sourceFidelity?.mode === 'fallback-generation' ? 'fallback-generated' : ''
                 }`}
                 onClick={() => onSelectVariant(variant.id)}
               >
@@ -5521,6 +5643,9 @@ function CanvasWorkspace({
                 <span>{variant.title}</span>
                 {variant.ingredients?.length ? (
                   <small>Sources: {variant.ingredients.slice(0, 2).join(' + ')}</small>
+                ) : null}
+                {variant.sourceFidelity?.mode === 'fallback-generation' ? (
+                  <small>Fallback generated</small>
                 ) : null}
                 <ScoreBadge score={variant.score} delta={variant.delta} />
               </button>
@@ -6012,6 +6137,7 @@ function CreativeArtboard({
   const isGenerating = variant.status === 'generating'
   const isSegmenting = variant.segmentationStatus === 'segmenting'
   const segmentationFailed = variant.segmentationStatus === 'failed'
+  const isFallbackGenerated = variant.sourceFidelity?.mode === 'fallback-generation'
   const isPending = isGenerating || (pendingPhase !== 'idle' && pendingPhase !== 'failed')
   const activeSegment = variantSegments.find((segment) => segment.id === selectedSegmentId) ?? null
   const selectedSegmentSet =
@@ -6041,11 +6167,12 @@ function CreativeArtboard({
     <div
       className={`creative-stack ${size === 'large' ? 'large' : ''} ${
         selected ? 'selected' : ''
-      } ${secondarySelected ? 'secondary-selected' : ''} ${isGenerating ? 'generating' : ''} ${isSegmenting ? 'segmenting' : ''} ${segmentationFailed ? 'segmentation-failed' : ''} ${dragging ? 'dragging' : ''} ${dropTarget ? 'drop-target' : ''} ${
+      } ${secondarySelected ? 'secondary-selected' : ''} ${isGenerating ? 'generating' : ''} ${isSegmenting ? 'segmenting' : ''} ${segmentationFailed ? 'segmentation-failed' : ''} ${isFallbackGenerated ? 'fallback-generated' : ''} ${dragging ? 'dragging' : ''} ${dropTarget ? 'drop-target' : ''} ${
         combineSource ? 'combine-source' : ''
       }`}
       style={stackStyle}
       data-segmentation-status={variant.segmentationStatus ?? 'ready'}
+      data-source-fidelity={variant.sourceFidelity?.mode ?? 'unknown'}
     >
       <button
         className="creative-title"
@@ -6084,6 +6211,11 @@ function CreativeArtboard({
           </span>
         ) : null}
         {isPending ? <span className="artboard-shimmer" data-testid="pending-shimmer" /> : null}
+        {isFallbackGenerated ? (
+          <span className="source-fidelity-chip" aria-label="Fallback generated">
+            Fallback generated
+          </span>
+        ) : null}
         {isSegmenting ? (
           <span
             className="sam-scan-shimmer"
@@ -6716,7 +6848,7 @@ function InteractionTrace({
   const generationStreamKey = visibleGenerationRuns
     .map(
       (run) =>
-        `${run.request.id}:${run.status}:${run.segmentationStatus}:${run.segmentationResult?.segments.length ?? 0}:${run.request.outputTitle}:${run.request.imagePrompt.prompt.length}:${run.promptRecipe?.finalPrompt.length ?? 0}`,
+        `${run.request.id}:${run.status}:${run.segmentationStatus}:${run.segmentationResult?.segments.length ?? 0}:${run.request.outputTitle}:${run.request.imagePrompt.prompt.length}:${run.promptRecipe?.finalPrompt.length ?? 0}:${run.providerMode ?? ''}:${run.sourceFidelity?.confidence ?? ''}:${run.sourceFidelity?.critic?.status ?? ''}`,
     )
     .join('|')
 
@@ -6977,6 +7109,8 @@ function observabilityPayloadDataForRequest(run: GenerationPromptRun): {
   }
   const imagePayload = {
     model: request.model,
+    providerMode: run.providerMode ?? 'pending-source-preserving-edit',
+    sourceFidelity: run.sourceFidelity ?? null,
     requestId: request.id,
     intent: request.intent,
     outputTitle: request.outputTitle,
@@ -7018,6 +7152,18 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
     request.scalarChanges
       .map((change) => `${change.label}: ${change.before}/100 -> ${change.after}/100 toward ${change.marker ?? change.highLabel}`)
       .join(' · ') || 'none'
+  const sourceFidelity = run.sourceFidelity
+  const sourceFidelityStatus =
+    sourceFidelity?.mode === 'fallback-generation'
+      ? 'fallback generation entered; source-fidelity risk increased'
+      : sourceFidelity
+        ? `${sourceFidelity.mode} confidence=${sourceFidelity.confidence}`
+        : 'source-preserving edit gate pending'
+  const sourceFidelityChecks =
+    sourceFidelity?.checks
+      .map((check) => `${check.label}=${check.status}`)
+      .join(' · ') ??
+    'Generation succeeded=pending · Source-preserving edit=pending · Product/copy/type locks=pending'
 
   appendStreamRows(rows, {
     id: 'target',
@@ -7025,6 +7171,29 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
     role: 'context',
     status: laneStatus,
     text: `Generation target: ${request.outputTitle} intent=${request.intent} model=${request.model} active canvas node: ${request.sourceVariant.title}`,
+  })
+  appendStreamRows(rows, {
+    id: 'fidelity-route',
+    lane: 'context',
+    role: run.providerMode ?? 'source-fidelity',
+    status: sourceFidelity?.mode === 'fallback-generation' ? 'failed' : sourceFidelity ? 'completed' : laneStatus,
+    text: `Source-fidelity route: ${sourceFidelityStatus}. Primary gate=image edit with imageInputs[0]. Fallback variants must be marked and reviewed before acceptance.`,
+    maxTokens: 105,
+  })
+  appendStreamRows(rows, {
+    id: 'fidelity-critic',
+    lane: 'vision',
+    role: sourceFidelity?.critic?.status ?? 'critic queued',
+    status:
+      sourceFidelity?.critic?.status === 'failed'
+        ? 'failed'
+        : sourceFidelity?.critic?.status === 'needs-review'
+          ? 'queued'
+          : sourceFidelity
+            ? 'completed'
+            : laneStatus,
+    text: `Post-generation critic gates: ${sourceFidelityChecks}. ${sourceFidelity?.critic?.summary ?? request.promptComposer.sourceFidelity.criticChecks.join(' | ')}`,
+    maxTokens: 130,
   })
   appendStreamRows(rows, {
     id: 'vision',
@@ -7061,7 +7230,7 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
     lane: 'image',
     role: request.model,
     status: laneStatus,
-    text: `Image inputs imageInputs=${imageInputSummary} sourceIds=${request.sourceIds.join(', ')} input_fidelity=high`,
+    text: `Image inputs imageInputs=${imageInputSummary} sourceIds=${request.sourceIds.join(', ')} input_fidelity=high edit_route=primary fallback_allowed_only_if_reported`,
   })
   appendStreamRows(rows, {
     id: 'context',
@@ -7189,6 +7358,24 @@ function observabilityRawPayloadsForRequest(run: GenerationPromptRun): Observabi
       kind: 'prompt',
       summary: `${request.imagePrompt.context.length} context items`,
       details: JSON.stringify(promptPayload, null, 2),
+    },
+    {
+      id: 'source-fidelity',
+      label: 'Raw source fidelity',
+      detailsLabel: 'Raw source fidelity',
+      kind: 'image',
+      summary: run.sourceFidelity
+        ? `${run.sourceFidelity.confidence} · ${run.sourceFidelity.providerMode}`
+        : 'pending edit gate',
+      details: JSON.stringify(
+        {
+          providerMode: run.providerMode ?? 'pending-source-preserving-edit',
+          sourceFidelity: run.sourceFidelity,
+          policy: request.promptComposer.sourceFidelity,
+        },
+        null,
+        2,
+      ),
     },
     {
       id: 'image',

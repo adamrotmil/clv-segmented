@@ -2,6 +2,7 @@ import type {
   CreativeGenerationRequest,
   CreativeGenerationResult,
   PromptRecipe,
+  SourceFidelityReport,
 } from './types'
 
 type EndpointGenerationResult = Partial<Omit<CreativeGenerationResult, 'requestId' | 'provider'>> & {
@@ -10,6 +11,8 @@ type EndpointGenerationResult = Partial<Omit<CreativeGenerationResult, 'requestI
   visualRead?: string
   composerModel?: string
   observability?: PromptRecipe['observability']
+  providerMode?: string
+  sourceFidelity?: SourceFidelityReport
 }
 
 const generationEndpoint = import.meta.env.VITE_IMAGE_GENERATION_ENDPOINT?.trim()
@@ -108,6 +111,117 @@ function promptRecipeFromEndpoint(
   }
 }
 
+function isFallbackProviderMode(providerMode?: string) {
+  return /safety-retry-generation|fallback-generation|text-to-image|generation-fallback/i.test(
+    providerMode ?? '',
+  )
+}
+
+function sourceFidelityReportFor(
+  request: CreativeGenerationRequest,
+  result: EndpointGenerationResult,
+  provider: CreativeGenerationResult['provider'],
+): SourceFidelityReport {
+  const providerMode =
+    result.providerMode ??
+    result.sourceFidelity?.providerMode ??
+    (provider === 'mock' ? 'mock-source-preserving-edit' : 'source-preserving-edit')
+  const fallbackMode = isFallbackProviderMode(providerMode)
+  const reportMode: SourceFidelityReport['mode'] =
+    provider === 'mock' ? 'mock' : fallbackMode ? 'fallback-generation' : 'source-preserving-edit'
+  const defaultConfidence: SourceFidelityReport['confidence'] =
+    reportMode === 'fallback-generation'
+      ? 'low'
+      : reportMode === 'mock'
+        ? 'medium'
+        : 'high'
+  const defaultChecks: SourceFidelityReport['checks'] = [
+    {
+      id: 'generation',
+      label: 'Generation succeeded',
+      status: 'passed',
+      detail: `${request.outputTitle} returned an image result.`,
+    },
+    {
+      id: 'source-edit',
+      label: 'Source-preserving edit',
+      status: reportMode === 'fallback-generation' ? 'failed' : provider === 'mock' ? 'not-run' : 'passed',
+      detail:
+        reportMode === 'fallback-generation'
+          ? 'The worker entered fallback generation, so source anchoring is lower confidence.'
+          : provider === 'mock'
+            ? 'Mock mode cannot verify edit-route source anchoring.'
+            : 'The endpoint reported a source-preserving edit route.',
+    },
+    {
+      id: 'product-lock',
+      label: 'Product lock',
+      status: reportMode === 'fallback-generation' ? 'needs-review' : provider === 'mock' ? 'not-run' : 'passed',
+      detail: 'Verify the advertised product package still matches the source.',
+    },
+    {
+      id: 'copy-lock',
+      label: 'Copy lock',
+      status: reportMode === 'fallback-generation' ? 'needs-review' : provider === 'mock' ? 'not-run' : 'passed',
+      detail: 'Verify copywriting stayed exact for normal remix mode.',
+    },
+    {
+      id: 'type-lock',
+      label: 'Typography lock',
+      status: reportMode === 'fallback-generation' ? 'needs-review' : provider === 'mock' ? 'not-run' : 'passed',
+      detail: 'Verify font family, weight, casing, tracking, and placement stayed equivalent.',
+    },
+    {
+      id: 'identity-lock',
+      label: 'Identity lock',
+      status: reportMode === 'fallback-generation' ? 'needs-review' : provider === 'mock' ? 'not-run' : 'passed',
+      detail: 'Verify the result remains recognizably related to the selected source image.',
+    },
+    {
+      id: 'slider-intent',
+      label: 'Slider intent',
+      status: provider === 'mock' ? 'not-run' : 'passed',
+      detail: `${request.scalarChanges.length || request.scalars.length} scalar controls were sent as prompt context.`,
+    },
+  ]
+  const defaultWarnings =
+    reportMode === 'fallback-generation'
+      ? [
+          'Fallback generation is not source-faithful by default.',
+          'Treat product, copy, typography, and identity locks as unverified until the critic passes.',
+        ]
+      : []
+
+  return {
+    providerMode,
+    confidence: result.sourceFidelity?.confidence ?? defaultConfidence,
+    mode: result.sourceFidelity?.mode ?? reportMode,
+    summary:
+      result.sourceFidelity?.summary ??
+      (reportMode === 'fallback-generation'
+        ? 'Image returned through fallback generation; source fidelity needs review.'
+        : provider === 'mock'
+          ? 'Mock generation used the source image as a local preview; real fidelity gates were not run.'
+          : 'Source-preserving edit route reported by endpoint.'),
+    checks: result.sourceFidelity?.checks?.length ? result.sourceFidelity.checks : defaultChecks,
+    warnings: result.sourceFidelity?.warnings ?? defaultWarnings,
+    critic:
+      result.sourceFidelity?.critic ??
+      (provider === 'mock'
+        ? {
+            status: 'not-run',
+            summary: 'Vision critic is not run in mock mode.',
+          }
+        : {
+            status: reportMode === 'fallback-generation' ? 'needs-review' : 'passed',
+            summary:
+              reportMode === 'fallback-generation'
+                ? 'Run the post-generation critic before accepting this remix.'
+                : 'Endpoint did not report critic issues.',
+          }),
+  }
+}
+
 function normalizeGenerationResult(
   request: CreativeGenerationRequest,
   result: EndpointGenerationResult,
@@ -124,6 +238,9 @@ function normalizeGenerationResult(
   ]).slice(0, 4)
   const projectedScore = Math.min(96, request.projectedScore + request.scoreLift)
   const promptRecipe = promptRecipeFromEndpoint(request, result)
+  const sourceFidelity = sourceFidelityReportFor(request, result, provider)
+  const fallbackIngredient =
+    sourceFidelity.mode === 'fallback-generation' ? 'Fallback generated' : ''
 
   return {
     requestId: request.id,
@@ -132,11 +249,13 @@ function normalizeGenerationResult(
     score: result.score ?? projectedScore,
     delta: result.delta ?? Math.max(1, projectedScore - request.sourceVariant.score),
     filter: result.filter ?? request.baseFilter,
-    ingredients,
+    ingredients: uniqueItems([...ingredients, fallbackIngredient]).slice(0, 4),
     sourceIds: result.sourceIds ?? request.sourceIds,
     provider,
+    providerMode: sourceFidelity.providerMode,
     promptSummary: result.promptSummary ?? promptRecipe.finalPrompt ?? promptSummaryFor(request),
     promptRecipe,
+    sourceFidelity,
   }
 }
 

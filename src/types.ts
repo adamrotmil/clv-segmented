@@ -17,6 +17,7 @@ export type ImageVariant = {
   sourceIds?: string[]
   scalarRecipe?: AestheticScalar[]
   promptRecipe?: PromptRecipe
+  sourceFidelity?: SourceFidelityReport
   visualContext?: {
     summary: string
     locks: string[]
@@ -47,6 +48,27 @@ export type ImageVariant = {
   status?: 'ready' | 'generating'
   segmentationStatus?: 'idle' | 'segmenting' | 'ready' | 'failed'
   segmentationError?: string
+}
+
+export type SourceFidelityCheckStatus = 'passed' | 'needs-review' | 'failed' | 'not-run'
+
+export type SourceFidelityReport = {
+  providerMode: string
+  confidence: 'high' | 'medium' | 'low'
+  mode: 'source-preserving-edit' | 'fallback-generation' | 'mock'
+  summary: string
+  checks: Array<{
+    id: 'generation' | 'source-edit' | 'product-lock' | 'copy-lock' | 'type-lock' | 'identity-lock' | 'slider-intent'
+    label: string
+    status: SourceFidelityCheckStatus
+    detail: string
+  }>
+  warnings: string[]
+  critic?: {
+    status: SourceFidelityCheckStatus
+    summary: string
+    issues?: string[]
+  }
 }
 
 export type CreativeGenerationIntent =
@@ -256,6 +278,12 @@ export type PromptComposerRequest = {
     copy: string
     typography: string
   }
+  sourceFidelity: {
+    primaryRoute: string
+    fallbackPolicy: string
+    criticChecks: string[]
+    regionLocks: string[]
+  }
 }
 
 export type CreativeGenerationRequest = {
@@ -303,8 +331,10 @@ export type CreativeGenerationResult = {
   ingredients: string[]
   sourceIds: string[]
   provider: 'endpoint' | 'mock'
+  providerMode: string
   promptSummary: string
   promptRecipe?: PromptRecipe
+  sourceFidelity: SourceFidelityReport
 }
 
 export type SegmentImageRequest = {

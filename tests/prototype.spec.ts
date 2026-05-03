@@ -88,6 +88,8 @@ test('new remix generation reserves a shimmering target frame before resolving',
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText('Canvas context')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Source preservation')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Source-fidelity remix gate')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Fallback variants must be marked')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Copywriting policy')
   await expect(page.getByLabel('Image generation prompt')).toContainText('preserve exact source copy')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Product identity lock')
@@ -110,6 +112,8 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Generation observability stream')).toContainText('scalar-remix')
   await expect(page.getByLabel('Generation observability stream')).toContainText('segmentation')
   await expect(page.getByLabel('Generation observability stream')).toContainText('Generation target')
+  await expect(page.getByLabel('Generation observability stream')).toContainText('Source-fidelity route')
+  await expect(page.getByLabel('Generation observability stream')).toContainText('Post-generation critic gates')
   await expect(page.getByLabel('Generation observability stream')).toContainText('vision')
   await expect(page.getByLabel('Generation observability stream')).toContainText('compose-image-prompt')
   await expect(page.getByLabel('Generation observability stream')).toContainText(
@@ -140,12 +144,17 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await page.getByText('Raw image payload').click()
   await expect(page.getByLabel('Raw image payload')).toContainText('negativePrompt')
   await expect(page.getByLabel('Raw image payload')).toContainText('finalPrompt')
+  await page.getByText('Raw source fidelity').click()
+  await expect(page.getByLabel('Raw source fidelity')).toContainText('primaryRoute')
+  await expect(page.getByLabel('Raw source fidelity')).toContainText('fallbackPolicy')
   await page.getByText('Raw composer request').click()
   await expect(page.getByLabel('Raw composer request')).toContainText('promptDraft')
   await expect(page.getByLabel('Raw composer request')).toContainText('requestScaffold')
 
   await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
   await expect(remixStack).not.toHaveClass(/generating/)
+  await expect(remixStack).toHaveAttribute('data-source-fidelity', 'mock')
+  await expect(remixStack.getByLabel('Fallback generated')).toHaveCount(0)
   await expect(remixStack.getByTestId('pending-shimmer')).toHaveCount(0)
   const segmentationState = await remixStack.evaluate((element) => ({
     shimmerCount: element.querySelectorAll('[data-testid="segmenting-shimmer"]').length,
@@ -203,10 +212,12 @@ test('remix from a canvas source sends source-lock and max abstraction context',
   await expect(promptObserver).toContainText('active canvas node: Remix 1')
   await expect(promptObserver).toContainText('Abstraction: 100/100')
   await expect(promptObserver).toContainText(
-    'use a very high level of abstraction in the image and not a literal depiction',
+    'apply a highly abstract editorial treatment to lighting, color blocking, shadow geometry',
   )
-  await expect(promptObserver).toContainText('abstract the selected source')
+  await expect(promptObserver).toContainText('preserving the subject')
+  await expect(promptObserver).toContainText('exact product package')
   await expect(promptObserver).toContainText('Do not replace the source with a new ad concept')
+  await expect(promptObserver).toContainText('Source-fidelity remix gate')
   await expect(promptObserver).toContainText('Lock: one human subject only')
   await expect(promptObserver).toContainText('Product identity lock')
   await expect(promptObserver).toContainText('same SKU/package')
