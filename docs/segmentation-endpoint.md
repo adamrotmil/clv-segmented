@@ -63,7 +63,7 @@ POST /segment
 ```ts
 {
   "variantId": "remix-123",
-  "toolName": "sam.segment-anything",
+  "toolName": "openai.vision-localization",
   "semanticHints": ["face", "product", "CTA"],
   "segments": [
     {
@@ -74,9 +74,8 @@ POST /segment
       "width": 22.1,
       "height": 20.8,
       "confidence": 0.91,
-      "source": "sam",
+      "source": "vision",
       "labelSource": "vision",
-      "mask": { "type": "polygon", "data": [] },
       "delta": 7,
       "suggestions": []
     }

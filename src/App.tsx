@@ -5125,7 +5125,7 @@ function CreativeArtboard({
             data-testid="segmenting-shimmer"
             aria-label={`${title} segmentation running`}
           >
-            <span>SAM segmenting</span>
+            <span>Segmenting</span>
           </span>
         ) : null}
         {segmentationFailed ? (
