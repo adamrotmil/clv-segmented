@@ -1795,7 +1795,7 @@ function App() {
     window.setTimeout(() => setToast(''), duration)
   }
 
-  function recordPrototypeAction(control: string, what: string, why: string) {
+  function recordPrototypeAction(control: string, what: string, why: string, showToast = true) {
     window.clearTimeout(workTimer.current)
     const trace: ChangeTrace = {
       id: `${control.toLowerCase().replace(/\W+/g, '-')}-${Date.now()}`,
@@ -1812,7 +1812,9 @@ function App() {
     setWorkError('')
     setPendingPhase('idle')
     setLastChange(trace)
-    flashToast(control)
+    if (showToast) {
+      flashToast(control)
+    }
     return trace
   }
 
@@ -2003,6 +2005,7 @@ function App() {
       'Assistant minimized',
       'AI assistant panel minimized.',
       'The assistant remains available as a compact restore state so the canvas can stay in view.',
+      false,
     )
   }
 
@@ -2012,6 +2015,7 @@ function App() {
       'Assistant reopened',
       'AI assistant panel reopened.',
       'The chat, trace, saved ideas, and agent activity return without losing the working canvas state.',
+      false,
     )
   }
 
