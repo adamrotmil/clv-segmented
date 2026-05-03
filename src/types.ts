@@ -19,6 +19,14 @@ export type ImageVariant = {
     summary: string
     locks: string[]
     copywriting?: string[]
+    product?: {
+      identity: string
+      packageType?: string
+      visualSignature?: string[]
+      labelText?: string[]
+      placement?: string
+      preservation?: string[]
+    }
     typography?: {
       family: string
       fallback?: string

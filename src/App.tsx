@@ -569,6 +569,7 @@ function sourceLockLines(variant: ImageVariant) {
   return [
     `Source read: ${context.summary}`,
     ...context.locks.map((lock) => `Lock: ${lock}`),
+    ...productDnaLines(variant).map((line) => `Product lock: ${line}`),
     ...typographyDnaLines(variant).map((line) => `Typography lock: ${line}`),
     ...copywritingForVariant(variant).map((line) => `Exact copywriting: ${line}`),
     ...context.textAnchors.map((anchor) => `Text/layout anchor: ${anchor}`),
@@ -581,6 +582,24 @@ function sourceAvoidanceLines(variant: ImageVariant) {
 
 function copywritingForVariant(variant: ImageVariant) {
   return variant.visualContext?.copywriting ?? []
+}
+
+function productDnaLines(variant: ImageVariant) {
+  const product = variant.visualContext?.product
+  if (!product) {
+    return [
+      'inspect the attached source image and preserve the exact same product object, package silhouette, label marks, material, colorway, scale, and advertised SKU',
+    ]
+  }
+
+  return [
+    `identity ${product.identity}`,
+    product.packageType ? `package ${product.packageType}` : '',
+    product.placement ? `placement ${product.placement}` : '',
+    ...(product.visualSignature ?? []).map((line) => `visual signature ${line}`),
+    ...(product.labelText ?? []).map((line) => `label/text ${line}`),
+    ...(product.preservation ?? []).map((line) => `preserve ${line}`),
+  ].filter(Boolean)
 }
 
 function typographyDnaLines(variant: ImageVariant) {
@@ -607,8 +626,37 @@ function sourceDnaLines(variant: ImageVariant) {
   return [
     context?.summary ? `visual read ${context.summary}` : '',
     ...(context?.sourceDna ?? []),
+    ...productDnaLines(variant).map((line) => `product ${line}`),
     ...typographyDnaLines(variant).map((line) => `typography ${line}`),
   ].filter(Boolean)
+}
+
+function productPolicyForRequest({
+  sourceVariant,
+  imageInputs,
+  intent,
+}: {
+  sourceVariant: ImageVariant
+  imageInputs: ImageInputReference[]
+  intent: CreativeGenerationRequest['intent']
+}) {
+  const sourceLines = productDnaLines(sourceVariant)
+  const referenceLines = imageInputs
+    .filter((input) => input.role === 'reference')
+    .map((input) => `reference ${input.title}: compare only for style/composition; do not replace the source product identity with this reference product`)
+
+  return [
+    'Product identity lock: preserve the exact same advertised product from imageInputs[0]. The remix may change photographic composition, lighting, pose, crop, or styling, but the product object itself must remain the same SKU/package.',
+    'Match the source package silhouette, dimensions, material/finish, colorway, label orientation, visible lettering/logo marks, cap/edge geometry, and scale relative to the subject.',
+    'Do not swap to a different product category, different package type, new bottle/tube/box/pouch, invented label, altered logo, generic prop, or visually similar substitute.',
+    intent === 'image-blend'
+      ? 'For image blends, keep the primary selected source product as the advertised product unless all selected sources clearly show the same product package.'
+      : 'For a remix, the source product identity is mandatory and has higher priority than all aesthetic scalar changes.',
+    `Seeded source product DNA:\n${sourceLines.map((line) => `- ${line}`).join('\n')}`,
+    referenceLines.length ? `Reference product notes:\n${referenceLines.map((line) => `- ${line}`).join('\n')}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 function typographyPolicyForRequest({
@@ -745,6 +793,7 @@ function visualContextForGeneratedRequest(request: CreativeGenerationRequest): I
       `preserve the source image structure from ${request.sourceVariant.title}`,
     ],
     copywriting,
+    product: sourceContext?.product,
     typography: sourceContext?.typography,
     textAnchors: sourceContext?.textAnchors ?? [
       `preserve visible ad text regions from ${request.sourceVariant.title}`,
@@ -792,6 +841,7 @@ function buildNegativePrompt({
     mustPreserveCopy
       ? 'Do not change, rewrite, paraphrase, replace, or hallucinate visible ad copywriting. Preserve source text exactly.'
       : 'Do not invent unsupported claims while blending copy from different source images.',
+    'Do not change, replace, rebrand, relabel, resize into a different SKU, or hallucinate the advertised product package. Preserve the exact source product identity and package markings.',
     'Do not change or substitute the source font family, glyph style, typography hierarchy, casing, tracking, line-height, CTA text style, or text block placement unless typography is explicitly requested as the edit target.',
     changedScalars ? `Do not apply scalar directions outside the staged controls (${changedScalars}).` : '',
     userInstruction ? `Do not contradict the latest user chat instruction: ${userInstruction}.` : '',
@@ -837,12 +887,12 @@ function sceneDescriptionForVariant({
   )
 
   return {
-    subject: `${sourceVariantLine(sourceVariant)}. Asset context: ${asset.name}, ${asset.channel}, ${asset.version}. Attached visual inputs: ${imageInputs.map((input, index) => imageInputLine(input, index)).join(' | ')}.`,
+    subject: `${sourceVariantLine(sourceVariant)}. Product identity: ${productDnaLines(sourceVariant).join(' ')}. Asset context: ${asset.name}, ${asset.channel}, ${asset.version}. Attached visual inputs: ${imageInputs.map((input, index) => imageInputLine(input, index)).join(' | ')}.`,
     setting:
       latestUserChat
         ? `Infer the environment from the attached source pixels, then honor recent chat direction: ${latestUserChat}.`
         : `Infer the environment from the attached source pixels and the selected canvas node; no separate setting is supplied.`,
-    composition: `Use the current canvas selection and SAM geometry as composition constraints. Focus segments: ${segmentFocus}. ${focusedSegments.map(segmentPromptLine).join(' | ') || 'No explicit segment geometry selected.'}`,
+    composition: `Use the current canvas selection and SAM geometry as composition constraints while preserving the same source product package. Focus segments: ${segmentFocus}. ${focusedSegments.map(segmentPromptLine).join(' | ') || 'No explicit segment geometry selected.'}`,
     camera:
       compositionScalars.length
         ? `Frame from current source crop while respecting composition scalar state: ${compositionScalars.map(scalarPositionLine).join('; ')}.`
@@ -1896,6 +1946,11 @@ function App() {
       sourceVariant,
       imageInputs,
     })
+    const productPolicy = productPolicyForRequest({
+      sourceVariant,
+      imageInputs,
+      intent,
+    })
     const typographyPolicy = typographyPolicyForRequest({
       sourceVariant,
       imageInputs,
@@ -1926,6 +1981,7 @@ function App() {
       `Source preservation:\n${sourceLockLines(sourceVariant).map((line) => `- ${line}`).join('\n')}`,
       `Source image DNA / vision read:\n${sourceDnaLines(sourceVariant).map((line) => `- ${line}`).join('\n')}`,
       copywritingPolicy,
+      productPolicy,
       typographyPolicy,
       `Selected SAM context:\n${selectedSegments.length ? selectedSegments.map((line) => `- ${line}`).join('\n') : `- ${activeSegment.label}: no additional segment selection`}`,
       `Aesthetic controls:\n${scalarSnapshot.map((line) => `- ${line}`).join('\n')}`,
@@ -1957,6 +2013,10 @@ function App() {
         {
           label: 'Copywriting',
           value: copywritingPolicy,
+        },
+        {
+          label: 'Product identity lock',
+          value: productPolicy,
         },
         {
           label: 'Typography brand lock',

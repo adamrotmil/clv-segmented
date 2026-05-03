@@ -141,6 +141,23 @@ const originalVisualContext: ImageVariant['visualContext'] = {
     'small italic subcopy under the headline',
     'lower-left CTA button',
   ],
+  product: {
+    identity: 'the exact dark rectangular product package visible in the source image',
+    packageType: 'small dark rectangular beauty/apparel product package held near the lower-center hand area',
+    visualSignature: [
+      'dark glossy rectangular package',
+      'visible vertical light product lettering/mark on the package face',
+      'premium minimal black/dark colorway',
+      'package scale remains small relative to the hand and torso',
+    ],
+    labelText: ['preserve any visible package lettering or marks exactly as source pixels show them'],
+    placement: 'held near the lower center of the frame, close to the hands/denim crop',
+    preservation: [
+      'same SKU/product object as the source, not a different bottle, tube, box, pouch, or product category',
+      'same silhouette, material finish, colorway, label orientation, visible logo/lettering, and scale',
+      'composition may move the product slightly, but it must remain the recognizable source package',
+    ],
+  },
   typography: {
     family: 'Inter',
     fallback: 'use the font family identified from the source image pixels if the vision read detects a closer brand font',
@@ -158,6 +175,7 @@ const originalVisualContext: ImageVariant['visualContext'] = {
   sourceDna: [
     'warm tan editorial beauty-ad lighting',
     'square social crop with large native text overlay',
+    'exact dark rectangular source product package remains the advertised product',
     'minimal sans typography integrated into the photography',
     'lower-left CTA and centered headline hierarchy',
   ],
