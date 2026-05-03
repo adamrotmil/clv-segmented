@@ -54,10 +54,42 @@ export type ImageVariant = {
   segmentationError?: string
 }
 
+export type ImageProviderMode =
+  | 'image-edit'
+  | 'image-edit-retry'
+  | 'safety-retry-generation'
+  | 'failed'
+  | 'mock-source-preserving-edit'
+  | 'pending-source-preserving-edit'
+  | 'source-preserving-edit'
+  | 'unverified-endpoint'
+
+export type SourceFidelityAuthorityStatus = 'passed' | 'warning' | 'failed'
+
 export type SourceFidelityCheckStatus = 'passed' | 'needs-review' | 'failed' | 'not-run'
 
+export type SourceFidelityEvidence = {
+  endpoint?: '/v1/images/edits' | '/v1/images/generations' | string
+  model?: string
+  imageInputCount?: number
+  imageInputRoles?: string[]
+  imageTokens?: number
+  textTokens?: number
+  totalTokens?: number
+  retryCount?: number
+  fallbackReason?: string
+}
+
 export type SourceFidelityReport = {
-  providerMode: string
+  providerMode: ImageProviderMode | (string & {})
+  status: SourceFidelityAuthorityStatus
+  productLock: SourceFidelityAuthorityStatus
+  copyLock: SourceFidelityAuthorityStatus
+  typographyLock: SourceFidelityAuthorityStatus
+  identityLock: SourceFidelityAuthorityStatus
+  sourceRelation: SourceFidelityAuthorityStatus
+  notes: string[]
+  evidence?: SourceFidelityEvidence
   confidence: 'high' | 'medium' | 'low'
   mode: 'source-preserving-edit' | 'fallback-generation' | 'mock'
   summary: string

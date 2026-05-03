@@ -7291,11 +7291,12 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
       .map((change) => `${change.label}: ${change.before}/100 -> ${change.after}/100 toward ${change.marker ?? change.highLabel}`)
       .join(' · ') || 'none'
   const sourceFidelity = run.sourceFidelity
+  const sourceEvidence = sourceFidelity?.evidence
   const sourceFidelityStatus =
     sourceFidelity?.mode === 'fallback-generation'
       ? 'fallback generation entered; source-fidelity risk increased'
       : sourceFidelity
-        ? `${sourceFidelity.mode} confidence=${sourceFidelity.confidence}`
+        ? `${sourceFidelity.mode} status=${sourceFidelity.status} confidence=${sourceFidelity.confidence}`
         : 'source-preserving edit gate pending'
   const sourceFidelityChecks =
     sourceFidelity?.checks
@@ -7315,7 +7316,7 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
     lane: 'context',
     role: run.providerMode ?? 'source-fidelity',
     status: sourceFidelity?.mode === 'fallback-generation' ? 'failed' : sourceFidelity ? 'completed' : laneStatus,
-    text: `Source-fidelity route: ${sourceFidelityStatus}. Primary gate=image edit with imageInputs[0]. Fallback variants must be marked and reviewed before acceptance.`,
+    text: `Fallback variants must be marked and reviewed before acceptance. Source-fidelity route: ${sourceFidelityStatus}. endpoint=${sourceEvidence?.endpoint ?? 'pending'} imageInputCount=${sourceEvidence?.imageInputCount ?? 'pending'} imageTokens=${sourceEvidence?.imageTokens ?? 'pending'}. Primary gate=image edit with imageInputs[0].`,
     maxTokens: 105,
   })
   appendStreamRows(rows, {
@@ -7368,7 +7369,7 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
     lane: 'image',
     role: request.model,
     status: laneStatus,
-    text: `Image inputs imageInputs=${imageInputSummary} sourceIds=${request.sourceIds.join(', ')} input_fidelity=high edit_route=primary fallback_allowed_only_if_reported`,
+    text: `Image inputs imageInputs=${imageInputSummary} sourceIds=${request.sourceIds.join(', ')} worker_evidence_roles=${sourceEvidence?.imageInputRoles?.join(', ') ?? 'pending'} input_fidelity=high edit_route=primary fallback_allowed_only_if_reported`,
   })
   appendStreamRows(rows, {
     id: 'context',
@@ -7433,7 +7434,7 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
     lane: 'image',
     role: request.model,
     status: laneStatus,
-    text: `POST /v1/images/edits model=${request.model} intent=${request.intent} output=${request.outputTitle} finalPrompt=${finalPrompt} negativePrompt=${finalNegativePrompt}`,
+    text: `POST /v1/images/edits model=${request.model} intent=${request.intent} output=${request.outputTitle} evidence_endpoint=${sourceEvidence?.endpoint ?? 'pending'} evidence_image_tokens=${sourceEvidence?.imageTokens ?? 'pending'} finalPrompt=${finalPrompt} negativePrompt=${finalNegativePrompt}`,
     maxTokens: 190,
   })
   appendStreamRows(rows, {

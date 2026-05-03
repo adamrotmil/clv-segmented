@@ -1,7 +1,11 @@
 import type {
   CreativeGenerationRequest,
   CreativeGenerationResult,
+  ImageProviderMode,
   PromptRecipe,
+  SourceFidelityAuthorityStatus,
+  SourceFidelityCheckStatus,
+  SourceFidelityEvidence,
   SourceFidelityReport,
 } from './types'
 
@@ -12,7 +16,7 @@ type EndpointGenerationResult = Partial<Omit<CreativeGenerationResult, 'requestI
   composerModel?: string
   observability?: PromptRecipe['observability']
   providerMode?: string
-  sourceFidelity?: SourceFidelityReport
+  sourceFidelity?: Partial<SourceFidelityReport>
 }
 
 const generationEndpoint = import.meta.env.VITE_IMAGE_GENERATION_ENDPOINT?.trim()
@@ -117,6 +121,86 @@ function isFallbackProviderMode(providerMode?: string) {
   )
 }
 
+function sourceFidelityStatusFromCheck(
+  status?: SourceFidelityCheckStatus,
+): SourceFidelityAuthorityStatus {
+  if (status === 'passed') return 'passed'
+  if (status === 'failed') return 'failed'
+  return 'warning'
+}
+
+function sourceFidelityCheckFor(
+  checks: SourceFidelityReport['checks'],
+  id: SourceFidelityReport['checks'][number]['id'],
+) {
+  return checks.find((check) => check.id === id)?.status
+}
+
+function sourceFidelityEvidenceFor(
+  request: CreativeGenerationRequest,
+  result: EndpointGenerationResult,
+  provider: CreativeGenerationResult['provider'],
+  providerMode: string,
+): SourceFidelityEvidence | undefined {
+  const reportedEvidence = result.sourceFidelity?.evidence
+  if (reportedEvidence) {
+    return {
+      ...reportedEvidence,
+      imageInputRoles:
+        reportedEvidence.imageInputRoles ??
+        request.imageInputs.map((input, index) => `${index}:${input.role}:${input.referenceType ?? 'creative'}`),
+    }
+  }
+
+  if (provider === 'mock') {
+    return {
+      endpoint: 'local mock',
+      model: `${request.model}-mock`,
+      imageInputCount: request.imageInputs.length,
+      imageInputRoles: request.imageInputs.map(
+        (input, index) => `${index}:${input.role}:${input.referenceType ?? 'creative'}`,
+      ),
+    }
+  }
+
+  if (isFallbackProviderMode(providerMode)) {
+    return {
+      endpoint: '/v1/images/generations',
+      model: request.model,
+      imageInputCount: 0,
+      imageInputRoles: [],
+      fallbackReason: 'Endpoint did not report source-preserving edit evidence.',
+    }
+  }
+
+  return undefined
+}
+
+function sourceFidelityStatusFor({
+  provider,
+  fallbackMode,
+  checks,
+  evidence,
+}: {
+  provider: CreativeGenerationResult['provider']
+  fallbackMode: boolean
+  checks: SourceFidelityReport['checks']
+  evidence?: SourceFidelityEvidence
+}): SourceFidelityAuthorityStatus {
+  if (fallbackMode) return 'warning'
+  if (provider === 'mock') return 'warning'
+  if (!evidence) return 'warning'
+  if (evidence.endpoint && !/\/v1\/images\/edits|image-edit/i.test(evidence.endpoint)) {
+    return 'warning'
+  }
+  if ((evidence.imageInputCount ?? 0) < 1) return 'failed'
+  if (checks.some((check) => check.status === 'failed')) return 'failed'
+  if (checks.some((check) => check.status === 'needs-review' || check.status === 'not-run')) {
+    return 'warning'
+  }
+  return 'passed'
+}
+
 function sourceFidelityReportFor(
   request: CreativeGenerationRequest,
   result: EndpointGenerationResult,
@@ -125,16 +209,19 @@ function sourceFidelityReportFor(
   const providerMode =
     result.providerMode ??
     result.sourceFidelity?.providerMode ??
-    (provider === 'mock' ? 'mock-source-preserving-edit' : 'source-preserving-edit')
+    (provider === 'mock' ? 'mock-source-preserving-edit' : 'unverified-endpoint')
   const fallbackMode = isFallbackProviderMode(providerMode)
   const reportMode: SourceFidelityReport['mode'] =
     provider === 'mock' ? 'mock' : fallbackMode ? 'fallback-generation' : 'source-preserving-edit'
+  const hasEndpointAuthorityReport = Boolean(result.sourceFidelity)
   const defaultConfidence: SourceFidelityReport['confidence'] =
     reportMode === 'fallback-generation'
       ? 'low'
       : reportMode === 'mock'
         ? 'medium'
-        : 'high'
+        : hasEndpointAuthorityReport
+          ? 'high'
+          : 'medium'
   const defaultChecks: SourceFidelityReport['checks'] = [
     {
       id: 'generation',
@@ -145,36 +232,65 @@ function sourceFidelityReportFor(
     {
       id: 'source-edit',
       label: 'Source-preserving edit',
-      status: reportMode === 'fallback-generation' ? 'failed' : provider === 'mock' ? 'not-run' : 'passed',
+      status:
+        reportMode === 'fallback-generation'
+          ? 'failed'
+          : provider === 'mock'
+            ? 'not-run'
+            : hasEndpointAuthorityReport
+              ? 'passed'
+              : 'needs-review',
       detail:
         reportMode === 'fallback-generation'
           ? 'The worker entered fallback generation, so source anchoring is lower confidence.'
           : provider === 'mock'
             ? 'Mock mode cannot verify edit-route source anchoring.'
-            : 'The endpoint reported a source-preserving edit route.',
+            : hasEndpointAuthorityReport
+              ? 'The endpoint reported a source-preserving edit route.'
+              : 'The endpoint returned an image but did not report edit-route source anchoring evidence.',
     },
     {
       id: 'product-lock',
       label: 'Product lock',
-      status: reportMode === 'fallback-generation' ? 'needs-review' : provider === 'mock' ? 'not-run' : 'passed',
+      status:
+        reportMode === 'fallback-generation' || !hasEndpointAuthorityReport
+          ? 'needs-review'
+          : provider === 'mock'
+            ? 'not-run'
+            : 'passed',
       detail: 'Verify the advertised product package still matches the source.',
     },
     {
       id: 'copy-lock',
       label: 'Copy lock',
-      status: reportMode === 'fallback-generation' ? 'needs-review' : provider === 'mock' ? 'not-run' : 'passed',
+      status:
+        reportMode === 'fallback-generation' || !hasEndpointAuthorityReport
+          ? 'needs-review'
+          : provider === 'mock'
+            ? 'not-run'
+            : 'passed',
       detail: 'Verify copywriting stayed exact for normal remix mode.',
     },
     {
       id: 'type-lock',
       label: 'Typography lock',
-      status: reportMode === 'fallback-generation' ? 'needs-review' : provider === 'mock' ? 'not-run' : 'passed',
+      status:
+        reportMode === 'fallback-generation' || !hasEndpointAuthorityReport
+          ? 'needs-review'
+          : provider === 'mock'
+            ? 'not-run'
+            : 'passed',
       detail: 'Verify font family, weight, casing, tracking, and placement stayed equivalent.',
     },
     {
       id: 'identity-lock',
       label: 'Identity lock',
-      status: reportMode === 'fallback-generation' ? 'needs-review' : provider === 'mock' ? 'not-run' : 'passed',
+      status:
+        reportMode === 'fallback-generation' || !hasEndpointAuthorityReport
+          ? 'needs-review'
+          : provider === 'mock'
+            ? 'not-run'
+            : 'passed',
       detail: 'Verify the result remains recognizably related to the selected source image.',
     },
     {
@@ -190,20 +306,61 @@ function sourceFidelityReportFor(
           'Fallback generation is not source-faithful by default.',
           'Treat product, copy, typography, and identity locks as unverified until the critic passes.',
         ]
+      : !hasEndpointAuthorityReport && provider === 'endpoint'
+        ? [
+            'Endpoint response did not include source-fidelity evidence.',
+            'Treat the remix as unverified until the worker reports endpoint, image input count, and lock checks.',
+          ]
       : []
+  const checks = result.sourceFidelity?.checks?.length ? result.sourceFidelity.checks : defaultChecks
+  const evidence = sourceFidelityEvidenceFor(request, result, provider, providerMode)
+  const status = sourceFidelityStatusFor({
+    provider,
+    fallbackMode,
+    checks,
+    evidence,
+  })
+  const productLock =
+    result.sourceFidelity?.productLock ?? sourceFidelityStatusFromCheck(sourceFidelityCheckFor(checks, 'product-lock'))
+  const copyLock =
+    result.sourceFidelity?.copyLock ?? sourceFidelityStatusFromCheck(sourceFidelityCheckFor(checks, 'copy-lock'))
+  const typographyLock =
+    result.sourceFidelity?.typographyLock ?? sourceFidelityStatusFromCheck(sourceFidelityCheckFor(checks, 'type-lock'))
+  const identityLock =
+    result.sourceFidelity?.identityLock ?? sourceFidelityStatusFromCheck(sourceFidelityCheckFor(checks, 'identity-lock'))
+  const sourceRelation =
+    result.sourceFidelity?.sourceRelation ??
+    sourceFidelityStatusFromCheck(sourceFidelityCheckFor(checks, 'source-edit'))
+  const notes = uniqueItems([
+    ...(result.sourceFidelity?.notes ?? []),
+    ...defaultWarnings,
+    evidence?.endpoint ? `endpoint=${evidence.endpoint}` : '',
+    typeof evidence?.imageInputCount === 'number' ? `image inputs attached=${evidence.imageInputCount}` : '',
+    typeof evidence?.imageTokens === 'number' ? `image tokens=${evidence.imageTokens}` : '',
+  ])
 
   return {
-    providerMode,
+    providerMode: providerMode as ImageProviderMode,
+    status: result.sourceFidelity?.status ?? status,
+    productLock,
+    copyLock,
+    typographyLock,
+    identityLock,
+    sourceRelation,
+    notes,
+    evidence,
     confidence: result.sourceFidelity?.confidence ?? defaultConfidence,
     mode: result.sourceFidelity?.mode ?? reportMode,
     summary:
       result.sourceFidelity?.summary ??
       (reportMode === 'fallback-generation'
-        ? 'Image returned through fallback generation; source fidelity needs review.'
-        : provider === 'mock'
-          ? 'Mock generation used the source image as a local preview; real fidelity gates were not run.'
-          : 'Source-preserving edit route reported by endpoint.'),
-    checks: result.sourceFidelity?.checks?.length ? result.sourceFidelity.checks : defaultChecks,
+          ? 'Image returned through fallback generation; source fidelity needs review.'
+          : provider === 'mock'
+            ? 'Mock generation used the source image as a local preview; real fidelity gates were not run.'
+            : hasEndpointAuthorityReport
+              ? 'Source-preserving edit route reported by endpoint.'
+              : 'Endpoint image result is present, but source fidelity is unverified until the worker reports edit evidence.'),
+    checks,
     warnings: result.sourceFidelity?.warnings ?? defaultWarnings,
     critic:
       result.sourceFidelity?.critic ??
