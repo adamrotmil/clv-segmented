@@ -442,28 +442,139 @@ function scalarAdjustmentLine(change: CreativeGenerationRequest['scalarChanges']
   return `${change.label}: ${delta >= 0 ? '+' : ''}${delta} toward ${target}`
 }
 
-function sceneDescriptionForVariant(
-  sourceVariant: ImageVariant,
-  focusedSegments: SegmentAnnotation[],
-): SceneDescription {
-  const segmentFocus = focusedSegments.map((segment) => segment.label).join(', ') || 'primary ad subject'
+function promptRoleForVariant(variant: ImageVariant) {
+  if (variant.id === 'original') return 'baseline source'
+  return `${variant.kind === 'generated' ? 'generated' : 'saved'} remix`
+}
+
+function scalarPositionLine(scalar: AestheticScalar) {
+  const value = Math.round(scalar.value)
+  const leaning =
+    value < 38
+      ? `${scalar.lowLabel}-leaning`
+      : value > 62
+        ? `${scalar.highLabel}-leaning`
+        : `balanced between ${scalar.lowLabel} and ${scalar.highLabel}`
+  const marker = scalar.marker ? `; marker ${scalar.marker}` : ''
+
+  return `${scalar.label}: ${value}/100, ${leaning}${marker}`
+}
+
+function scalarRecipeSummary(scalars: AestheticScalar[], limit?: number) {
+  const scalarLines = scalars.map(scalarPositionLine)
+  return typeof limit === 'number' ? scalarLines.slice(0, limit) : scalarLines
+}
+
+function segmentPromptLine(segment: SegmentAnnotation) {
+  const suggestions = segment.suggestions
+    .map((suggestion) => `${suggestion.label} +${suggestion.impact}`)
+    .join(', ')
+  return `${segment.label}: bbox x${segment.x}% y${segment.y}% w${segment.width}% h${segment.height}%; projected ES delta ${segment.delta >= 0 ? '+' : ''}${segment.delta}; local suggestions ${suggestions || 'none'}`
+}
+
+function sourceVariantLine(variant: ImageVariant, label = promptRoleForVariant(variant)) {
+  const ingredients = variant.ingredients?.length ? `; ingredients ${variant.ingredients.join(', ')}` : ''
+  const lineage = variant.sourceIds?.length ? `; sources ${variant.sourceIds.join(', ')}` : ''
+  const filter = variant.filter ? `; current render filter ${variant.filter}` : ''
+
+  return `${label}: ${variant.title}; id ${variant.id}; ES ${variant.score}%${ingredients}${lineage}${filter}`
+}
+
+function imageInputLine(input: ImageInputReference, index: number) {
+  return `imageInputs[${index}]: ${input.role}; id ${input.id}; title ${input.title}; media ${input.mediaType ?? 'image'}`
+}
+
+function chatPromptLines(chatContext: ChatMessage[]) {
+  return chatContext
+    .filter((message) => message.content.trim())
+    .slice(-6)
+    .map((message) => `${message.role}: ${message.content.trim()}`)
+}
+
+function buildNegativePrompt({
+  sourceVariant,
+  focusedSegments,
+  scalarChanges,
+  chatContext,
+}: {
+  sourceVariant: ImageVariant
+  focusedSegments: SegmentAnnotation[]
+  scalarChanges: CreativeGenerationRequest['scalarChanges']
+  chatContext: ChatMessage[]
+}) {
+  const userInstruction = [...chatContext]
+    .reverse()
+    .find((message) => message.role === 'user' && message.content.trim())?.content
+  const segmentNames = focusedSegments.map((segment) => segment.label).join(', ')
+  const changedScalars = scalarChanges.map((change) => change.label).join(', ')
+
+  return [
+    `Do not ignore the selected canvas source (${sourceVariant.title}).`,
+    segmentNames ? `Do not lose the selected SAM focus (${segmentNames}).` : '',
+    changedScalars ? `Do not apply scalar directions outside the staged controls (${changedScalars}).` : '',
+    userInstruction ? `Do not contradict the latest user chat instruction: ${userInstruction}.` : '',
+    `Do not invent unsupported product, brand, audience, or claim context beyond the supplied request packet.`,
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
+function sceneDescriptionForVariant({
+  asset,
+  sourceVariant,
+  imageInputs,
+  focusedSegments,
+  nextScalars,
+  scalarChanges,
+  chatContext,
+  trace,
+}: {
+  asset: CreativeGenerationRequest['asset']
+  sourceVariant: ImageVariant
+  imageInputs: ImageInputReference[]
+  focusedSegments: SegmentAnnotation[]
+  nextScalars: AestheticScalar[]
+  scalarChanges: CreativeGenerationRequest['scalarChanges']
+  chatContext: ChatMessage[]
+  trace: ChangeTrace
+}): SceneDescription {
+  const scalarById = new Map(nextScalars.map((scalar) => [scalar.id, scalar]))
+  const segmentFocus = focusedSegments.map((segment) => segment.label).join(', ') || trace.segment
+  const latestUserChat = [...chatContext]
+    .reverse()
+    .find((message) => message.role === 'user' && message.content.trim())?.content
+  const changedScalarLabels = scalarChanges.map((change) => scalarAdjustmentLine(change)).join('; ')
+  const lightingScalars = ['hardness', 'key'].map((id) => scalarById.get(id)).filter(Boolean) as AestheticScalar[]
+  const colorScalars = ['chromatics', 'materiality', 'valence'].map((id) => scalarById.get(id)).filter(Boolean) as AestheticScalar[]
+  const compositionScalars = ['staging', 'complexity', 'balance', 'depth', 'groundedness', 'presence', 'gaze']
+    .map((id) => scalarById.get(id))
+    .filter(Boolean) as AestheticScalar[]
+  const typeSegments = focusedSegments.filter((segment) =>
+    /resonance|cta|copy|text|headline/i.test(segment.label),
+  )
 
   return {
-    subject:
-      sourceVariant.id === 'original'
-        ? 'Lifestyle beauty ad featuring a seated person, visible product placement, large overlaid ad copy, and a CTA.'
-        : 'Generated lifestyle beauty ad variant preserving the visible subject, product placement, ad copy system, and CTA structure from the source image.',
+    subject: `${sourceVariantLine(sourceVariant)}. Asset context: ${asset.name}, ${asset.channel}, ${asset.version}. Attached visual inputs: ${imageInputs.map((input, index) => imageInputLine(input, index)).join(' | ')}.`,
     setting:
-      'Warm indoor editorial setting with a soft wall shadow, casual seated pose, and direct-response social ad framing.',
-    composition: `Square social creative with subject centered, copy occupying the middle of frame, product lower center, CTA anchored lower left, and current focus on ${segmentFocus}.`,
+      latestUserChat
+        ? `Infer the environment from the attached source pixels, then honor recent chat direction: ${latestUserChat}.`
+        : `Infer the environment from the attached source pixels and the selected canvas node; no separate setting is supplied.`,
+    composition: `Use the current canvas selection and SAM geometry as composition constraints. Focus segments: ${segmentFocus}. ${focusedSegments.map(segmentPromptLine).join(' | ') || 'No explicit segment geometry selected.'}`,
     camera:
-      'Close editorial crop, portrait-oriented lens feel, shallow lifestyle framing, natural perspective, no wide-angle distortion.',
+      compositionScalars.length
+        ? `Frame from current source crop while respecting composition scalar state: ${compositionScalars.map(scalarPositionLine).join('; ')}.`
+        : `Frame from the selected source crop and preserve source aspect ratio unless the request packet says otherwise.`,
     lighting:
-      'Warm directional indoor light with soft contrast, visible cast shadow, gentle highlight on skin and product surfaces.',
+      lightingScalars.length
+        ? `Lighting state comes from controls: ${lightingScalars.map(scalarPositionLine).join('; ')}.`
+        : `Lighting should be inferred from the selected source and current controls.`,
     color:
-      'Warm amber and neutral skin tones balanced against dark marble/product details and muted denim blues.',
-    typography:
-      'Large high-contrast white ad headline, smaller italic subcopy, and compact CTA treatment should remain legible and native to the creative.',
+      colorScalars.length
+        ? `Color state comes from controls: ${colorScalars.map(scalarPositionLine).join('; ')}.`
+        : `Color should follow selected source pixels and current controls.`,
+    typography: typeSegments.length
+      ? `Respect selected text/CTA segments: ${typeSegments.map(segmentPromptLine).join(' | ')}.`
+      : `Preserve any visible ad text structure from the attached source unless changed by staged scalar/chat context${changedScalarLabels ? `: ${changedScalarLabels}` : '.'}`,
   }
 }
 
@@ -1379,6 +1490,7 @@ function App() {
     sceneDescription,
     trace,
     promptHints,
+    chatContext,
   }: {
     intent: CreativeGenerationRequest['intent']
     outputTitle: string
@@ -1389,44 +1501,50 @@ function App() {
     sceneDescription: SceneDescription
     trace: ChangeTrace
     promptHints: string[]
+    chatContext: ChatMessage[]
   }): ImagePromptPacket {
     const focusedSegments = (selectedSegmentIds.length ? selectedSegmentIds : [activeSegment.id])
       .map((id) => activeVariantSegments.find((segment) => segment.id === id))
       .filter(Boolean) as SegmentAnnotation[]
     const scalarAdjustments = scalarChanges.map(scalarAdjustmentLine)
-    const scalarSnapshot = nextScalars
-      .map((scalar) => `${scalar.label} ${Math.round(scalar.value)}`)
-      .slice(0, 8)
-      .join(', ')
-    const chatContext = messages
-      .slice(-6)
-      .map((message) => `${message.role}: ${message.content}`)
-      .join('\n')
+    const scalarSnapshot = scalarRecipeSummary(nextScalars)
+    const chatLines = chatPromptLines(chatContext)
+    const chatText = chatLines.join('\n')
     const savedIdeaContext = savedIdeas
       .map((idea) => `${idea.label} ES ${idea.score}% (${idea.ingredients.join(', ')})`)
       .join('; ')
     const uniquePromptHints = Array.from(new Set(promptHints.filter(Boolean)))
     const imageInputSummary = imageInputs
-      .map((input) => `${input.role}: ${input.title}`)
-      .join(', ')
+      .map((input, index) => imageInputLine(input, index))
+      .join('\n')
+    const negativePrompt = buildNegativePrompt({
+      sourceVariant,
+      focusedSegments,
+      scalarChanges,
+      chatContext,
+    })
+    const generationInputs = [
+      sourceVariantLine(sourceVariant, 'active canvas node'),
+      imageInputs.map((input, index) => imageInputLine(input, index)).join('\n'),
+    ]
+      .filter(Boolean)
+      .join('\n')
+    const selectedSegments = focusedSegments.map(segmentPromptLine)
+    const changedControls = scalarAdjustments.length
+      ? scalarAdjustments
+      : ['No staged scalar deltas; use the committed scalar recipe below.']
     const prompt = [
-      `Create a new version of the attached source image for ${activeCanvasAsset.name} on ${activeCanvasAsset.channel}.`,
-      `The source pixels are supplied in imageInputs; use them as visual reference, not just as a named concept.`,
-      `Output: ${outputTitle}. Intent: ${intent}. Attached images: ${imageInputSummary}.`,
-      'Preserve the core subject, composition, product identity, aspect ratio, ad format, and legible in-image typography unless explicitly adjusted below.',
-      scalarAdjustments.length
-        ? `Apply these aesthetic adjustments:\n${scalarAdjustments.map((line) => `- ${line}`).join('\n')}`
-        : `No staged scalar deltas. Preserve the committed aesthetic recipe while using this compact signal: ${scalarSnapshot}.`,
-      `Scene read: ${sceneDescription.subject} ${sceneDescription.setting}`,
-      `Camera and composition: ${sceneDescription.camera} ${sceneDescription.composition}`,
-      `Lighting and color: ${sceneDescription.lighting} ${sceneDescription.color}`,
-      `Typography: ${sceneDescription.typography}`,
-      focusedSegments.length
-        ? `SAM focus: ${focusedSegments.map((segment) => `${segment.label} (${segment.delta >= 0 ? '+' : ''}${segment.delta}% ES delta)`).join(', ')}.`
-        : '',
+      `Generation target: ${outputTitle}`,
+      `Intent: ${intent}`,
+      `Asset: ${activeCanvasAsset.name}; channel ${activeCanvasAsset.channel}; version ${activeCanvasAsset.version}`,
+      `Canvas context:\n${generationInputs}`,
+      `Selected SAM context:\n${selectedSegments.length ? selectedSegments.map((line) => `- ${line}`).join('\n') : `- ${activeSegment.label}: no additional segment selection`}`,
+      `Aesthetic controls:\n${scalarSnapshot.map((line) => `- ${line}`).join('\n')}`,
+      `Staged control changes:\n${changedControls.map((line) => `- ${line}`).join('\n')}`,
+      `Scene assembly:\n- Subject/source: ${sceneDescription.subject}\n- Setting inference: ${sceneDescription.setting}\n- Composition: ${sceneDescription.composition}\n- Camera/framing: ${sceneDescription.camera}\n- Lighting: ${sceneDescription.lighting}\n- Color: ${sceneDescription.color}\n- Typography/text: ${sceneDescription.typography}`,
       `Current edit context: ${trace.what} ${trace.why}`,
       savedIdeaContext ? `Saved idea context: ${savedIdeaContext}.` : '',
-      chatContext ? `Recent assistant chat context:\n${chatContext}` : '',
+      chatText ? `Recent chat context:\n${chatText}` : '',
       uniquePromptHints.length ? `Prompt hints: ${uniquePromptHints.join(' | ')}.` : '',
     ]
       .filter(Boolean)
@@ -1434,8 +1552,7 @@ function App() {
 
     return {
       prompt,
-      negativePrompt:
-        'Avoid distorted anatomy, changed product identity, illegible CTA text, off-brand claims, duplicate faces, extra hands, heavy artifacts, or unreadable typography.',
+      negativePrompt,
       context: [
         { label: 'Asset', value: `${activeCanvasAsset.name} · ${activeCanvasAsset.version}` },
         { label: 'Model', value: imageGenerationModel },
@@ -1453,13 +1570,12 @@ function App() {
         },
         {
           label: 'Negative',
-          value:
-            'Avoid distorted anatomy, changed product identity, illegible CTA text, off-brand claims, duplicate faces, extra hands, heavy artifacts, or unreadable typography.',
+          value: negativePrompt,
         },
         { label: 'Scene read', value: `${sceneDescription.subject} ${sceneDescription.lighting}` },
         {
           label: 'Recent chat',
-          value: chatContext || 'No recent user chat context.',
+          value: chatText || 'No recent user chat context.',
         },
         {
           label: 'Trace',
@@ -1512,7 +1628,17 @@ function App() {
     const focusedSegments = (selectedSegmentIds.length ? selectedSegmentIds : [activeSegment.id])
       .map((segmentId) => activeVariantSegments.find((segment) => segment.id === segmentId))
       .filter(Boolean) as SegmentAnnotation[]
-    const sceneDescription = sceneDescriptionForVariant(sourceVariant, focusedSegments)
+    const chatContext = messages.slice(-8)
+    const sceneDescription = sceneDescriptionForVariant({
+      asset: activeCanvasAsset,
+      sourceVariant,
+      imageInputs,
+      focusedSegments,
+      nextScalars,
+      scalarChanges,
+      chatContext,
+      trace,
+    })
     const imagePrompt = buildImagePromptPacket({
       intent,
       outputTitle,
@@ -1523,6 +1649,7 @@ function App() {
       sceneDescription,
       trace,
       promptHints: uniquePromptHints,
+      chatContext,
     })
 
     return {
@@ -1538,7 +1665,7 @@ function App() {
       selectedSegment: activeSegment,
       scalars: nextScalars,
       scalarChanges,
-      chatContext: messages.slice(-8),
+      chatContext,
       latestTrace: {
         control: trace.control,
         what: trace.what,

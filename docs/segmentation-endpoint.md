@@ -14,7 +14,7 @@ The endpoint may generate the image, call a segmentation model, and return both 
 
 ## Request Shape
 
-The app sends a `CreativeGenerationRequest` JSON payload. The `imagePrompt` object is the exact downstream generation prompt and context rendered in the Assistant observability box while generation is running. Important fields for generation and segmentation:
+The app sends a `CreativeGenerationRequest` JSON payload. The `imagePrompt` object is the exact downstream generation prompt and context rendered in the Assistant observability box while generation is running. Its prompt text is assembled from the current canvas selection, image inputs, selected SAM segments, scalar values, staged scalar changes, saved ideas, trace state, and recent chat messages. Important fields for generation and segmentation:
 
 ```ts
 {
