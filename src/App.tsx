@@ -6015,13 +6015,6 @@ function CanvasWorkspace({
                 (isComparisonSelection ||
                   isBaselineSegmentComparison ||
                   isGeneratedSegmentComparison)
-              const artboardPendingPhase =
-                variant.status === 'generating'
-                  ? 'remixing'
-                  : isActiveComparison
-                    ? pendingPhase
-                    : 'idle'
-
               return (
                 <CreativeArtboard
                   key={variant.id}
@@ -6048,7 +6041,6 @@ function CanvasWorkspace({
                   showScore
                   showDeltas={isActiveComparison && variant.id !== 'original'}
                   lastChange={isActiveComparison ? lastChange : undefined}
-                  pendingPhase={artboardPendingPhase}
                 />
               )
             })}
@@ -6533,7 +6525,6 @@ function CreativeArtboard({
   showDeltas = false,
   titleOverride,
   lastChange,
-  pendingPhase = 'idle',
 }: {
   variant: ImageVariant
   selected: boolean
@@ -6563,7 +6554,6 @@ function CreativeArtboard({
   showDeltas?: boolean
   titleOverride?: string
   lastChange?: ChangeTrace
-  pendingPhase?: PendingPhase
 }) {
   const title = titleOverride ?? variant.title
   const variantSegments = segmentsForVariant(variant)
@@ -6571,7 +6561,6 @@ function CreativeArtboard({
   const isSegmenting = variant.segmentationStatus === 'segmenting'
   const segmentationFailed = variant.segmentationStatus === 'failed'
   const isFallbackGenerated = variant.sourceFidelity?.mode === 'fallback-generation'
-  const isPending = isGenerating || (pendingPhase !== 'idle' && pendingPhase !== 'failed')
   const activeSegment = variantSegments.find((segment) => segment.id === selectedSegmentId) ?? null
   const selectedSegmentSet =
     selectedSegmentIds.length > 0 ? selectedSegmentIds : selectedSegmentId ? [selectedSegmentId] : []
@@ -6645,7 +6634,7 @@ function CreativeArtboard({
             <b>{lastChange.scoreAfter}%</b>
           </span>
         ) : null}
-        {isPending ? <span className="artboard-shimmer" data-testid="pending-shimmer" /> : null}
+        {isGenerating ? <span className="artboard-shimmer" data-testid="pending-shimmer" /> : null}
         {isFallbackGenerated ? (
           <span className="source-fidelity-chip" aria-label="Fallback generated">
             Fallback generated
@@ -8171,7 +8160,6 @@ function ScoreWorkspace({
               focus
               size="large"
               titleOverride="325×325 px"
-              pendingPhase={pendingPhase}
               lastChange={lastChange}
             />
           </div>

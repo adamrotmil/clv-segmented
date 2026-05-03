@@ -234,6 +234,34 @@ test('new remix generation reserves a shimmering target frame before resolving',
   expect(remixEmotionGeometry).not.toBe(updatedEmotionGeometry)
 })
 
+test('right-click remix shimmers only the generated target frame', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByLabel('Abstraction').fill('100')
+  const originalStack = page
+    .locator('.artboard-row .creative-stack')
+    .filter({ hasText: 'Original Image' })
+    .first()
+  const remixOneStack = page
+    .locator('.artboard-row .creative-stack')
+    .filter({ hasText: 'Remix 1' })
+    .first()
+
+  await originalStack.getByRole('button', { name: 'Original Image', exact: true }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Remix from this' }).click()
+
+  const targetStack = page
+    .locator('.artboard-row .creative-stack')
+    .filter({ hasText: 'Remix 2' })
+    .first()
+  await expect(targetStack).toBeVisible()
+  await expect(targetStack).toHaveClass(/generating/)
+  await expect(targetStack.getByTestId('pending-shimmer')).toBeVisible()
+  await expect(originalStack.getByTestId('pending-shimmer')).toHaveCount(0)
+  await expect(remixOneStack.getByTestId('pending-shimmer')).toHaveCount(0)
+  await expect(page.getByLabel('Image generation prompt')).toContainText('active canvas node: Original Image')
+})
+
 test('remix from a canvas source sends source-lock and max abstraction context', async ({ page }) => {
   await page.goto('/')
 
