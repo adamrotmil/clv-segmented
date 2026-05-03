@@ -2319,7 +2319,8 @@ button {
 
 .trace-panel,
 .agent-panel,
-.chat-message {
+.chat-message,
+.chat-action-summary {
   flex-shrink: 0;
 }
 
@@ -2471,6 +2472,57 @@ button {
   border-radius: 18px;
   background: #f1f1f3;
   box-shadow: none;
+}
+
+.chat-action-summary {
+  width: calc(100% - 8px);
+  margin: 2px 4px 24px;
+  padding: 15px 15px 13px;
+  border: 1px solid rgba(19, 19, 22, 0.12);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgba(19, 19, 22, 0.04),
+    0 10px 26px rgba(19, 19, 22, 0.06);
+}
+
+.chat-action-summary .trace-copy:first-child {
+  margin-top: 0;
+}
+
+.chat-action-summary .trace-copy small {
+  color: #85868d;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.chat-action-summary .trace-copy strong {
+  color: #777980;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 19px;
+}
+
+.chat-action-summary .trace-copy p {
+  color: #23242a;
+  font-size: 13.5px;
+  line-height: 19px;
+}
+
+.chat-action-summary .trace-metrics {
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.chat-action-summary .trace-actions {
+  margin-top: 12px;
+}
+
+.chat-action-summary .trace-actions button {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 9px;
+  font-size: 13px;
 }
 
 .chat-message.user.is-editing {
@@ -2751,8 +2803,7 @@ button {
 }
 
 .trace-panel.compact .trace-actions,
-.trace-panel.compact .history-list,
-.trace-panel.compact .saved-ideas {
+.trace-panel.compact .history-list {
   display: none;
 }
 
@@ -2767,7 +2818,6 @@ button {
 .trace-metrics,
 .trace-actions,
 .agent-head,
-.saved-ideas,
 .history-list div,
 .agent-task summary {
   display: flex;
@@ -3245,8 +3295,7 @@ button {
   margin-top: 9px;
 }
 
-.ingredient-row span,
-.saved-ideas span {
+.ingredient-row span {
   padding: 3px 7px;
   border-radius: 999px;
   background: var(--blue-soft);
@@ -3282,12 +3331,6 @@ button {
 .trace-actions button:disabled {
   color: #9a9ca5;
   cursor: default;
-}
-
-.saved-ideas {
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 8px;
 }
 
 .history-list {

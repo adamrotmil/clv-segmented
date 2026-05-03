@@ -14,7 +14,7 @@ async function expectStableHover(locator: Locator) {
   expect(Math.abs((after?.height ?? 0) - (before?.height ?? 0))).toBeLessThan(0.25)
 }
 
-test('interaction trace shows slider effect, shimmer, explanation, and undo', async ({ page }) => {
+test('inline action summary shows slider effect, shimmer, explanation, and undo', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('.assistant-title')).toHaveText('Assistant')
 
@@ -24,9 +24,9 @@ test('interaction trace shows slider effect, shimmer, explanation, and undo', as
   await staging.fill('92')
   await expect(page.getByLabel('Pending remix actions')).toBeVisible()
   await expect(page.getByTestId('pending-shimmer').first()).toBeHidden()
-  await expect(page.getByLabel('Interaction trace').first()).toContainText('What changed')
-  await expect(page.getByLabel('Interaction trace').first()).toContainText('Why it changed')
-  await expect(page.getByLabel('Interaction trace').first()).toContainText('Staging staged')
+  await expect(page.getByLabel('Completed action summary')).toContainText('What changed')
+  await expect(page.getByLabel('Completed action summary')).toContainText('Why it changed')
+  await expect(page.getByLabel('Completed action summary')).toContainText('Staging staged')
 
   const stagingWrap = page.getByLabel('Staging').locator('..')
   await expect(stagingWrap).toHaveClass(/is-staged/)
@@ -45,7 +45,7 @@ test('interaction trace shows slider effect, shimmer, explanation, and undo', as
   await expect(page.getByLabel('Image generation prompt')).toBeVisible()
   await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Remix 1', exact: true }).click()
-  await expect(page.getByLabel('History timeline').first()).toBeVisible()
+  await expect(page.getByLabel('Completed action summary')).toContainText('Remix generated')
 })
 
 test('new remix generation reserves a shimmering target frame before resolving', async ({ page }) => {
@@ -295,7 +295,7 @@ test('saving current style adds a reusable persisted preset', async ({ page }) =
   await expect(savedPreset).toBeVisible()
   await expect(savedPreset).toHaveClass(/active/)
   await expect(savedPreset).toContainText('Saved current style')
-  await expect(page.getByLabel('Interaction trace').first()).toContainText(
+  await expect(page.getByLabel('Completed action summary')).toContainText(
     'Current style saved into pre-set styles',
   )
 
@@ -323,7 +323,7 @@ test('suggestion apply stages scalar changes for remix', async ({ page }) => {
   await expect(page.getByLabel('Materiality')).toHaveValue('62')
   await expect(page.getByLabel('Abstraction')).toHaveValue('13')
   await expect(page.getByLabel('Pending remix actions')).toBeVisible()
-  await expect(page.getByLabel('Interaction trace').first()).toContainText('Suggestion applied')
+  await expect(page.getByLabel('Completed action summary')).toContainText('Suggestion applied')
 })
 
 test('editor chrome hover states do not move controls', async ({ page }) => {
@@ -888,14 +888,14 @@ test('stubbed buttons visibly change local prototype state', async ({ page }) =>
   await page.goto('/')
 
   await page.getByRole('button', { name: 'Save Changes' }).click()
-  await expect(page.getByLabel('Interaction trace').first()).toContainText('saved to approvals')
+  await expect(page.getByLabel('Completed action summary')).toContainText('saved to approvals')
 
   await page.getByRole('button', { name: 'Add Asset' }).click()
   await expect(page.locator('.variant-strip').getByText('Asset draft')).toBeVisible()
-  await expect(page.getByLabel('Interaction trace').first()).toContainText('asset draft')
+  await expect(page.getByLabel('Completed action summary')).toContainText('asset draft')
 
   await page.getByRole('button', { name: 'Close', exact: true }).click()
-  await expect(page.getByLabel('Interaction trace').first()).toContainText('Close requested')
+  await expect(page.getByLabel('Completed action summary')).toContainText('Close requested')
 
   await page.getByRole('button', { name: 'Close assistant' }).click()
   await expect(page.getByRole('button', { name: 'Reopen assistant' })).toBeVisible()
@@ -903,7 +903,7 @@ test('stubbed buttons visibly change local prototype state', async ({ page }) =>
   await expect(page.getByRole('button', { name: 'Close assistant' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Save current style' }).click()
-  await expect(page.getByLabel('Interaction trace').first()).toContainText('Current style saved')
+  await expect(page.getByLabel('Completed action summary')).toContainText('Current style saved')
 
   await page.getByRole('button', { name: 'Dismiss suggestions' }).click()
   await expect(page.getByText('Increase process materiality')).toBeHidden()
@@ -922,21 +922,18 @@ test('stubbed buttons visibly change local prototype state', async ({ page }) =>
   await expect(page.locator('.score-toolbar .zoom-control')).toContainText('105%')
 })
 
-test('saved ideas can be combined into an inspectable remix', async ({ page }) => {
+test('completed action summaries appear inline in chat with undo only', async ({ page }) => {
   await page.goto('/')
 
-  await page.getByRole('button', { name: 'Save Variant A' }).first().click()
-  await expect(page.getByLabel('Saved ideas').first()).toContainText('Variant A')
-
   await page.getByLabel('Novelty').fill('82')
-  await expect(page.getByLabel('Interaction trace').first()).toContainText('Novelty staged')
-  await page.getByRole('button', { name: 'Save Variant B' }).first().click()
-  await expect(page.getByLabel('Saved ideas').first()).toContainText('Variant B')
-
-  await page.getByRole('button', { name: /Combine/ }).first().click()
-  await expect(page.locator('.variant-strip').getByText('Remix 2')).toBeVisible()
-  await expect(page.getByLabel('Interaction trace').first()).toContainText('Combined Variant A and Variant B')
-  await expect(page.getByText(/Sources:/)).toBeVisible()
+  const summary = page.getByLabel('Completed action summary')
+  await expect(summary).toContainText('Novelty staged from 58 to 82')
+  await expect(summary).toContainText('Why it changed')
+  await expect(summary).not.toContainText('Save Variant A')
+  await expect(summary).not.toContainText('Save Variant B')
+  await expect(summary).not.toContainText('Combine')
+  await summary.getByRole('button', { name: 'Undo' }).click()
+  await expect(page.getByLabel('Novelty')).toHaveValue('58')
 })
 
 test('chat and failure states stay state-aware without exposed agent activity', async ({ page }) => {
@@ -944,16 +941,15 @@ test('chat and failure states stay state-aware without exposed agent activity', 
   await expect(page.getByText('AI Assistant')).toHaveCount(0)
   await expect(page.getByText('Worked for 35s >')).toBeVisible()
   await expect(page.getByText('Listening for segment changes')).toHaveCount(0)
-
-  const traceRegionBox = await page.locator('.assistant-trace-region').boundingBox()
+  await expect(page.locator('.assistant-trace-region')).toHaveCount(0)
   const chatLogBox = await page.locator('.chat-log').boundingBox()
-  expect(traceRegionBox).not.toBeNull()
   expect(chatLogBox).not.toBeNull()
-  expect((traceRegionBox?.y ?? 0) + (traceRegionBox?.height ?? 0)).toBeLessThanOrEqual(
-    (chatLogBox?.y ?? 0) + 1,
-  )
 
-  const traceFade = await page.locator('.trace-panel').first().evaluate((element) => {
+  await page.getByLabel('Abstraction').fill('100')
+  await page.getByRole('button', { name: 'Remix Image' }).click()
+  const tracePanel = page.locator('.trace-panel.has-generation').first()
+  await expect(tracePanel).toBeVisible()
+  const traceFade = await tracePanel.evaluate((element) => {
     const styles = getComputedStyle(element, '::after')
     return {
       background: styles.backgroundImage,
@@ -997,7 +993,7 @@ test('chat and failure states stay state-aware without exposed agent activity', 
   await expect(page.getByLabel('Ask anything')).toHaveValue('')
   await page.getByRole('button', { name: 'Copy message' }).last().click()
   await expect(page.getByRole('button', { name: 'Copied message' })).toBeVisible()
-  await expect(page.getByLabel('Interaction trace').first()).toContainText('Staging staged')
+  await expect(page.getByLabel('Completed action summary')).toContainText('Staging staged')
   await expect(page.getByLabel('Pending remix actions')).toBeVisible()
 
   await page.getByPlaceholder('Ask anything...').fill('what should I do next?')

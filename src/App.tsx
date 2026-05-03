@@ -1712,7 +1712,7 @@ function App() {
   const [mode, setMode] = useState<EditorMode>('edit')
   const [lastChange, setLastChange] = useState<ChangeTrace>(initialTrace)
   const [history, setHistory] = useState<HistoryEntry[]>([])
-  const [savedIdeas, setSavedIdeas] = useState<SavedIdea[]>([])
+  const [savedIdeas] = useState<SavedIdea[]>([])
   const [generationPromptRuns, setGenerationPromptRuns] = useState<GenerationPromptRun[]>([])
   const [agentTasks, setAgentTasks] = useState<AgentTask[]>(initialAgentTasks)
   const [agentPaused] = useState(false)
@@ -3035,21 +3035,6 @@ function App() {
     window.setTimeout(() => setToast(''), 1400)
   }
 
-  function saveIdea(slot: 'idea-a' | 'idea-b') {
-    const label = slot === 'idea-a' ? 'Variant A' : 'Variant B'
-    const ideaScalars = promptScalars
-    const idea: SavedIdea = {
-      id: slot,
-      label,
-      score: projectedScore(ideaScalars),
-      ingredients: lastChange.ingredients,
-      scalars: ideaScalars,
-    }
-    setSavedIdeas((current) => [idea, ...current.filter((item) => item.id !== slot)])
-    setToast(`${label} saved`)
-    window.setTimeout(() => setToast(''), 1600)
-  }
-
   async function combineIdeas() {
     const ideaA = savedIdeas.find((idea) => idea.id === 'idea-a')
     const ideaB = savedIdeas.find((idea) => idea.id === 'idea-b')
@@ -4192,11 +4177,9 @@ function App() {
                 generationRuns={generationPromptRuns}
                 selectedVariantId={selectedVariantId}
                 history={history}
-                onUndo={undoLastChange}
+                canUndo={hasPendingScalarChanges || history.length > 0}
+                onUndo={hasPendingScalarChanges ? resetChanges : undoLastChange}
                 onRestore={restoreHistory}
-                savedIdeas={savedIdeas}
-                onSaveIdea={saveIdea}
-                onCombineIdeas={combineIdeas}
                 onClose={closeAssistant}
               />
             )}
@@ -4344,9 +4327,6 @@ function App() {
               history={history}
               onUndo={undoLastChange}
               onRestore={restoreHistory}
-              savedIdeas={savedIdeas}
-              onSaveIdea={saveIdea}
-              onCombineIdeas={combineIdeas}
               agentTasks={agentTasks}
               agentPaused={agentPaused}
               onApplySuggestion={applySuggestion}
@@ -6027,11 +6007,9 @@ function AssistantPanel({
   generationRuns,
   selectedVariantId,
   history,
+  canUndo,
   onUndo,
   onRestore,
-  savedIdeas,
-  onSaveIdea,
-  onCombineIdeas,
   onClose,
 }: {
   messages: ChatMessage[]
@@ -6046,11 +6024,9 @@ function AssistantPanel({
   generationRuns: GenerationPromptRun[]
   selectedVariantId: string
   history: HistoryEntry[]
+  canUndo: boolean
   onUndo: () => void
   onRestore: (entry: HistoryEntry) => void
-  savedIdeas: SavedIdea[]
-  onSaveIdea: (slot: 'idea-a' | 'idea-b') => void
-  onCombineIdeas: () => void
   onClose: () => void
 }) {
   const chatLogRef = useRef<HTMLDivElement | null>(null)
@@ -6061,11 +6037,17 @@ function AssistantPanel({
     content: string
   } | null>(null)
 
+  const hasGenerationTrace =
+    generationRuns.some((run) => run.status === 'running') ||
+    (!!selectedVariantId && generationRuns.some((run) => run.request.id === selectedVariantId))
+  const showTraceRegion = hasGenerationTrace || pendingPhase === 'failed'
+  const showActionSummary = pendingPhase === 'idle' && trace.id !== initialTrace.id
+
   useEffect(() => {
     const chatLog = chatLogRef.current
     if (!chatLog) return
     chatLog.scrollTop = chatLog.scrollHeight
-  }, [messages, chatDraft?.id, chatDraft?.phase, pendingPhase])
+  }, [messages, chatDraft?.id, chatDraft?.phase, pendingPhase, showActionSummary, trace.id])
 
   function editMessage(message: ChatMessage) {
     setEditingMessage({ id: message.id, content: message.content })
@@ -6093,21 +6075,21 @@ function AssistantPanel({
           <PanelRight20Regular aria-hidden="true" />
         </button>
       </header>
-      <div className="assistant-trace-region">
-        <InteractionTrace
-          trace={trace}
-          generationRuns={generationRuns}
-          selectedVariantId={selectedVariantId}
-          history={history}
-          pendingPhase={pendingPhase}
-          workError={workError}
-          onUndo={onUndo}
-          onRestore={onRestore}
-          savedIdeas={savedIdeas}
-          onSaveIdea={onSaveIdea}
-          onCombineIdeas={onCombineIdeas}
-        />
-      </div>
+      {showTraceRegion ? (
+        <div className="assistant-trace-region">
+          <InteractionTrace
+            trace={trace}
+            generationRuns={generationRuns}
+            selectedVariantId={selectedVariantId}
+            history={history}
+            pendingPhase={pendingPhase}
+            workError={workError}
+            onUndo={onUndo}
+            onRestore={onRestore}
+            showSummary={false}
+          />
+        </div>
+      ) : null}
       <div className="chat-log" ref={chatLogRef}>
         {messages.map((message) => (
           <AssistantChatMessage
@@ -6127,6 +6109,9 @@ function AssistantPanel({
             onEdit={editMessage}
           />
         ))}
+        {showActionSummary ? (
+          <ActionSummaryMessage key={trace.id} trace={trace} canUndo={canUndo} onUndo={onUndo} />
+        ) : null}
         {chatDraft ? <ChatThinkingBubble draft={chatDraft} /> : null}
       </div>
       <form className="chat-input" onSubmit={onSubmit}>
@@ -6142,6 +6127,48 @@ function AssistantPanel({
         </button>
       </form>
     </aside>
+  )
+}
+
+function ActionSummaryMessage({
+  trace,
+  canUndo,
+  onUndo,
+}: {
+  trace: ChangeTrace
+  canUndo: boolean
+  onUndo: () => void
+}) {
+  return (
+    <article className="chat-action-summary" aria-label="Completed action summary">
+      <div className="trace-copy">
+        <small>What changed</small>
+        <strong>{trace.what}</strong>
+      </div>
+      <div className="trace-copy">
+        <small>Why it changed</small>
+        <p>{trace.why}</p>
+      </div>
+      <div className="trace-metrics">
+        <span>{trace.before}</span>
+        <b>→</b>
+        <span>{trace.after}</span>
+        <em>
+          ES {trace.scoreBefore}% → {trace.scoreAfter}%
+        </em>
+      </div>
+      <div className="ingredient-row" aria-label="Action ingredients">
+        {trace.ingredients.slice(0, 3).map((ingredient) => (
+          <span key={ingredient}>{ingredient}</span>
+        ))}
+      </div>
+      <div className="trace-actions">
+        <button type="button" onClick={onUndo} disabled={!canUndo}>
+          <Undo2 size={14} />
+          Undo
+        </button>
+      </div>
+    </article>
   )
 }
 
@@ -6317,10 +6344,8 @@ function InteractionTrace({
   workError,
   onUndo,
   onRestore,
-  savedIdeas,
-  onSaveIdea,
-  onCombineIdeas,
   compact = false,
+  showSummary = true,
 }: {
   trace: ChangeTrace
   generationRuns?: GenerationPromptRun[]
@@ -6330,10 +6355,8 @@ function InteractionTrace({
   workError: string
   onUndo: () => void
   onRestore: (entry: HistoryEntry) => void
-  savedIdeas: SavedIdea[]
-  onSaveIdea: (slot: 'idea-a' | 'idea-b') => void
-  onCombineIdeas: () => void
   compact?: boolean
+  showSummary?: boolean
 }) {
   const isPending = pendingPhase !== 'idle' && pendingPhase !== 'failed'
   const runningGenerationRuns = generationRuns.filter((run) => run.status === 'running')
@@ -6391,7 +6414,7 @@ function InteractionTrace({
         ) : null}
         {hasGenerationPackets ? (
           <GenerationPromptTrace generationRuns={visibleGenerationRuns} mode={generationTraceMode} />
-        ) : (
+        ) : showSummary ? (
           <>
             <div className="trace-copy">
               <small>What changed</small>
@@ -6419,26 +6442,7 @@ function InteractionTrace({
                 <Undo2 size={14} />
                 Undo
               </button>
-              <button type="button" onClick={() => onSaveIdea('idea-a')}>
-                Save Variant A
-              </button>
-              <button type="button" onClick={() => onSaveIdea('idea-b')}>
-                Save Variant B
-              </button>
-              <button type="button" onClick={onCombineIdeas}>
-                <GitBranch size={14} />
-                Combine
-              </button>
             </div>
-            {savedIdeas.length ? (
-              <div className="saved-ideas" aria-label="Saved ideas">
-                {savedIdeas.map((idea) => (
-                  <span key={idea.id}>
-                    {idea.label} · ES {idea.score}%
-                  </span>
-                ))}
-              </div>
-            ) : null}
             {history.length ? (
               <div className="history-list" aria-label="History timeline">
                 <div>
@@ -6456,7 +6460,7 @@ function InteractionTrace({
               </div>
             ) : null}
           </>
-        )}
+        ) : null}
       </div>
     </section>
   )
@@ -7302,9 +7306,6 @@ function HybridInsightsPanel({
   history,
   onUndo,
   onRestore,
-  savedIdeas,
-  onSaveIdea,
-  onCombineIdeas,
   agentTasks,
   agentPaused,
   onApplySuggestion,
@@ -7321,9 +7322,6 @@ function HybridInsightsPanel({
   history: HistoryEntry[]
   onUndo: () => void
   onRestore: (entry: HistoryEntry) => void
-  savedIdeas: SavedIdea[]
-  onSaveIdea: (slot: 'idea-a' | 'idea-b') => void
-  onCombineIdeas: () => void
   agentTasks: AgentTask[]
   agentPaused: boolean
   onApplySuggestion: () => void
@@ -7420,9 +7418,6 @@ function HybridInsightsPanel({
         workError={workError}
         onUndo={onUndo}
         onRestore={onRestore}
-        savedIdeas={savedIdeas}
-        onSaveIdea={onSaveIdea}
-        onCombineIdeas={onCombineIdeas}
         compact
       />
     </aside>
