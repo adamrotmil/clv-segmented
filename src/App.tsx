@@ -85,6 +85,16 @@ type GenerationPromptRun = {
   status: 'running' | 'completed'
 }
 
+type ObservabilityLane = {
+  id: string
+  label: string
+  role: string
+  status: 'streaming' | 'queued' | 'completed'
+  tokens: string[]
+  detailsLabel: string
+  details: string
+}
+
 type SavedIdea = {
   id: 'idea-a' | 'idea-b'
   label: 'Variant A' | 'Variant B'
@@ -5199,7 +5209,12 @@ function InteractionTrace({
   const runningGenerationRuns = generationRuns.filter((run) => run.status === 'running')
   const hasGenerationPackets = runningGenerationRuns.length > 0
   return (
-    <section className={`trace-panel ${compact ? 'compact' : ''}`} aria-label="Interaction trace">
+    <section
+      className={`trace-panel ${compact ? 'compact' : ''} ${
+        hasGenerationPackets ? 'has-generation' : ''
+      }`}
+      aria-label="Interaction trace"
+    >
       <div className="trace-scroll" tabIndex={0}>
         {isPending ? <div className="trace-shimmer" data-testid="trace-shimmer" /> : null}
         {pendingPhase === 'failed' ? (
@@ -5290,7 +5305,7 @@ function GenerationPromptTrace({
   return (
     <div className="prompt-observer" aria-label="Image generation prompt">
       <div className="prompt-observer-head">
-        <span>Image prompt</span>
+        <span>Parallel calls</span>
         <em>
           {runningCount > 1
             ? `${runningCount} running`
@@ -5305,7 +5320,11 @@ function GenerationPromptTrace({
             <strong>{request.outputTitle}</strong>
             <span>{status === 'running' ? request.intent : `sent · ${request.intent}`}</span>
           </div>
-          <pre>{request.imagePrompt.prompt}</pre>
+          <div className="tool-lane-grid" aria-label={`Parallel tool calls for ${request.outputTitle}`}>
+            {observabilityLanesForRequest(request, status).map((lane) => (
+              <ToolCallLane key={`${request.id}-${lane.id}`} lane={lane} />
+            ))}
+          </div>
           {request.imageInputs.length ? (
             <div className="prompt-image-inputs" aria-label="Image inputs in generation payload">
               {request.imageInputs.map((input) => (
@@ -5330,6 +5349,130 @@ function GenerationPromptTrace({
         </article>
       ))}
     </div>
+  )
+}
+
+function laneTokens(text: string, limit = 18) {
+  return text
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, limit)
+}
+
+function observabilityLanesForRequest(
+  request: CreativeGenerationRequest,
+  status: GenerationPromptRun['status'],
+): ObservabilityLane[] {
+  const laneStatus = status === 'running' ? 'streaming' : 'completed'
+  const selectedSegments = request.selectedSegment
+    ? [
+        request.selectedSegment,
+        ...(request.sourceVariant.segments ?? []).filter(
+          (segment) => segment.id !== request.selectedSegment.id,
+        ),
+      ]
+    : request.sourceVariant.segments ?? []
+  const samPayload = {
+    tool: 'sam.segment-anything',
+    requestId: request.id,
+    status: laneStatus,
+    source: request.imageInputs[0] ?? null,
+    selectedSegment: request.selectedSegment,
+    sourceSegments: request.sourceVariant.segments ?? [],
+    focusSegments: selectedSegments.slice(0, 4),
+    projectedSegments: projectSegmentsForRequest(request),
+  }
+  const imagePayload = {
+    model: request.model,
+    requestId: request.id,
+    intent: request.intent,
+    outputTitle: request.outputTitle,
+    imageInputs: request.imageInputs,
+    prompt: request.imagePrompt.prompt,
+    negativePrompt: request.imagePrompt.negativePrompt,
+    context: request.imagePrompt.context,
+    promptHints: request.imagePrompt.promptHints,
+  }
+  const promptContext = [
+    `Generation target: ${request.outputTitle}`,
+    `Intent: ${request.intent}`,
+    `Source: ${request.sourceVariant.title}`,
+    `Selected SAM: ${request.selectedSegment.label}`,
+    `Image inputs: ${request.imageInputs.map((input) => `${input.role}:${input.title}`).join(', ')}`,
+    `Recent chat: ${request.chatContext
+      .slice(-3)
+      .map((message) => `${message.role}: ${message.content}`)
+      .join(' | ') || 'none'}`,
+  ].join('\n')
+
+  return [
+    {
+      id: 'prompt',
+      label: 'Prompt assembly',
+      role: 'context builder',
+      status: laneStatus,
+      tokens: laneTokens(`${promptContext} ${request.imagePrompt.prompt}`, 24),
+      detailsLabel: 'Raw prompt context',
+      details: request.imagePrompt.prompt,
+    },
+    {
+      id: 'image',
+      label: 'Image generation',
+      role: request.model,
+      status: laneStatus,
+      tokens: laneTokens(
+        `${request.intent} ${request.outputTitle} ${request.imagePrompt.negativePrompt} ${request.imagePrompt.promptHints.join(' ')}`,
+        22,
+      ),
+      detailsLabel: 'Raw image payload',
+      details: JSON.stringify(imagePayload, null, 2),
+    },
+    {
+      id: 'sam',
+      label: 'SAM segmentation',
+      role: 'segment-anything',
+      status: laneStatus,
+      tokens: laneTokens(
+        `tool sam.segment-anything source ${request.sourceVariant.title} focus ${selectedSegments
+          .slice(0, 4)
+          .map((segment) => `${segment.label} bbox ${segment.x}/${segment.y}/${segment.width}/${segment.height}`)
+          .join(' ')}`,
+        24,
+      ),
+      detailsLabel: 'Raw SAM payload',
+      details: JSON.stringify(samPayload, null, 2),
+    },
+  ]
+}
+
+function ToolCallLane({ lane }: { lane: ObservabilityLane }) {
+  return (
+    <section
+      className={`tool-call-lane ${lane.status}`}
+      aria-label={`${lane.label} lane`}
+    >
+      <div className="tool-call-head">
+        <span>{lane.label}</span>
+        <em>{lane.role}</em>
+      </div>
+      <div className="tool-token-stream" aria-label={`${lane.label} tokens`}>
+        {lane.tokens.map((token, index) => (
+          <span
+            key={`${lane.id}-${index}-${token}`}
+            className="tool-token"
+            style={{ '--token-index': index } as CSSProperties}
+          >
+            {token}
+          </span>
+        ))}
+      </div>
+      <details className="tool-call-details" aria-label={lane.detailsLabel}>
+        <summary>{lane.detailsLabel}</summary>
+        <pre>{lane.details}</pre>
+      </details>
+    </section>
   )
 }
 

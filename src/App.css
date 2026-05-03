@@ -2575,6 +2575,24 @@ button {
   outline-offset: -2px;
 }
 
+.trace-panel.has-generation {
+  max-height: 302px;
+}
+
+.trace-panel.has-generation .trace-scroll {
+  max-height: 302px;
+}
+
+.trace-panel.has-generation::after {
+  height: 26px;
+  background: linear-gradient(
+    180deg,
+    #fff 0%,
+    rgba(255, 255, 255, 0.9) 48%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
 .trace-panel.compact {
   margin-top: 14px;
   max-height: 178px;
@@ -2778,6 +2796,114 @@ button {
   color: #202126;
   font: 400 11px/16px var(--font-system);
   white-space: pre-wrap;
+}
+
+.tool-lane-grid {
+  display: grid;
+  gap: 6px;
+}
+
+.tool-call-lane {
+  display: grid;
+  gap: 3px;
+  padding: 5px 7px;
+  border: 1px solid rgba(19, 19, 22, 0.08);
+  border-radius: 7px;
+  background: #fafafa;
+}
+
+.tool-call-lane.streaming {
+  border-color: rgba(47, 107, 255, 0.18);
+  background:
+    linear-gradient(180deg, rgba(47, 107, 255, 0.035), rgba(255, 255, 255, 0)),
+    #fafafa;
+}
+
+.tool-call-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tool-call-head span {
+  color: #131316;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 14px;
+}
+
+.tool-call-head em {
+  overflow: hidden;
+  color: #7a7a7c;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-token-stream {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  max-height: 17px;
+  overflow: hidden;
+}
+
+.tool-token {
+  max-width: 100%;
+  padding: 1px 4px 2px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: #fff;
+  color: #303138;
+  font: 400 10px/13px var(--font-system);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-call-lane.streaming .tool-token {
+  animation: token-pulse 1.18s ease-in-out infinite;
+  animation-delay: calc(var(--token-index) * 34ms);
+}
+
+.tool-call-details {
+  border-top: 1px solid rgba(19, 19, 22, 0.06);
+  padding-top: 3px;
+}
+
+.tool-call-details summary {
+  cursor: pointer;
+  color: #7a7a7c;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 14px;
+  list-style: none;
+}
+
+.tool-call-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-call-details summary::before {
+  display: inline-block;
+  margin-right: 5px;
+  color: #9b9ca1;
+  content: "›";
+  transform: translateY(-0.5px);
+  transition: transform 120ms ease;
+}
+
+.tool-call-details[open] summary::before {
+  transform: rotate(90deg) translateX(1px);
+}
+
+.tool-call-details pre {
+  max-height: 220px;
+  margin-top: 6px;
+  overflow: auto;
 }
 
 .prompt-image-inputs {
@@ -3479,6 +3605,19 @@ button {
 
   100% {
     background-position: -60% 0;
+  }
+}
+
+@keyframes token-pulse {
+  0%,
+  100% {
+    background: #fff;
+    color: #303138;
+  }
+
+  45% {
+    background: #eef3ff;
+    color: #173b93;
   }
 }
 
