@@ -60,6 +60,7 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(remixStack).toHaveClass(/generating/)
   await expect(remixStack.getByTestId('pending-shimmer')).toBeVisible()
   await expect(updatedStack.getByTestId('pending-shimmer')).toHaveCount(0)
+  await expect(page.locator('.variant-strip .variant-thumb.generating').filter({ hasText: /Remix/ })).toBeVisible()
   await expect(page.getByLabel('Image generation prompt')).toBeVisible()
   await expect(page.getByLabel('Image generation prompt')).toContainText('Generation target: Remix 2')
   await expect(page.getByLabel('Image generation prompt')).toContainText('imageInputs')
@@ -69,6 +70,10 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Image generation prompt')).toContainText('Source preservation')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Copywriting policy')
   await expect(page.getByLabel('Image generation prompt')).toContainText('preserve exact source copy')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Typography brand lock')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('exact same font family')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('font family Inter')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Source image DNA / vision read')
   await expect(page.getByLabel('Image generation prompt')).toContainText(
     'Radiate Confidence. Feel Beautiful Inside & Out',
   )
@@ -96,7 +101,6 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Raw SAM payload')).toContainText('projectedFallbackPreview')
   await page.getByText('Raw image payload').click()
   await expect(page.getByLabel('Raw image payload')).toContainText('negativePrompt')
-  await expect(page.locator('.variant-strip .variant-thumb.generating').filter({ hasText: /Remix/ })).toBeVisible()
 
   await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
   await expect(remixStack).not.toHaveClass(/generating/)
@@ -148,6 +152,8 @@ test('remix from a canvas source sends source-lock and max abstraction context',
   await expect(promptObserver).toContainText('abstract the selected source')
   await expect(promptObserver).toContainText('Do not replace the source with a new ad concept')
   await expect(promptObserver).toContainText('Lock: one human subject only')
+  await expect(promptObserver).toContainText('Typography brand lock')
+  await expect(promptObserver).toContainText('If the source uses Inter, use Inter')
   await expect(promptObserver).toContainText('Avoid extra people')
 })
 

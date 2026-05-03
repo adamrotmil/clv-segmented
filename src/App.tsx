@@ -562,12 +562,14 @@ function sourceLockLines(variant: ImageVariant) {
     return [
       `Treat ${variant.title} as the visual source of truth.`,
       `Keep the same source composition, subject count, product placement, and ad layout unless the selected state explicitly changes them.`,
+      `Vision typography read: inspect the attached source image first and preserve the exact same font family, glyph geometry, casing, weight, tracking, line-height, and text placement.`,
     ]
   }
 
   return [
     `Source read: ${context.summary}`,
     ...context.locks.map((lock) => `Lock: ${lock}`),
+    ...typographyDnaLines(variant).map((line) => `Typography lock: ${line}`),
     ...copywritingForVariant(variant).map((line) => `Exact copywriting: ${line}`),
     ...context.textAnchors.map((anchor) => `Text/layout anchor: ${anchor}`),
   ]
@@ -579,6 +581,58 @@ function sourceAvoidanceLines(variant: ImageVariant) {
 
 function copywritingForVariant(variant: ImageVariant) {
   return variant.visualContext?.copywriting ?? []
+}
+
+function typographyDnaLines(variant: ImageVariant) {
+  const typography = variant.visualContext?.typography
+  if (!typography) {
+    return [
+      'inspect the attached source image and use the exact same font family; preserve glyph shapes, weight, casing, tracking, line-height, and text placement',
+    ]
+  }
+
+  return [
+    `font family ${typography.family}${typography.fallback ? `; ${typography.fallback}` : ''}`,
+    typography.weight ? `weight ${typography.weight}` : '',
+    typography.style ? `style ${typography.style}` : '',
+    typography.casing ? `casing ${typography.casing}` : '',
+    typography.tracking ? `tracking ${typography.tracking}` : '',
+    typography.lineHeight ? `line-height ${typography.lineHeight}` : '',
+    ...(typography.textRendering ?? []).map((line) => `text rendering ${line}`),
+  ].filter(Boolean)
+}
+
+function sourceDnaLines(variant: ImageVariant) {
+  const context = variant.visualContext
+  return [
+    context?.summary ? `visual read ${context.summary}` : '',
+    ...(context?.sourceDna ?? []),
+    ...typographyDnaLines(variant).map((line) => `typography ${line}`),
+  ].filter(Boolean)
+}
+
+function typographyPolicyForRequest({
+  sourceVariant,
+  imageInputs,
+}: {
+  sourceVariant: ImageVariant
+  imageInputs: ImageInputReference[]
+}) {
+  const sourceLines = typographyDnaLines(sourceVariant)
+  const referenceLines = imageInputs
+    .filter((input) => input.role === 'reference')
+    .map((input) => `reference ${input.title}: inspect only for visual comparison; do not override source typography unless this is an image blend with matching text system`)
+
+  return [
+    'Typography brand lock: before remixing, perform a source image DNA read from imageInputs[0] and preserve the exact same font family and text rendering as the source image.',
+    'If the source uses Inter, use Inter. If the source uses Mulish, use Mulish. If vision identifies another brand font, use that exact font family and matching fallback style.',
+    'Keep glyph geometry, x-height, weight, casing, kerning/tracking, line-height, text alignment, stroke contrast, CTA label style, and text block placement from the source.',
+    'Only photographic aesthetics may change unless the user explicitly asks to change typography. Do not substitute generic sans, serif, script, display, condensed, rounded, or decorative fonts.',
+    `Seeded source typography DNA:\n${sourceLines.map((line) => `- ${line}`).join('\n')}`,
+    referenceLines.length ? `Reference typography notes:\n${referenceLines.map((line) => `- ${line}`).join('\n')}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 function normalizeCopywriting(lines: string[]) {
@@ -691,9 +745,11 @@ function visualContextForGeneratedRequest(request: CreativeGenerationRequest): I
       `preserve the source image structure from ${request.sourceVariant.title}`,
     ],
     copywriting,
+    typography: sourceContext?.typography,
     textAnchors: sourceContext?.textAnchors ?? [
       `preserve visible ad text regions from ${request.sourceVariant.title}`,
     ],
+    sourceDna: sourceContext?.sourceDna,
     avoid: sourceContext?.avoid ?? [
       'extra people',
       'new product category',
@@ -736,6 +792,7 @@ function buildNegativePrompt({
     mustPreserveCopy
       ? 'Do not change, rewrite, paraphrase, replace, or hallucinate visible ad copywriting. Preserve source text exactly.'
       : 'Do not invent unsupported claims while blending copy from different source images.',
+    'Do not change or substitute the source font family, glyph style, typography hierarchy, casing, tracking, line-height, CTA text style, or text block placement unless typography is explicitly requested as the edit target.',
     changedScalars ? `Do not apply scalar directions outside the staged controls (${changedScalars}).` : '',
     userInstruction ? `Do not contradict the latest user chat instruction: ${userInstruction}.` : '',
     ...sourceAvoidanceLines(sourceVariant).map((item) => `Avoid ${item}.`),
@@ -799,8 +856,8 @@ function sceneDescriptionForVariant({
         ? `Color state comes from controls: ${colorScalars.map(scalarPositionLine).join('; ')}.`
         : `Color should follow selected source pixels and current controls.`,
     typography: typeSegments.length
-      ? `Respect selected text/CTA segment geometry without changing the source copy: ${typeSegments.map(segmentPromptLine).join(' | ')}.`
-      : `Preserve the exact visible source copywriting and text placement while the photographic treatment changes${changedScalarLabels ? `: ${changedScalarLabels}` : '.'}`,
+      ? `Respect selected text/CTA segment geometry without changing the source copy or source font DNA: ${typeSegments.map(segmentPromptLine).join(' | ')}. ${typographyDnaLines(sourceVariant).join(' ')}.`
+      : `Preserve the exact visible source copywriting, source font family, glyph geometry, and text placement while the photographic treatment changes${changedScalarLabels ? `: ${changedScalarLabels}` : '.'} ${typographyDnaLines(sourceVariant).join(' ')}.`,
   }
 }
 
@@ -1839,6 +1896,10 @@ function App() {
       sourceVariant,
       imageInputs,
     })
+    const typographyPolicy = typographyPolicyForRequest({
+      sourceVariant,
+      imageInputs,
+    })
     const negativePrompt = buildNegativePrompt({
       sourceVariant,
       imageInputs,
@@ -1863,7 +1924,9 @@ function App() {
       `Asset: ${activeCanvasAsset.name}; channel ${activeCanvasAsset.channel}; version ${activeCanvasAsset.version}`,
       `Canvas context:\n${generationInputs}`,
       `Source preservation:\n${sourceLockLines(sourceVariant).map((line) => `- ${line}`).join('\n')}`,
+      `Source image DNA / vision read:\n${sourceDnaLines(sourceVariant).map((line) => `- ${line}`).join('\n')}`,
       copywritingPolicy,
+      typographyPolicy,
       `Selected SAM context:\n${selectedSegments.length ? selectedSegments.map((line) => `- ${line}`).join('\n') : `- ${activeSegment.label}: no additional segment selection`}`,
       `Aesthetic controls:\n${scalarSnapshot.map((line) => `- ${line}`).join('\n')}`,
       `Scalar interpretation:\n${scalarDirectives.map((line) => `- ${line}`).join('\n')}`,
@@ -1894,6 +1957,14 @@ function App() {
         {
           label: 'Copywriting',
           value: copywritingPolicy,
+        },
+        {
+          label: 'Typography brand lock',
+          value: typographyPolicy,
+        },
+        {
+          label: 'Source DNA',
+          value: sourceDnaLines(sourceVariant).join(' | '),
         },
         {
           label: 'Adjustments',

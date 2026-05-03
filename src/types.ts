@@ -19,7 +19,18 @@ export type ImageVariant = {
     summary: string
     locks: string[]
     copywriting?: string[]
+    typography?: {
+      family: string
+      fallback?: string
+      weight?: string
+      style?: string
+      casing?: string
+      tracking?: string
+      lineHeight?: string
+      textRendering?: string[]
+    }
     textAnchors: string[]
+    sourceDna?: string[]
     avoid: string[]
   }
   segments?: SegmentAnnotation[]

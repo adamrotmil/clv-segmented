@@ -141,6 +141,26 @@ const originalVisualContext: ImageVariant['visualContext'] = {
     'small italic subcopy under the headline',
     'lower-left CTA button',
   ],
+  typography: {
+    family: 'Inter',
+    fallback: 'use the font family identified from the source image pixels if the vision read detects a closer brand font',
+    weight: 'headline uses regular-to-medium sans weight; CTA uses bold uppercase sans',
+    style: 'large white social ad headline with compact italic subcopy and bold CTA label',
+    casing: 'preserve source casing exactly, including sentence case headline and uppercase CTA',
+    tracking: 'tight default tracking, no decorative letter spacing',
+    lineHeight: 'compact stacked headline line-height matching the source',
+    textRendering: [
+      'match the source glyph geometry, x-height, curves, terminals, and numeral style',
+      'preserve white text treatment and CTA button text alignment',
+      'do not substitute display, serif, script, condensed, or rounded fonts',
+    ],
+  },
+  sourceDna: [
+    'warm tan editorial beauty-ad lighting',
+    'square social crop with large native text overlay',
+    'minimal sans typography integrated into the photography',
+    'lower-left CTA and centered headline hierarchy',
+  ],
   copywriting: [
     '“You smell so good! I noticed the minute you walked in”',
     'My barista this morning',
@@ -159,6 +179,11 @@ const remixVisualContext: ImageVariant['visualContext'] = {
   ...originalVisualContext,
   summary:
     'Square social ad remix with one seated person in the same warm tan interior layout, face visible in the upper-right crop, cream top and blue denim lower-frame crop, dark marble surface at the left edge, dark rectangular product package held near the lower center, large white headline copy over the torso, italic subcopy below, and lower-left CTA.',
+  typography: {
+    ...originalVisualContext.typography,
+    family: 'Inter',
+    style: 'large white stacked headline, small italic subcopy, and bold uppercase CTA matching the source ad system',
+  },
   textAnchors: [
     'Radiate Confidence / Feel Beautiful headline structure',
     'small italic morning/barista subcopy',
