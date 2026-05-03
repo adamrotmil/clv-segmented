@@ -84,6 +84,43 @@ export type ChatMessage = {
   streaming?: boolean
 }
 
+export type CanvasVariantSnapshot = {
+  id: string
+  title: string
+  kind: ImageVariant['kind']
+  imageUrl: string
+  score: number
+  delta?: number
+  sourceIds?: string[]
+  ingredients?: string[]
+  visualSummary?: string
+  segments: SegmentAnnotation[]
+  position?: {
+    x: number
+    y: number
+  }
+}
+
+export type CanvasThemeGroup = {
+  label: string
+  variantIds: string[]
+  rationale?: string
+}
+
+export type AssistantCanvasAction =
+  | {
+      type: 'compare-variants'
+      variantIds: string[]
+      anchorId: string
+      segmentIds: string[]
+    }
+  | {
+      type: 'arrange-canvas'
+      layout: 'themes' | 'score' | 'source'
+      groups: CanvasThemeGroup[]
+      selectedIds?: string[]
+    }
+
 export type ScalarGenerationChange = {
   id: string
   label: string
@@ -196,6 +233,12 @@ export type AssistantChatRequest = {
     score: number
     ingredients: string[]
   }>
+  canvas: {
+    variants: CanvasVariantSnapshot[]
+    selectedVariantIds: string[]
+    comparisonIds: string[]
+    selectedSegmentIds: string[]
+  }
 }
 
 export type AssistantChatResponse = {
@@ -203,4 +246,5 @@ export type AssistantChatResponse = {
   activity?: string
   focus?: string
   provider: 'endpoint' | 'mock'
+  actions?: AssistantCanvasAction[]
 }

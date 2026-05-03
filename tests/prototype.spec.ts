@@ -816,6 +816,80 @@ test('remix generation request includes recent chat and scalar context', async (
   await expect(page.getByLabel('Interaction trace').first()).toContainText('recent chat direction')
 })
 
+test('assistant compares requested canvas versions with SAM context', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByLabel('Staging').fill('92')
+  await page.getByRole('button', { name: 'Remix Image' }).click()
+  await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
+  await expect(page.locator('.artboard-row .creative-stack').filter({ hasText: 'Remix 2' })).not.toHaveClass(
+    /generating/,
+  )
+
+  await page.getByLabel('Novelty').fill('82')
+  await page.getByRole('button', { name: 'Remix Image' }).click()
+  const remixThreeStack = page.locator('.artboard-row .creative-stack').filter({ hasText: 'Remix 3' })
+  await expect(remixThreeStack).toBeVisible()
+  await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
+  await expect(remixThreeStack).not.toHaveClass(/generating/)
+
+  await page.getByPlaceholder('Ask anything...').fill('which do you like better, version 2 or 3?')
+  await page.getByRole('button', { name: 'Send message' }).click()
+
+  await expect(page.getByLabel('Selected variant comparison')).toBeVisible()
+  await expect(page.getByLabel('Selected variant comparison')).toContainText('Remix 2')
+  await expect(page.getByLabel('Selected variant comparison')).toContainText('Remix 3')
+  await expect(page.getByText(/I’d choose Remix [23] over Remix [23]/)).toBeVisible()
+  await expect(page.getByText(/SAM read is stronger around/)).toBeVisible()
+  await expect(
+    page
+      .locator('.creative-stack.selected, .creative-stack.secondary-selected')
+      .first()
+      .locator('.segment-hotspot.selected')
+      .first(),
+  ).toBeVisible()
+})
+
+test('assistant can group canvas variants into themed snap-grid clusters', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByLabel('Staging').fill('92')
+  await page.getByRole('button', { name: 'Remix Image' }).click()
+  await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
+  await expect(page.locator('.artboard-row .creative-stack').filter({ hasText: 'Remix 2' })).not.toHaveClass(
+    /generating/,
+  )
+
+  const originalStack = page.locator('.creative-stack').filter({ hasText: 'Original Image' })
+  const remixOneStack = page.locator('.creative-stack').filter({ hasText: 'Remix 1' })
+  const remixTwoStack = page.locator('.creative-stack').filter({ hasText: 'Remix 2' })
+  const originalBefore = await originalStack.boundingBox()
+  const remixOneBefore = await remixOneStack.boundingBox()
+  const remixTwoBefore = await remixTwoStack.boundingBox()
+  expect(originalBefore).not.toBeNull()
+  expect(remixOneBefore).not.toBeNull()
+  expect(remixTwoBefore).not.toBeNull()
+
+  await page.getByPlaceholder('Ask anything...').fill('group these into themes or styles')
+  await page.getByRole('button', { name: 'Send message' }).click()
+
+  await expect(page.getByText('Canvas grouped by theme')).toBeVisible()
+  await expect(page.getByText(/I grouped the canvas into/)).toBeVisible()
+  await page.waitForTimeout(220)
+
+  const originalAfter = await originalStack.boundingBox()
+  const remixOneAfter = await remixOneStack.boundingBox()
+  const remixTwoAfter = await remixTwoStack.boundingBox()
+  expect(originalAfter).not.toBeNull()
+  expect(remixOneAfter).not.toBeNull()
+  expect(remixTwoAfter).not.toBeNull()
+
+  expect(Math.abs((originalAfter?.x ?? 0) - (originalBefore?.x ?? 0))).toBeLessThan(4)
+  expect((remixOneAfter?.y ?? 0) - (originalAfter?.y ?? 0)).toBeGreaterThan(320)
+  expect((remixTwoAfter?.x ?? 0) - (remixOneAfter?.x ?? 0)).toBeGreaterThan(300)
+  expect(Math.abs((remixTwoAfter?.y ?? 0) - (remixOneAfter?.y ?? 0))).toBeLessThan(4)
+})
+
 test('segment score and hybrid paths keep the interaction workbench visible', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Product placement' }).last().click()

@@ -39,6 +39,7 @@ import {
 } from './data'
 import type {
   AestheticScalar,
+  AssistantCanvasAction,
   ChatMessage,
   CreativeGenerationRequest,
   ImagePromptPacket,
@@ -122,6 +123,11 @@ type ChatDraft = {
   id: string
   phase: string
   lines: string[]
+}
+
+type AssistantCanvasActionEnvelope = {
+  id: string
+  action: AssistantCanvasAction
 }
 
 type DragOffset = {
@@ -656,18 +662,41 @@ function clampDragOffset(value: number, limit: number) {
   return Math.max(-limit, Math.min(limit, value))
 }
 
-function useArtboardDrag(scale: number, onSelect: (id: string) => void) {
-  const [positions, setPositions] = useState<Record<string, DragOffset>>({})
+function useArtboardDrag(
+  scale: number,
+  onSelect: (id: string) => void,
+  controlledPositions?: Record<string, DragOffset>,
+  onPositionsChange?: (positions: Record<string, DragOffset>) => void,
+) {
+  const [localPositions, setLocalPositions] = useState<Record<string, DragOffset>>({})
+  const positions = controlledPositions ?? localPositions
   const [dragState, setDragState] = useState<ArtboardDragState | null>(null)
   const positionsRef = useRef<Record<string, DragOffset>>({})
+
+  useEffect(() => {
+    positionsRef.current = positions
+  }, [positions])
+
+  function commitPositions(nextPositions: Record<string, DragOffset>) {
+    positionsRef.current = nextPositions
+    if (onPositionsChange) {
+      onPositionsChange(nextPositions)
+      return
+    }
+
+    setLocalPositions(nextPositions)
+  }
 
   function updatePosition(id: string, position: DragOffset) {
     const nextPositions = {
       ...positionsRef.current,
       [id]: position,
     }
-    positionsRef.current = nextPositions
-    setPositions(nextPositions)
+    commitPositions(nextPositions)
+  }
+
+  function setPositions(nextPositions: Record<string, DragOffset>) {
+    commitPositions(nextPositions)
   }
 
   function resetPositions(ids: string[]) {
@@ -675,8 +704,7 @@ function useArtboardDrag(scale: number, onSelect: (id: string) => void) {
     ids.forEach((id) => {
       delete nextPositions[id]
     })
-    positionsRef.current = nextPositions
-    setPositions(nextPositions)
+    commitPositions(nextPositions)
   }
 
   function beginDrag(id: string, event: PointerEvent<HTMLElement>) {
@@ -730,6 +758,7 @@ function useArtboardDrag(scale: number, onSelect: (id: string) => void) {
     beginDrag,
     moveDrag,
     endDrag,
+    setPositions,
     resetPositions,
   }
 }
@@ -782,6 +811,53 @@ function findOverlappedArtboard(
       return overlapRatio > 0.34
     })?.id ?? ''
   )
+}
+
+function arrangedPositionsForGroups(
+  variants: ImageVariant[],
+  action: Extract<AssistantCanvasAction, { type: 'arrange-canvas' }>,
+  columns: number,
+) {
+  const safeColumns = Math.max(1, Math.min(columns || 1, 3))
+  const seen = new Set<string>()
+  const nextPositions: Record<string, DragOffset> = {}
+  let row = 0
+
+  action.groups.forEach((group) => {
+    const ids = group.variantIds.filter(
+      (id) => variants.some((variant) => variant.id === id) && !seen.has(id),
+    )
+    if (!ids.length) return
+
+    ids.forEach((id, itemIndex) => {
+      const index = variants.findIndex((variant) => variant.id === id)
+      const defaultOrigin = artboardOrigin(index, undefined, columns)
+      const desiredColumn = itemIndex % safeColumns
+      const desiredRow = row + Math.floor(itemIndex / safeColumns)
+      nextPositions[id] = {
+        x: desiredColumn * (artboardMetrics.size + artboardMetrics.gap) - defaultOrigin.x,
+        y: desiredRow * (artboardMetrics.stackHeight + artboardMetrics.rowGap) - defaultOrigin.y,
+      }
+      seen.add(id)
+    })
+
+    row += Math.ceil(ids.length / safeColumns)
+  })
+
+  variants.forEach((variant) => {
+    if (seen.has(variant.id)) return
+    const index = variants.findIndex((item) => item.id === variant.id)
+    const defaultOrigin = artboardOrigin(index, undefined, columns)
+    const desiredColumn = seen.size % safeColumns
+    const desiredRow = row + Math.floor(seen.size / safeColumns)
+    nextPositions[variant.id] = {
+      x: desiredColumn * (artboardMetrics.size + artboardMetrics.gap) - defaultOrigin.x,
+      y: desiredRow * (artboardMetrics.stackHeight + artboardMetrics.rowGap) - defaultOrigin.y,
+    }
+    seen.add(variant.id)
+  })
+
+  return nextPositions
 }
 
 function useElementWidth<T extends HTMLElement>() {
@@ -978,6 +1054,10 @@ function App() {
   const [agentTasks, setAgentTasks] = useState<AgentTask[]>(initialAgentTasks)
   const [agentPaused] = useState(false)
   const [assistantMinimized, setAssistantMinimized] = useState(false)
+  const [canvasPositions, setCanvasPositions] = useState<Record<string, DragOffset>>({})
+  const [canvasComparisonIds, setCanvasComparisonIds] = useState<string[]>([])
+  const [assistantCanvasAction, setAssistantCanvasAction] =
+    useState<AssistantCanvasActionEnvelope | null>(null)
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(320)
   const [rightSidebarWidth, setRightSidebarWidth] = useState(360)
   const [activeResizeSide, setActiveResizeSide] = useState<SidebarSide | null>(null)
@@ -2704,6 +2784,62 @@ function App() {
     }, 1050)
   }
 
+  function canvasSnapshotsForChat() {
+    return workingVariants.map((variant) => ({
+      id: variant.id,
+      title: variant.title,
+      kind: variant.kind,
+      imageUrl: absoluteImageUrl(variant.image),
+      score: variant.score,
+      delta: variant.delta,
+      sourceIds: variant.sourceIds,
+      ingredients: variant.ingredients,
+      visualSummary: variant.visualContext?.summary,
+      segments: variant.segments?.length ? variant.segments : segments,
+      position: canvasPositions[variant.id],
+    }))
+  }
+
+  function applyAssistantCanvasActions(actions?: AssistantCanvasAction[]) {
+    if (!actions?.length) return
+
+    actions.forEach((action) => {
+      if (action.type === 'compare-variants') {
+        const selectedIds = [
+          action.anchorId,
+          ...action.variantIds.filter((id) => id !== action.anchorId),
+        ].filter((id) => workingVariants.some((variant) => variant.id === id))
+
+        if (selectedIds.length >= 2) {
+          setCanvasComparisonIds(selectedIds)
+          setSelectedVariantId(selectedIds[0])
+        }
+
+        if (action.segmentIds.length) {
+          setSelectedSegmentIds(action.segmentIds)
+          setSelectedSegmentId(action.segmentIds[0])
+        }
+
+        setToast('Comparison focused')
+        window.setTimeout(() => setToast(''), 1400)
+        return
+      }
+
+      if (action.type === 'arrange-canvas') {
+        setAssistantCanvasAction({ id: `canvas-action-${Date.now()}`, action })
+        setCanvasComparisonIds([])
+
+        const [firstSelectedId] = action.selectedIds ?? action.groups.flatMap((group) => group.variantIds)
+        if (firstSelectedId && workingVariants.some((variant) => variant.id === firstSelectedId)) {
+          setSelectedVariantId(firstSelectedId)
+        }
+
+        setToast('Canvas grouped by theme')
+        window.setTimeout(() => setToast(''), 1600)
+      }
+    })
+  }
+
   function buildAssistantChatRequest({
     prompt,
     nextMessages,
@@ -2749,6 +2885,12 @@ function App() {
         score: idea.score,
         ingredients: idea.ingredients,
       })),
+      canvas: {
+        variants: canvasSnapshotsForChat(),
+        selectedVariantIds: [selectedVariantId].filter(Boolean),
+        comparisonIds: canvasComparisonIds,
+        selectedSegmentIds: selectedSegmentIds.length ? selectedSegmentIds : [activeSegment.id],
+      },
     }
   }
 
@@ -2778,6 +2920,7 @@ function App() {
     const reply = await requestAssistantChat(request)
     if (chatRequestCounter.current !== requestNumber) return
 
+    applyAssistantCanvasActions(reply.actions)
     window.clearTimeout(chatThinkTimer.current)
     window.clearTimeout(chatResolveTimer.current)
     setChatDraft(null)
@@ -2911,6 +3054,11 @@ function App() {
               variants={workingVariants}
               selectedVariantId={selectedVariantId}
               onSelectVariant={setSelectedVariantId}
+              comparisonIds={canvasComparisonIds}
+              onComparisonIdsChange={setCanvasComparisonIds}
+              canvasPositions={canvasPositions}
+              onCanvasPositionsChange={setCanvasPositions}
+              assistantCanvasAction={assistantCanvasAction}
               annotationsVisible={annotationsVisible}
               onToggleAnnotations={() => setAnnotationsVisible((visible) => !visible)}
               zoom={zoom}
@@ -3651,6 +3799,11 @@ function CanvasWorkspace({
   variants,
   selectedVariantId,
   onSelectVariant,
+  comparisonIds,
+  onComparisonIdsChange,
+  canvasPositions,
+  onCanvasPositionsChange,
+  assistantCanvasAction,
   annotationsVisible,
   onToggleAnnotations,
   zoom,
@@ -3678,6 +3831,11 @@ function CanvasWorkspace({
   variants: ImageVariant[]
   selectedVariantId: string
   onSelectVariant: (id: string) => void
+  comparisonIds: string[]
+  onComparisonIdsChange: (ids: string[]) => void
+  canvasPositions: Record<string, DragOffset>
+  onCanvasPositionsChange: (positions: Record<string, DragOffset>) => void
+  assistantCanvasAction: AssistantCanvasActionEnvelope | null
   annotationsVisible: boolean
   onToggleAnnotations: () => void
   zoom: number
@@ -3711,15 +3869,20 @@ function CanvasWorkspace({
   )
   const [nodeMenu, setNodeMenu] = useState<NodeMenuState | null>(null)
   const [variantDetails, setVariantDetails] = useState<VariantDetailsState | null>(null)
-  const [comparisonIds, setComparisonIds] = useState<string[]>([])
   const [activeComparisonFactor, setActiveComparisonFactor] = useState<{
     targetId: string
     factor: string
   } | null>(null)
   const artboardScale = zoom / 78
-  const artboardDrag = useArtboardDrag(artboardScale, onSelectVariant)
+  const artboardDrag = useArtboardDrag(
+    artboardScale,
+    onSelectVariant,
+    canvasPositions,
+    onCanvasPositionsChange,
+  )
   const canvasPan = useCanvasPan()
   const [canvasScrollRef, canvasViewportWidth] = useElementWidth<HTMLDivElement>()
+  const appliedAssistantActionId = useRef('')
   useCanvasWheelGestures({
     scrollRef: canvasScrollRef,
     wheelFocused: canvasPan.wheelFocused,
@@ -3773,6 +3936,10 @@ function CanvasWorkspace({
     : null
   const hasSegmentSelection = selectedSegmentIds.length > 0 || Boolean(selectedSegmentId)
 
+  function setComparisonIds(next: string[] | ((current: string[]) => string[])) {
+    onComparisonIdsChange(typeof next === 'function' ? next(comparisonIds) : next)
+  }
+
   useEffect(() => {
     if (!nodeMenu) return undefined
 
@@ -3793,6 +3960,22 @@ function CanvasWorkspace({
       window.removeEventListener('keydown', closeWithKeyboard)
     }
   }, [nodeMenu])
+
+  useEffect(() => {
+    if (
+      !assistantCanvasAction ||
+      appliedAssistantActionId.current === assistantCanvasAction.id
+    ) {
+      return
+    }
+
+    appliedAssistantActionId.current = assistantCanvasAction.id
+    if (assistantCanvasAction.action.type === 'arrange-canvas') {
+      artboardDrag.setPositions(
+        arrangedPositionsForGroups(canvasVariants, assistantCanvasAction.action, gridColumns),
+      )
+    }
+  }, [artboardDrag, assistantCanvasAction, canvasVariants, gridColumns])
 
   function endArtboardDrag(event: PointerEvent<HTMLElement>) {
     const result = artboardDrag.endDrag(event)
