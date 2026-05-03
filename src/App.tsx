@@ -4092,7 +4092,11 @@ function CanvasWorkspace({
           >
             <SubGrid20Regular aria-hidden="true" />
           </button>
-          <button className="tool-button" type="button" onClick={onToggleAnnotations}>
+          <button
+            className="tool-button annotations-toggle"
+            type="button"
+            onClick={onToggleAnnotations}
+          >
             <EyeOff size={18} />
             {annotationsVisible ? 'Hide Annotations' : 'Show Annotations'}
           </button>
@@ -5730,7 +5734,11 @@ function ScoreWorkspace({
           onChange={onSelectVersion}
         />
         <div className="canvas-tools">
-          <button className="tool-button" type="button" onClick={onToggleAnnotations}>
+          <button
+            className="tool-button annotations-toggle"
+            type="button"
+            onClick={onToggleAnnotations}
+          >
             <EyeOff size={18} />
             {annotationsVisible ? 'Hide Annotations' : 'Show Annotations'}
           </button>

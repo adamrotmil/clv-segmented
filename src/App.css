@@ -1005,6 +1005,12 @@ button {
   height: 18px;
 }
 
+.tool-button.annotations-toggle {
+  justify-content: flex-start;
+  width: 158px;
+  flex: 0 0 158px;
+}
+
 .version-picker {
   position: relative;
 }

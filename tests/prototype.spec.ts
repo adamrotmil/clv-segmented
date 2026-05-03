@@ -218,6 +218,37 @@ test('editor chrome hover states do not move controls', async ({ page }) => {
   await expectStableHover(page.locator('.preset-row.active').first())
 })
 
+test('annotation toggle keeps toolbar geometry stable', async ({ page }) => {
+  await page.goto('/')
+
+  const tidyButton = page.getByRole('button', { name: 'Tidy up canvas' })
+  const annotationsButton = page.getByRole('button', { name: 'Hide Annotations' })
+  const zoomControl = page.locator('.canvas-toolbar .zoom-control')
+
+  const tidyBefore = await tidyButton.boundingBox()
+  const buttonBefore = await annotationsButton.boundingBox()
+  const zoomBefore = await zoomControl.boundingBox()
+  expect(tidyBefore).not.toBeNull()
+  expect(buttonBefore).not.toBeNull()
+  expect(zoomBefore).not.toBeNull()
+
+  await annotationsButton.click()
+  const showButton = page.getByRole('button', { name: 'Show Annotations' })
+  await expect(showButton).toBeVisible()
+
+  const tidyAfter = await tidyButton.boundingBox()
+  const buttonAfter = await showButton.boundingBox()
+  const zoomAfter = await zoomControl.boundingBox()
+  expect(tidyAfter).not.toBeNull()
+  expect(buttonAfter).not.toBeNull()
+  expect(zoomAfter).not.toBeNull()
+
+  expect(Math.abs((buttonAfter?.width ?? 0) - (buttonBefore?.width ?? 0))).toBeLessThan(0.25)
+  expect(Math.abs((buttonAfter?.x ?? 0) - (buttonBefore?.x ?? 0))).toBeLessThan(0.25)
+  expect(Math.abs((tidyAfter?.x ?? 0) - (tidyBefore?.x ?? 0))).toBeLessThan(0.25)
+  expect(Math.abs((zoomAfter?.x ?? 0) - (zoomBefore?.x ?? 0))).toBeLessThan(0.25)
+})
+
 test('generated remixes appear as full-size canvas nodes and tidy back to grid', async ({ page }) => {
   await page.goto('/')
 
