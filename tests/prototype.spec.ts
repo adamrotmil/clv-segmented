@@ -258,10 +258,17 @@ test('annotation toggle keeps toolbar geometry stable', async ({ page }) => {
   const tidyAfter = await tidyButton.boundingBox()
   const buttonAfter = await showButton.boundingBox()
   const zoomAfter = await zoomControl.boundingBox()
+  const showTextFits = await showButton.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    whiteSpace: getComputedStyle(element).whiteSpace,
+  }))
   expect(tidyAfter).not.toBeNull()
   expect(buttonAfter).not.toBeNull()
   expect(zoomAfter).not.toBeNull()
 
+  expect(showTextFits.whiteSpace).toBe('nowrap')
+  expect(showTextFits.scrollWidth).toBeLessThanOrEqual(showTextFits.clientWidth)
   expect(Math.abs((buttonAfter?.width ?? 0) - (buttonBefore?.width ?? 0))).toBeLessThan(0.25)
   expect(Math.abs((buttonAfter?.x ?? 0) - (buttonBefore?.x ?? 0))).toBeLessThan(0.25)
   expect(Math.abs((tidyAfter?.x ?? 0) - (tidyBefore?.x ?? 0))).toBeLessThan(0.25)
