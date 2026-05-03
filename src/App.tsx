@@ -27,7 +27,11 @@ import {
   Undo2,
   X,
 } from 'lucide-react'
-import { LightbulbPerson20Regular, SubGrid20Regular } from '@fluentui/react-icons'
+import {
+  LightbulbPerson20Regular,
+  PanelRight20Regular,
+  SubGrid20Regular,
+} from '@fluentui/react-icons'
 import './App.css'
 import {
   assets,
@@ -1693,7 +1697,7 @@ function App() {
   const activeSegment = selectedSegment ?? activeVariantSegments[0] ?? segments[0]
   const editorLayoutStyle = {
     '--left-panel-width': `${leftSidebarWidth}px`,
-    '--right-panel-width': `${rightSidebarWidth}px`,
+    '--right-panel-width': `${mode === 'edit' && assistantMinimized ? 48 : rightSidebarWidth}px`,
   } as CSSProperties
 
   function setSidebarWidth(side: SidebarSide, width: number) {
@@ -4006,7 +4010,9 @@ function App() {
         />
         {mode === 'edit' ? (
           <div
-            className={`editor-body ${activeResizeSide ? 'is-resizing' : ''}`}
+            className={`editor-body ${activeResizeSide ? 'is-resizing' : ''} ${
+              assistantMinimized ? 'assistant-is-collapsed' : ''
+            }`}
             style={editorLayoutStyle}
           >
             <LeftInspector
@@ -4061,15 +4067,20 @@ function App() {
               onRemoveVariant={removeCanvasVariant}
               lastChange={lastChange}
               pendingPhase={pendingPhase}
+              onCloseEditor={closeEditor}
+              onAddAsset={addAsset}
+              onSaveEditor={saveChanges}
             />
-            <SidebarResizeHandle
-              side="right"
-              active={activeResizeSide === 'right'}
-              onPointerDown={beginSidebarResize}
-              onPointerMove={moveSidebarResize}
-              onPointerUp={endSidebarResize}
-              onNudge={nudgeSidebar}
-            />
+            {!assistantMinimized ? (
+              <SidebarResizeHandle
+                side="right"
+                active={activeResizeSide === 'right'}
+                onPointerDown={beginSidebarResize}
+                onPointerMove={moveSidebarResize}
+                onPointerUp={endSidebarResize}
+                onNudge={nudgeSidebar}
+              />
+            ) : null}
             {assistantMinimized ? (
               <AssistantMinimizedPanel onReopen={reopenAssistant} />
             ) : (
@@ -4275,19 +4286,17 @@ function EditorHeader({
         <b>/</b>
         <strong>Edit Creative</strong>
       </div>
-      <div className="header-actions">
-        <Button variant="secondary" onClick={onClose}>
-          Close
-        </Button>
-        <Button
-          variant="secondary"
-          icon={mode === 'edit' ? <Plus size={20} /> : undefined}
-          onClick={onAddAsset}
-        >
-          Add Asset
-        </Button>
-        <Button onClick={onSave}>Save Changes</Button>
-      </div>
+      {mode === 'edit' ? null : (
+        <div className="header-actions">
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+          <Button variant="secondary" onClick={onAddAsset}>
+            Add Asset
+          </Button>
+          <Button onClick={onSave}>Save Changes</Button>
+        </div>
+      )}
     </header>
   )
 }
@@ -4807,6 +4816,9 @@ function CanvasWorkspace({
   onRemoveVariant,
   lastChange,
   pendingPhase,
+  onCloseEditor,
+  onAddAsset,
+  onSaveEditor,
 }: {
   selectedAsset: { version: string }
   versionOptions: string[]
@@ -4842,6 +4854,9 @@ function CanvasWorkspace({
   onRemoveVariant: (variantId: string) => void
   lastChange: ChangeTrace
   pendingPhase: PendingPhase
+  onCloseEditor: () => void
+  onAddAsset: () => void
+  onSaveEditor: () => void
 }) {
   const selectedRemixVariant = variants.find(
     (variant) => variant.id === selectedVariantId && variant.id !== 'original',
@@ -5081,6 +5096,22 @@ function CanvasWorkspace({
             <button type="button" onClick={() => onZoomChange(Math.min(118, zoom + 5))}>
               +
             </button>
+          </div>
+          <div className="canvas-global-actions" aria-label="Editor actions">
+            <Button variant="secondary" size="sm" onClick={onCloseEditor}>
+              Close
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Plus size={16} strokeWidth={2} />}
+              onClick={onAddAsset}
+            >
+              Add Asset
+            </Button>
+            <Button size="sm" onClick={onSaveEditor}>
+              Save Changes
+            </Button>
           </div>
         </div>
       </div>
@@ -5958,8 +5989,8 @@ function AssistantPanel({
     <aside className="assistant-panel">
       <header className="assistant-header">
         <span className="assistant-title">Assistant</span>
-        <button type="button" aria-label="Close assistant" onClick={onClose}>
-          <X size={19} />
+        <button type="button" aria-label="Close assistant" title="Collapse assistant" onClick={onClose}>
+          <PanelRight20Regular aria-hidden="true" />
         </button>
       </header>
       <div className="assistant-trace-region">
@@ -6152,12 +6183,9 @@ function ChatThinkingBubble({ draft }: { draft: ChatDraft }) {
 
 function AssistantMinimizedPanel({ onReopen }: { onReopen: () => void }) {
   return (
-    <aside className="assistant-panel assistant-minimized" aria-label="Assistant minimized">
-      <div>
-        <strong>Assistant minimized</strong>
-      </div>
-      <button type="button" onClick={onReopen}>
-        Reopen assistant
+    <aside className="assistant-panel assistant-minimized" aria-label="Assistant collapsed">
+      <button type="button" aria-label="Reopen assistant" title="Expand assistant" onClick={onReopen}>
+        <PanelRight20Regular aria-hidden="true" />
       </button>
     </aside>
   )
@@ -7341,15 +7369,17 @@ function Button({
   children,
   icon,
   variant = 'primary',
+  size = 'md',
   onClick,
 }: {
   children: ReactNode
   icon?: ReactNode
   variant?: 'primary' | 'secondary'
+  size?: 'md' | 'sm'
   onClick?: () => void
 }) {
   return (
-    <button className={`button ${variant}`} type="button" onClick={onClick}>
+    <button className={`button ${variant} ${size}`} type="button" onClick={onClick}>
       {icon}
       {children}
     </button>
