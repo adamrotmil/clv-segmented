@@ -62,6 +62,16 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
   await expect(remixStack).not.toHaveClass(/generating/)
   await expect(remixStack.getByTestId('pending-shimmer')).toHaveCount(0)
+  await expect(remixStack.locator('.segment-hotspot')).toHaveCount(4)
+
+  const updatedEmotionGeometry = await updatedStack
+    .locator('.segment-hotspot[aria-label="Emotional engagement"]')
+    .getAttribute('style')
+  const remixEmotionGeometry = await remixStack
+    .locator('.segment-hotspot[aria-label="Emotional engagement"]')
+    .getAttribute('style')
+
+  expect(remixEmotionGeometry).not.toBe(updatedEmotionGeometry)
 })
 
 test('asset and version selectors update the active editor context', async ({ page }) => {

@@ -15,6 +15,115 @@ export const assets: CreativeAsset[] = [
   { id: 'reddit-c', name: 'Reddit - Variant C', channel: 'Reddit', version: 'v 0.9.8' },
 ]
 
+const segmentSuggestions = {
+  emotion: [
+    { id: 'face', label: 'Show more expression', impact: 9 },
+    { id: 'tone', label: 'Warmer tone', impact: 4 },
+    { id: 'lighting', label: 'Softer lighting', impact: 3 },
+  ],
+  resonance: [
+    { id: 'copy', label: 'Make copy more intimate', impact: 5 },
+    { id: 'contrast', label: 'Increase contrast', impact: 3 },
+    { id: 'saturation', label: 'Reduce saturation', impact: 2 },
+  ],
+  product: [
+    { id: 'brighten', label: 'Increase brightness', impact: 2 },
+    { id: 'contrast', label: 'Increase contrast', impact: 2 },
+    { id: 'warmth', label: 'Warmth', impact: 1 },
+    { id: 'sat', label: 'Reduce saturation', impact: 1 },
+  ],
+  cta: [
+    { id: 'clarity', label: 'Increase CTA clarity', impact: 2 },
+    { id: 'button', label: 'Sharpen button contrast', impact: 2 },
+  ],
+} satisfies Record<string, SegmentAnnotation['suggestions']>
+
+export const originalSegments: SegmentAnnotation[] = [
+  {
+    id: 'emotion',
+    label: 'Emotional engagement',
+    x: 39,
+    y: 7,
+    width: 25,
+    height: 23,
+    delta: 7,
+    suggestions: segmentSuggestions.emotion,
+  },
+  {
+    id: 'resonance',
+    label: 'Creative resonance',
+    x: 4,
+    y: 32,
+    width: 80,
+    height: 30,
+    delta: 3,
+    suggestions: segmentSuggestions.resonance,
+  },
+  {
+    id: 'product',
+    label: 'Product placement',
+    x: 40,
+    y: 63,
+    width: 28,
+    height: 20,
+    delta: 0,
+    suggestions: segmentSuggestions.product,
+  },
+  {
+    id: 'cta',
+    label: 'CTA',
+    x: 3,
+    y: 86,
+    width: 47,
+    height: 11,
+    delta: 0,
+    suggestions: segmentSuggestions.cta,
+  },
+]
+
+export const updatedSegments: SegmentAnnotation[] = [
+  {
+    id: 'emotion',
+    label: 'Emotional engagement',
+    x: 41,
+    y: 6,
+    width: 22,
+    height: 23,
+    delta: 7,
+    suggestions: segmentSuggestions.emotion,
+  },
+  {
+    id: 'resonance',
+    label: 'Creative resonance',
+    x: 5,
+    y: 35,
+    width: 82,
+    height: 31,
+    delta: 3,
+    suggestions: segmentSuggestions.resonance,
+  },
+  {
+    id: 'product',
+    label: 'Product placement',
+    x: 39,
+    y: 62,
+    width: 28,
+    height: 19,
+    delta: 0,
+    suggestions: segmentSuggestions.product,
+  },
+  {
+    id: 'cta',
+    label: 'CTA',
+    x: 3,
+    y: 84,
+    width: 48,
+    height: 12,
+    delta: 0,
+    suggestions: segmentSuggestions.cta,
+  },
+]
+
 export const initialVariants: ImageVariant[] = [
   {
     id: 'original',
@@ -22,6 +131,7 @@ export const initialVariants: ImageVariant[] = [
     kind: 'original',
     image: originalTile,
     score: 74,
+    segments: originalSegments,
   },
   {
     id: 'updated',
@@ -30,6 +140,7 @@ export const initialVariants: ImageVariant[] = [
     image: updatedTile,
     score: 83,
     delta: 7,
+    segments: updatedSegments,
   },
 ]
 
@@ -283,64 +394,7 @@ export const stylePresets: StylePreset[] = [
   },
 ]
 
-export const segments: SegmentAnnotation[] = [
-  {
-    id: 'emotion',
-    label: 'Emotional engagement',
-    x: 39,
-    y: 7,
-    width: 25,
-    height: 23,
-    delta: 7,
-    suggestions: [
-      { id: 'face', label: 'Show more expression', impact: 9 },
-      { id: 'tone', label: 'Warmer tone', impact: 4 },
-      { id: 'lighting', label: 'Softer lighting', impact: 3 },
-    ],
-  },
-  {
-    id: 'resonance',
-    label: 'Creative resonance',
-    x: 4,
-    y: 32,
-    width: 80,
-    height: 30,
-    delta: 3,
-    suggestions: [
-      { id: 'copy', label: 'Make copy more intimate', impact: 5 },
-      { id: 'contrast', label: 'Increase contrast', impact: 3 },
-      { id: 'saturation', label: 'Reduce saturation', impact: 2 },
-    ],
-  },
-  {
-    id: 'product',
-    label: 'Product placement',
-    x: 40,
-    y: 63,
-    width: 28,
-    height: 20,
-    delta: 0,
-    suggestions: [
-      { id: 'brighten', label: 'Increase brightness', impact: 2 },
-      { id: 'contrast', label: 'Increase contrast', impact: 2 },
-      { id: 'warmth', label: 'Warmth', impact: 1 },
-      { id: 'sat', label: 'Reduce saturation', impact: 1 },
-    ],
-  },
-  {
-    id: 'cta',
-    label: 'CTA',
-    x: 3,
-    y: 86,
-    width: 47,
-    height: 11,
-    delta: 0,
-    suggestions: [
-      { id: 'clarity', label: 'Increase CTA clarity', impact: 2 },
-      { id: 'button', label: 'Sharpen button contrast', impact: 2 },
-    ],
-  },
-]
+export const segments = originalSegments
 
 export const initialMessages: ChatMessage[] = [
   {

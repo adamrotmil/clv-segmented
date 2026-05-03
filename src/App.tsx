@@ -46,7 +46,7 @@ import type {
   SegmentSuggestion,
   StylePreset,
 } from './types'
-import { requestCreativeGeneration } from './generation'
+import { projectSegmentsForRequest, requestCreativeGeneration } from './generation'
 
 type EditorMode = 'edit' | 'score' | 'hybrid'
 type PendingPhase = 'idle' | 'analyzing' | 'applying' | 'remixing' | 'failed'
@@ -747,8 +747,6 @@ function App() {
   const versionOptions = Array.from(
     new Set([selectedAsset.version, 'v 1.0.1', 'v 1.0.0', 'v 0.9.8']),
   )
-  const selectedSegment = segments.find((segment) => segment.id === selectedSegmentId) ?? null
-  const activeSegment = selectedSegment ?? segments[0]
   const hasPendingScalarChanges = !scalarValuesEqual(scalars, draftScalars)
   const promptScalars = hasPendingScalarChanges ? draftScalars : scalars
   const workingScore = projectedScore(scalars)
@@ -766,6 +764,10 @@ function App() {
       ),
     [scalars, variants, workingScore],
   )
+  const selectedVariant = workingVariants.find((variant) => variant.id === selectedVariantId)
+  const activeVariantSegments = selectedVariant?.segments?.length ? selectedVariant.segments : segments
+  const selectedSegment = activeVariantSegments.find((segment) => segment.id === selectedSegmentId) ?? null
+  const activeSegment = selectedSegment ?? activeVariantSegments[0] ?? segments[0]
   const editorLayoutStyle = {
     '--left-panel-width': `${leftSidebarWidth}px`,
     '--right-panel-width': `${rightSidebarWidth}px`,
@@ -1365,6 +1367,7 @@ function App() {
       filter: request.baseFilter,
       ingredients: request.latestTrace.ingredients,
       sourceIds: request.sourceIds,
+      segments: projectSegmentsForRequest(request),
       status: 'generating',
     }
 
@@ -1451,6 +1454,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      segments: generation.segments,
       status: 'ready',
     }
     const trace: ChangeTrace = {
@@ -1624,6 +1628,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      segments: generation.segments,
       status: 'ready',
     }
     const trace: ChangeTrace = {
@@ -1715,6 +1720,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      segments: generation.segments,
       status: 'ready',
     }
     const trace: ChangeTrace = {
@@ -1822,6 +1828,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      segments: generation.segments,
       status: 'ready',
     }
     const trace: ChangeTrace = {
@@ -1987,6 +1994,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      segments: generation.segments,
       status: 'ready',
     }
     const trace: ChangeTrace = {
@@ -2083,6 +2091,7 @@ function App() {
       filter: generation.filter,
       ingredients: generation.ingredients,
       sourceIds: generation.sourceIds,
+      segments: generation.segments,
       status: 'ready',
     }
     const trace: ChangeTrace = {
@@ -3952,9 +3961,10 @@ function CreativeArtboard({
   pendingPhase?: PendingPhase
 }) {
   const title = titleOverride ?? variant.title
+  const variantSegments = variant.segments?.length ? variant.segments : segments
   const isGenerating = variant.status === 'generating'
   const isPending = isGenerating || (pendingPhase !== 'idle' && pendingPhase !== 'failed')
-  const activeSegment = segments.find((segment) => segment.id === selectedSegmentId) ?? null
+  const activeSegment = variantSegments.find((segment) => segment.id === selectedSegmentId) ?? null
   const selectedSegmentSet =
     selectedSegmentIds.length > 0 ? selectedSegmentIds : selectedSegmentId ? [selectedSegmentId] : []
   const hasFocusedSelection = selectedSegmentSet.length > 0 && segmentFocus
@@ -4026,7 +4036,7 @@ function CreativeArtboard({
         {isPending ? <span className="artboard-shimmer" data-testid="pending-shimmer" /> : null}
         {annotationsVisible ? (
           <div className="segment-hit-layer" aria-label="Image segments">
-            {segments.map((segment) => (
+            {variantSegments.map((segment) => (
               <button
                 key={segment.id}
                 className={`segment-hotspot ${
@@ -4048,7 +4058,7 @@ function CreativeArtboard({
                 }}
               />
             ))}
-            {segments.map((segment) => (
+            {variantSegments.map((segment) => (
               <span
                 key={`${segment.id}-label`}
                 className={`segment-label segment-label-${segment.id} ${

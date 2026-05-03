@@ -15,6 +15,7 @@ export type ImageVariant = {
   filter?: string
   ingredients?: string[]
   sourceIds?: string[]
+  segments?: SegmentAnnotation[]
   status?: 'ready' | 'generating'
 }
 
@@ -126,6 +127,7 @@ export type CreativeGenerationResult = {
   filter: string
   ingredients: string[]
   sourceIds: string[]
+  segments?: SegmentAnnotation[]
   provider: 'endpoint' | 'mock'
   promptSummary: string
 }
