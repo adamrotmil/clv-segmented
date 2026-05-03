@@ -1353,7 +1353,7 @@ button {
     rgba(255, 255, 255, 0.04);
   background-size: 220% 100%;
   pointer-events: none;
-  animation: shimmer 850ms ease-in-out infinite;
+  animation: shimmer 1.7s ease-in-out infinite;
 }
 
 .sam-scan-shimmer {
@@ -1758,7 +1758,7 @@ button {
     rgba(255, 255, 255, 0.1);
   background-size: 220% 100%;
   pointer-events: none;
-  animation: shimmer 850ms ease-in-out infinite;
+  animation: shimmer 1.7s ease-in-out infinite;
 }
 
 .thumb-sam-scan {
