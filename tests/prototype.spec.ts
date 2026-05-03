@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test'
-import type { Locator } from '@playwright/test'
+import path from 'node:path'
+import type { Locator, Page } from '@playwright/test'
+
+const uploadAssetFixture = path.resolve('reference/image-1.png')
 
 async function expectStableHover(locator: Locator) {
   const before = await locator.boundingBox()
@@ -12,6 +15,13 @@ async function expectStableHover(locator: Locator) {
   expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(0.25)
   expect(Math.abs((after?.width ?? 0) - (before?.width ?? 0))).toBeLessThan(0.25)
   expect(Math.abs((after?.height ?? 0) - (before?.height ?? 0))).toBeLessThan(0.25)
+}
+
+async function uploadAssetFromDevice(page: Page) {
+  const fileChooserPromise = page.waitForEvent('filechooser')
+  await page.getByRole('button', { name: 'Add Asset', exact: true }).click()
+  const fileChooser = await fileChooserPromise
+  await fileChooser.setFiles(uploadAssetFixture)
 }
 
 test('inline action summary shows slider effect, shimmer, explanation, and undo', async ({ page }) => {
@@ -477,15 +487,41 @@ test('canvas node context menu exposes compact image actions', async ({ page }) 
   await page.getByRole('menuitem', { name: 'Use image in chat' }).click()
   await expect(page.getByText('Remix 1 is now in context')).toBeVisible()
 
-  await page.getByRole('button', { name: 'Add Asset', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Asset draft', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Asset draft', exact: true }).click({ button: 'right' })
+  await uploadAssetFromDevice(page)
+  await expect(page.getByRole('button', { name: 'image-1', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'image-1', exact: true }).click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'View details' }).click()
-  await expect(page.getByLabel('Variant details')).toContainText('Imported asset')
+  await expect(page.getByLabel('Variant details')).toContainText('Uploaded from device')
   await page.getByRole('button', { name: 'Close details' }).click()
-  await page.getByRole('button', { name: 'Asset draft', exact: true }).click({ button: 'right' })
+  await page.getByRole('button', { name: 'image-1', exact: true }).click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Remove from canvas' }).click()
-  await expect(page.getByRole('button', { name: 'Asset draft', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'image-1', exact: true })).toHaveCount(0)
+})
+
+test('uploaded device images become remixable canvas sources', async ({ page }) => {
+  await page.goto('/')
+
+  await uploadAssetFromDevice(page)
+  await expect(page.getByRole('button', { name: 'image-1', exact: true })).toBeVisible()
+  await expect(page.locator('.variant-strip').getByText('image-1')).toBeVisible()
+  const uploadedImageSrc = await page
+    .locator('.creative-stack')
+    .filter({ hasText: 'image-1' })
+    .locator('.creative-card img')
+    .getAttribute('src')
+  expect(uploadedImageSrc).toContain('data:image/png')
+
+  await page.getByRole('button', { name: 'image-1', exact: true }).click()
+  await page.getByLabel('Abstraction').fill('92')
+  await page.getByRole('button', { name: 'Remix Image' }).click()
+
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'Use image-1 as the selected canvas source',
+  )
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'Preserve every visible text string exactly as it appears in the attached source image',
+  )
+  await expect(page.locator('.variant-strip').getByText('Remix 2')).toBeVisible()
 })
 
 test('shift selecting canvas nodes creates an anchored comparison set', async ({ page }) => {
@@ -556,15 +592,15 @@ test('selected comparisons can be used for chat context and delta remixes', asyn
 test('one-to-many comparisons can promote anchors and remove targets', async ({ page }) => {
   await page.goto('/')
 
-  await page.getByRole('button', { name: 'Add Asset', exact: true }).click()
+  await uploadAssetFromDevice(page)
   await page.getByRole('button', { name: 'Original Image', exact: true }).click()
   await page.getByRole('button', { name: 'Remix 1', exact: true }).click({ modifiers: ['Shift'] })
-  await page.getByRole('button', { name: 'Asset draft', exact: true }).click({ modifiers: ['Shift'] })
+  await page.getByRole('button', { name: 'image-1', exact: true }).click({ modifiers: ['Shift'] })
 
-  await expect(page.getByLabel('Selected variant comparison')).toContainText('Asset draft')
+  await expect(page.getByLabel('Selected variant comparison')).toContainText('image-1')
 
   await expect(page.getByLabel('Selected variant comparison')).toContainText('Anchor')
-  await expect(page.locator('.creative-stack').filter({ hasText: 'Asset draft' })).toHaveClass(/selected/)
+  await expect(page.locator('.creative-stack').filter({ hasText: 'image-1' })).toHaveClass(/selected/)
   await expect(page.locator('.creative-stack').filter({ hasText: 'Original Image' })).toHaveClass(/secondary-selected/)
 
   await page.getByRole('button', { name: 'Remove Remix 1 from comparison' }).click()
@@ -890,9 +926,9 @@ test('stubbed buttons visibly change local prototype state', async ({ page }) =>
   await page.getByRole('button', { name: 'Save Changes' }).click()
   await expect(page.getByLabel('Completed action summary')).toContainText('saved to approvals')
 
-  await page.getByRole('button', { name: 'Add Asset' }).click()
-  await expect(page.locator('.variant-strip').getByText('Asset draft')).toBeVisible()
-  await expect(page.getByLabel('Completed action summary')).toContainText('asset draft')
+  await uploadAssetFromDevice(page)
+  await expect(page.locator('.variant-strip').getByText('image-1')).toBeVisible()
+  await expect(page.getByLabel('Completed action summary')).toContainText('image-1 imported from device')
 
   await page.getByRole('button', { name: 'Close', exact: true }).click()
   await expect(page.getByLabel('Completed action summary')).toContainText('Close requested')

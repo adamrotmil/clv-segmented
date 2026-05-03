@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
+  ChangeEvent,
   CSSProperties,
   FormEvent,
   KeyboardEvent,
@@ -643,10 +644,158 @@ function absoluteImageUrl(image: string) {
 }
 
 function mediaTypeForImage(image: string) {
+  const dataUrlMatch = /^data:([^;,]+)/i.exec(image)
+  if (dataUrlMatch?.[1]) return dataUrlMatch[1]
+
   const cleanImage = image.split('?')[0].toLowerCase()
   if (cleanImage.endsWith('.png')) return 'image/png'
   if (cleanImage.endsWith('.webp')) return 'image/webp'
   return 'image/jpeg'
+}
+
+function mediaTypeForFile(file: File) {
+  if (file.type.startsWith('image/')) return file.type
+
+  const extension = file.name.split('.').pop()?.toLowerCase()
+  if (extension === 'png') return 'image/png'
+  if (extension === 'webp') return 'image/webp'
+  if (extension === 'gif') return 'image/gif'
+  if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg'
+
+  return ''
+}
+
+function isAcceptedImageFile(file: File) {
+  return Boolean(mediaTypeForFile(file))
+}
+
+function readImageFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+        return
+      }
+
+      reject(new Error('Image file could not be read'))
+    }
+    reader.onerror = () => reject(reader.error ?? new Error('Image file could not be read'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function cleanUploadTitle(fileName: string) {
+  const baseName = fileName.replace(/\.[^.]+$/, '').trim()
+  return baseName || 'Imported image'
+}
+
+function uniqueUploadTitle(fileName: string, variants: ImageVariant[]) {
+  const baseTitle = cleanUploadTitle(fileName)
+  const existingTitles = new Set(variants.map((variant) => variant.title.toLowerCase()))
+
+  if (!existingTitles.has(baseTitle.toLowerCase())) return baseTitle
+
+  let suffix = 2
+  let nextTitle = `${baseTitle} ${suffix}`
+  while (existingTitles.has(nextTitle.toLowerCase())) {
+    suffix += 1
+    nextTitle = `${baseTitle} ${suffix}`
+  }
+
+  return nextTitle
+}
+
+function uploadedAssetVisualContext(fileName: string, title: string): ImageVariant['visualContext'] {
+  return {
+    summary: `${title} was imported from the user's device. Treat the uploaded pixels as the source of truth and inspect the image before remixing.`,
+    locks: [
+      'Preserve the uploaded image as the source campaign identity.',
+      'Preserve visible product objects, people, composition, copy, typography, and brand cues unless the user explicitly asks to change them.',
+      'Use vision understanding of the uploaded pixels before writing downstream image prompts.',
+    ],
+    product: {
+      identity: 'the exact product or advertised object visible in the uploaded image',
+      placement: 'preserve the source placement and scale unless the edit explicitly targets composition',
+      preservation: [
+        'same product identity',
+        'same packaging silhouette',
+        'same visible brand marks and material cues',
+      ],
+    },
+    typography: {
+      family: 'inspect source image',
+      fallback: 'preserve exact source font DNA',
+      weight: 'preserve source weight',
+      style: 'preserve source style',
+      casing: 'preserve source casing',
+      tracking: 'preserve source tracking',
+      lineHeight: 'preserve source line-height',
+      textRendering: [
+        'preserve every visible text string exactly',
+        'preserve source glyph geometry and placement',
+      ],
+    },
+    textAnchors: [
+      'uploaded file should remain visually grounded to its source layout',
+      'copy and CTA regions should not be rewritten during a normal remix',
+    ],
+    sourceDna: [
+      `uploaded file name ${fileName}`,
+      'actual image pixels are the primary visual reference',
+      'future remixes should change photographic treatment while preserving campaign structure',
+    ],
+    avoid: [
+      'generic stock replacement',
+      'invented product packaging',
+      'rewritten ad copy',
+      'different typography family',
+      'unrelated scene or subject',
+    ],
+  }
+}
+
+function promptRecipeForUploadedAsset(
+  title: string,
+  fileName: string,
+  scalars: AestheticScalar[],
+): PromptRecipe {
+  const visualRead = `${title} imported from device; full multimodal read should inspect the uploaded image pixels.`
+
+  return {
+    visualRead,
+    finalPrompt: [
+      visualRead,
+      'Preserve the uploaded product, copy, typography, composition, and brand system as the source of truth.',
+      'Future remixes should use the selected scalar recipe and chat context while keeping normal remix changes photographic.',
+    ].join(' '),
+    negativePrompt:
+      'Do not replace the uploaded image with an unrelated scene, product, copy, or typography system.',
+    composedAt: new Date().toISOString(),
+    model: 'local-device-import',
+    preservationLocks: {
+      product: 'inspect and preserve the exact product or advertised object in the uploaded image',
+      copy: 'preserve every readable source text string exactly unless the user explicitly asks to rewrite copy',
+      typography:
+        'inspect and preserve the exact source font family, glyph shapes, weight, casing, tracking, line-height, and placement',
+    },
+    sliderInterpretation: cloneScalarRecipe(scalars).map((scalar) => ({
+      id: scalar.id,
+      label: scalar.label,
+      value: scalar.value,
+      instruction: scalarPromptDirective(scalar),
+    })),
+    observability: [
+      {
+        lane: 'context',
+        text: `Imported ${fileName} from device as ${title}.`,
+      },
+      {
+        lane: 'vision',
+        text: 'Vision read is deferred to prompt composition; uploaded pixels are attached as source image input.',
+      },
+    ],
+  }
 }
 
 function scalarAdjustmentLine(change: CreativeGenerationRequest['scalarChanges'][number]) {
@@ -1683,6 +1832,7 @@ function App() {
   const chatResolveTimer = useRef<number | undefined>(undefined)
   const chatStreamTimer = useRef<number | undefined>(undefined)
   const chatStreamMessage = useRef<{ id: string; content: string } | null>(null)
+  const assetUploadInputRef = useRef<HTMLInputElement | null>(null)
   const chatRequestCounter = useRef(0)
   const [selectedAssetId, setSelectedAssetId] = useState(assets[0].id)
   const [selectedVersion, setSelectedVersion] = useState(assets[0].version)
@@ -1913,41 +2063,74 @@ function App() {
     )
   }
 
-  function addAsset() {
+  function openAssetUploader() {
+    assetUploadInputRef.current?.click()
+  }
+
+  async function importAssetFromFile(file: File) {
+    const mediaType = mediaTypeForFile(file)
+    if (!isAcceptedImageFile(file)) {
+      recordPrototypeAction(
+        'Upload rejected',
+        'The selected file was not an image.',
+        'Add Asset accepts local image files such as JPG, PNG, and WebP for canvas remixing.',
+      )
+      return
+    }
+
     const assetScalars = promptScalars
     const assetScore = projectedScore(assetScalars)
-    const nextId = `asset-draft-${Date.now()}`
-    const assetDraft: ImageVariant = {
+    const imageDataUrl = await readImageFileAsDataUrl(file)
+    const title = uniqueUploadTitle(file.name, variants)
+    const nextId = `upload-${Date.now()}`
+    const importedAsset: ImageVariant = {
       id: nextId,
-      title: 'Asset draft',
+      title,
       kind: 'generated',
-      image: initialVariants[1].image,
+      image: imageDataUrl,
       score: assetScore,
       delta: Math.max(1, projectedDelta(assetScalars)),
-      filter: `${imageFilterForScalars(assetScalars)} brightness(1.01)`,
-      ingredients: ['Imported asset', selectedAsset.channel, selectedVersion],
-      sourceIds: [selectedVariantId],
+      ingredients: ['Uploaded from device', mediaType, selectedAsset.channel],
+      sourceIds: [],
       scalarRecipe: cloneScalarRecipe(assetScalars),
-      promptRecipe: seededPromptRecipeForVariant(initialVariants[1]),
-      visualContext: initialVariants[1].visualContext,
+      promptRecipe: promptRecipeForUploadedAsset(title, file.name, assetScalars),
+      visualContext: uploadedAssetVisualContext(file.name, title),
       segments: [],
       status: 'ready',
       segmentationStatus: 'segmenting',
     }
-    setVariants((current) => [...current, assetDraft])
+    setVariants((current) => [...current, importedAsset])
     setSelectedVariantId(nextId)
+    setCanvasComparisonIds([])
+    chooseSegment('')
     void segmentVariantImage({
       variantId: nextId,
-      imageUrl: assetDraft.image,
+      imageUrl: importedAsset.image,
       sourceSegments: activeVariantSegments,
-      title: assetDraft.title,
-      sourceVariantId: selectedVariantId,
+      title: importedAsset.title,
     })
     recordPrototypeAction(
-      'Asset draft added',
-      'Added an asset draft to the canvas variant strip.',
-      'The new draft inherits the current scalar recipe so it can be compared against the active creative.',
+      'Asset uploaded',
+      `${title} imported from device and placed on the canvas.`,
+      'The uploaded image keeps its source pixels, inherits the current scalar recipe, and can be remixed with sliders, chat direction, and segment context.',
     )
+  }
+
+  async function handleAssetUpload(event: ChangeEvent<HTMLInputElement>) {
+    const [file] = Array.from(event.currentTarget.files ?? [])
+    event.currentTarget.value = ''
+    if (!file) return
+
+    try {
+      await importAssetFromFile(file)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Image upload failed'
+      recordPrototypeAction(
+        'Upload failed',
+        'The selected image could not be imported.',
+        message,
+      )
+    }
   }
 
   function saveCurrentStyle() {
@@ -4081,10 +4264,18 @@ function App() {
   return (
     <main className="portfolio-frame">
       <section className="editor-window" aria-label="Edit creative">
+        <input
+          ref={assetUploadInputRef}
+          className="asset-upload-input"
+          type="file"
+          accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/*"
+          aria-label="Upload asset from device"
+          onChange={handleAssetUpload}
+        />
         <EditorHeader
           mode={mode}
           onClose={closeEditor}
-          onAddAsset={addAsset}
+          onAddAsset={openAssetUploader}
           onSave={saveChanges}
         />
         {mode === 'edit' ? (
@@ -4148,7 +4339,7 @@ function App() {
               lastChange={lastChange}
               pendingPhase={pendingPhase}
               onCloseEditor={closeEditor}
-              onAddAsset={addAsset}
+              onAddAsset={openAssetUploader}
               onSaveEditor={saveChanges}
             />
             {!assistantMinimized ? (

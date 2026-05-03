@@ -78,6 +78,16 @@ button {
   box-shadow: none;
 }
 
+.asset-upload-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  opacity: 0;
+  pointer-events: none;
+}
+
 .editor-header {
   display: flex;
   align-items: center;
