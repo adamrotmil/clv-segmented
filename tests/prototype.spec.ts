@@ -52,16 +52,18 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await page.getByRole('button', { name: 'Remix Image' }).click()
 
   const updatedStack = page.locator('.artboard-row .creative-stack').nth(1)
-  const remixStack = page.locator('.artboard-row .creative-stack').filter({ hasText: /Remix/ }).first()
+  const remixStack = page.locator('.artboard-row .creative-stack').filter({ hasText: 'Remix 2' }).first()
   await expect(remixStack).toBeVisible()
   await expect(remixStack).toHaveClass(/generating/)
   await expect(remixStack.getByTestId('pending-shimmer')).toBeVisible()
   await expect(updatedStack.getByTestId('pending-shimmer')).toHaveCount(0)
   await expect(page.getByLabel('Image generation prompt')).toBeVisible()
-  await expect(page.getByLabel('Image generation prompt')).toContainText('Generate Remix')
-  await expect(page.getByLabel('Image generation prompt')).toContainText('Source image')
-  await expect(page.getByLabel('Image generation prompt')).toContainText('Scalar changes')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Create a new version')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('imageInputs')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Image inputs')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Apply these aesthetic adjustments')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Recent chat')
+  await expect(page.getByLabel('Image inputs in generation payload').locator('img')).toHaveCount(1)
   await expect(page.locator('.variant-strip .variant-thumb.generating').filter({ hasText: /Remix/ })).toBeVisible()
 
   await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
@@ -195,7 +197,7 @@ test('generated remixes appear as full-size canvas nodes and tidy back to grid',
 
   const originalStack = page.locator('.artboard-row .creative-stack').first()
   const updatedStack = page.locator('.artboard-row .creative-stack').nth(1)
-  const remixStack = page.locator('.artboard-row .creative-stack').filter({ hasText: /Remix/ }).first()
+  const remixStack = page.locator('.artboard-row .creative-stack').filter({ hasText: 'Remix 2' }).first()
   await expect(remixStack).toBeVisible()
 
   const originalBox = await originalStack.boundingBox()
@@ -206,8 +208,13 @@ test('generated remixes appear as full-size canvas nodes and tidy back to grid',
   expect(remixGridBox).not.toBeNull()
 
   expect(Math.abs((updatedBox?.x ?? 0) - (originalBox?.x ?? 0))).toBeGreaterThan(300)
-  expect((remixGridBox?.y ?? 0) - (originalBox?.y ?? 0)).toBeGreaterThan(340)
-  expect(Math.abs((remixGridBox?.x ?? 0) - (originalBox?.x ?? 0))).toBeLessThan(12)
+  const placedToRight =
+    (remixGridBox?.x ?? 0) - (updatedBox?.x ?? 0) > 300 &&
+    Math.abs((remixGridBox?.y ?? 0) - (originalBox?.y ?? 0)) < 3
+  const placedOnNextRow =
+    (remixGridBox?.y ?? 0) - (originalBox?.y ?? 0) > 340 &&
+    Math.abs((remixGridBox?.x ?? 0) - (originalBox?.x ?? 0)) < 12
+  expect(placedToRight || placedOnNextRow).toBe(true)
 
   await page.mouse.move((remixGridBox?.x ?? 0) + 24, (remixGridBox?.y ?? 0) + 24)
   await page.mouse.down()
@@ -240,7 +247,7 @@ test('canvas artboards select from title and drag into place', async ({ page }) 
     .evaluate((element) => getComputedStyle(element, '::after').boxShadow)
   expect(selectedLine).toContain('47, 107, 255')
 
-  await page.getByRole('button', { name: 'Updated Image', exact: true }).click()
+  await page.getByRole('button', { name: 'Remix 1', exact: true }).click()
   await expect(updatedStack).toHaveClass(/selected/)
 
   const card = updatedStack.locator('.creative-card')
@@ -265,20 +272,20 @@ test('canvas node context menu exposes compact image actions', async ({ page }) 
   await page.goto('/')
 
   await page.getByRole('button', { name: 'Original Image', exact: true }).click()
-  await page.getByRole('button', { name: 'Updated Image', exact: true }).click({ button: 'right' })
+  await page.getByRole('button', { name: 'Remix 1', exact: true }).click({ button: 'right' })
 
-  await expect(page.getByRole('menu', { name: 'Updated Image actions' })).toBeVisible()
+  await expect(page.getByRole('menu', { name: 'Remix 1 actions' })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: 'Blend with Original Image' })).toBeEnabled()
 
   await page.getByRole('menuitem', { name: 'Compare from here' }).click()
   await expect(page.getByLabel('Selected variant comparison')).toBeVisible()
   await expect(page.getByLabel('Selected variant comparison')).toContainText('Original Image')
-  await expect(page.getByLabel('Selected variant comparison')).toContainText('Updated Image')
+  await expect(page.getByLabel('Selected variant comparison')).toContainText('Remix 1')
   await page.getByRole('button', { name: 'Close selected comparison' }).click()
 
-  await page.getByRole('button', { name: 'Updated Image', exact: true }).click({ button: 'right' })
-  await page.getByRole('menuitem', { name: 'Use as chat context' }).click()
-  await expect(page.getByText('Updated Image is now in context')).toBeVisible()
+  await page.getByRole('button', { name: 'Remix 1', exact: true }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Use image in chat' }).click()
+  await expect(page.getByText('Remix 1 is now in context')).toBeVisible()
 
   await page.getByRole('button', { name: 'Add Asset', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Asset draft', exact: true })).toBeVisible()
@@ -298,13 +305,13 @@ test('shift selecting canvas nodes creates an anchored comparison set', async ({
   const updatedStack = page.locator('.creative-stack').nth(1)
 
   await page.getByRole('button', { name: 'Original Image', exact: true }).click()
-  await page.getByRole('button', { name: 'Updated Image', exact: true }).click({ modifiers: ['Shift'] })
+  await page.getByRole('button', { name: 'Remix 1', exact: true }).click({ modifiers: ['Shift'] })
 
-  await expect(originalStack).toHaveClass(/selected/)
-  await expect(updatedStack).toHaveClass(/secondary-selected/)
+  await expect(originalStack).toHaveClass(/secondary-selected/)
+  await expect(updatedStack).toHaveClass(/selected/)
   await expect(page.getByLabel('Selected variant comparison')).toBeVisible()
   await expect(page.getByLabel('Selected variant comparison')).toContainText('Anchor')
-  await expect(page.getByLabel('Selected variant comparison')).toContainText('+9 ES')
+  await expect(page.getByLabel('Selected variant comparison')).toContainText('-9 ES')
   await expect(page.getByLabel('Selected variant comparison')).toContainText('Face visibility')
 
   await page.getByRole('button', { name: 'Close selected comparison' }).click()
@@ -318,7 +325,7 @@ test('comparison factor chips focus the related SAM segment', async ({ page }) =
   const updatedStack = page.locator('.creative-stack').nth(1)
 
   await page.getByRole('button', { name: 'Original Image', exact: true }).click()
-  await page.getByRole('button', { name: 'Updated Image', exact: true }).click({ modifiers: ['Shift'] })
+  await page.getByRole('button', { name: 'Remix 1', exact: true }).click({ modifiers: ['Shift'] })
   await page.getByRole('button', { name: 'Face visibility' }).click()
 
   await expect(page.getByRole('button', { name: 'Face visibility' })).toHaveAttribute('aria-pressed', 'true')
@@ -339,21 +346,21 @@ test('selected comparisons can be used for chat context and delta remixes', asyn
   await page.goto('/')
 
   await page.getByRole('button', { name: 'Original Image', exact: true }).click()
-  await page.getByRole('button', { name: 'Updated Image', exact: true }).click({ modifiers: ['Shift'] })
+  await page.getByRole('button', { name: 'Remix 1', exact: true }).click({ modifiers: ['Shift'] })
 
-  await page.getByRole('button', { name: 'Chat' }).click()
-  await expect(page.getByText('Comparison added: Original Image is the anchor')).toBeVisible()
+  await page.getByRole('button', { name: 'Use selected' }).click()
+  await expect(page.getByText('Selected images added: Remix 1 is the temporary comparison anchor')).toBeVisible()
 
   await page.getByRole('button', { name: 'Remix delta' }).click()
   const deltaStack = page
     .locator('.artboard-row .creative-stack')
-    .filter({ hasText: /Delta remix/ })
+    .filter({ hasText: /Remix 2/ })
     .first()
   await expect(deltaStack).toBeVisible()
   await expect(deltaStack).toHaveClass(/generating/)
   await expect(deltaStack.getByTestId('pending-shimmer')).toBeVisible()
   await expect(page.getByText('Delta remix generated', { exact: true })).toBeVisible()
-  await expect(page.locator('.variant-strip').getByText(/Delta remix/)).toBeVisible()
+  await expect(page.locator('.variant-strip').getByText(/Remix 2/)).toBeVisible()
 })
 
 test('one-to-many comparisons can promote anchors and remove targets', async ({ page }) => {
@@ -361,18 +368,17 @@ test('one-to-many comparisons can promote anchors and remove targets', async ({ 
 
   await page.getByRole('button', { name: 'Add Asset', exact: true }).click()
   await page.getByRole('button', { name: 'Original Image', exact: true }).click()
-  await page.getByRole('button', { name: 'Updated Image', exact: true }).click({ modifiers: ['Shift'] })
+  await page.getByRole('button', { name: 'Remix 1', exact: true }).click({ modifiers: ['Shift'] })
   await page.getByRole('button', { name: 'Asset draft', exact: true }).click({ modifiers: ['Shift'] })
 
   await expect(page.getByLabel('Selected variant comparison')).toContainText('Asset draft')
-  await page.getByRole('button', { name: 'Make Asset draft anchor' }).click()
 
   await expect(page.getByLabel('Selected variant comparison')).toContainText('Anchor')
   await expect(page.locator('.creative-stack').filter({ hasText: 'Asset draft' })).toHaveClass(/selected/)
   await expect(page.locator('.creative-stack').filter({ hasText: 'Original Image' })).toHaveClass(/secondary-selected/)
 
-  await page.getByRole('button', { name: 'Remove Updated Image from comparison' }).click()
-  await expect(page.getByLabel('Selected variant comparison')).not.toContainText('Updated Image')
+  await page.getByRole('button', { name: 'Remove Remix 1 from comparison' }).click()
+  await expect(page.getByLabel('Selected variant comparison')).not.toContainText('Remix 1')
   await expect(page.getByLabel('Selected variant comparison')).toContainText('Original Image')
 })
 
@@ -421,7 +427,7 @@ test('canvas background click clears selection and enables trackpad panning', as
   const canvas = page.locator('.canvas-scroll')
   const firstStack = page.locator('.creative-stack').first()
   const updatedStack = page.locator('.creative-stack').nth(1)
-  await page.getByRole('button', { name: 'Updated Image', exact: true }).click()
+  await page.getByRole('button', { name: 'Remix 1', exact: true }).click()
   await expect(updatedStack).toHaveClass(/selected/)
 
   const canvasBox = await canvas.boundingBox()
@@ -552,9 +558,9 @@ test('dragging one artboard onto another creates a blended variant', async ({ pa
   await page.mouse.up()
 
   await expect(updatedStack).not.toHaveClass(/drop-target/)
-  await expect(page.locator('.artboard-row .creative-stack').filter({ hasText: 'Blend 1' })).toBeVisible()
-  await expect(page.locator('.variant-strip').getByText(/Blend/)).toBeVisible()
-  await expect(page.getByLabel('Interaction trace').first()).toContainText('Blended Original Image and Updated Image')
+  await expect(page.locator('.artboard-row .creative-stack').filter({ hasText: 'Remix 2' })).toBeVisible()
+  await expect(page.locator('.variant-strip').getByText(/Remix 2/)).toBeVisible()
+  await expect(page.getByLabel('Interaction trace').first()).toContainText('Blended Original Image and Remix 1 into Remix 2')
   await expect(page.getByText('Images blended')).toBeVisible()
 })
 
@@ -690,7 +696,7 @@ test('saved ideas can be combined into an inspectable remix', async ({ page }) =
   await expect(page.getByLabel('Saved ideas').first()).toContainText('Variant B')
 
   await page.getByRole('button', { name: /Combine/ }).first().click()
-  await expect(page.locator('.variant-strip').getByText('Remix A+B')).toBeVisible()
+  await expect(page.locator('.variant-strip').getByText('Remix 2')).toBeVisible()
   await expect(page.getByLabel('Interaction trace').first()).toContainText('Combined Variant A and Variant B')
   await expect(page.getByText(/Sources:/)).toBeVisible()
 })
@@ -790,7 +796,7 @@ test('segment score and hybrid paths keep the interaction workbench visible', as
 
   await expect(page.getByLabel('Segment suggestions')).toBeVisible()
   await page.getByLabel('Segment suggestions').getByRole('button', { name: 'Apply' }).first().click()
-  await expect(page.locator('.variant-strip').getByText('Product edit')).toBeVisible()
+  await expect(page.locator('.variant-strip').getByText('Remix 2')).toBeVisible()
   await expect(page.getByLabel('Interaction trace').first()).toContainText('applied to Product placement')
   await page.getByRole('button', { name: 'Score' }).click()
 

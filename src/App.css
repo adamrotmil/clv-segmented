@@ -2780,21 +2780,52 @@ button {
   white-space: pre-wrap;
 }
 
-.prompt-negative {
-  align-items: flex-start;
-  gap: 8px;
-  color: #7a7a7c;
-  font-size: 11px;
-  line-height: 15px;
+.prompt-image-inputs {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding-bottom: 1px;
 }
 
-.prompt-negative span {
-  flex: 0 0 auto;
-  font-weight: 500;
-}
-
-.prompt-negative p {
+.prompt-image-inputs figure {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  flex: 0 0 136px;
+  gap: 7px;
+  min-width: 0;
   margin: 0;
+  padding: 5px;
+  border: 1px solid rgba(19, 19, 22, 0.08);
+  border-radius: 7px;
+  background: #fafafa;
+}
+
+.prompt-image-inputs img {
+  width: 38px;
+  height: 38px;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+.prompt-image-inputs figcaption {
+  min-width: 0;
+  overflow: hidden;
+  color: #202126;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-image-inputs figcaption span {
+  display: block;
+  color: #8c8d93;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 12px;
+  text-transform: capitalize;
 }
 
 .prompt-context {

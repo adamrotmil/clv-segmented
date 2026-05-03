@@ -135,7 +135,7 @@ export const initialVariants: ImageVariant[] = [
   },
   {
     id: 'updated',
-    title: 'Updated Image',
+    title: 'Remix 1',
     kind: 'updated',
     image: updatedTile,
     score: 83,

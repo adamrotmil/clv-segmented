@@ -93,6 +93,24 @@ export type ImagePromptContextItem = {
   value: string
 }
 
+export type ImageInputReference = {
+  id: string
+  title: string
+  url: string
+  role: 'source' | 'reference'
+  mediaType?: string
+}
+
+export type SceneDescription = {
+  subject: string
+  setting: string
+  composition: string
+  camera: string
+  lighting: string
+  color: string
+  typography: string
+}
+
 export type ImagePromptPacket = {
   prompt: string
   negativePrompt: string
@@ -102,12 +120,14 @@ export type ImagePromptPacket = {
 
 export type CreativeGenerationRequest = {
   id: string
+  model: string
   intent: CreativeGenerationIntent
   outputTitle: string
   createdAt: string
   asset: CreativeAsset
   sourceVariant: ImageVariant
   sourceIds: string[]
+  imageInputs: ImageInputReference[]
   selectedSegment: SegmentAnnotation
   scalars: AestheticScalar[]
   scalarChanges: ScalarGenerationChange[]
@@ -128,6 +148,7 @@ export type CreativeGenerationRequest = {
   baseFilter: string
   fallbackImage: string
   promptHints: string[]
+  sceneDescription: SceneDescription
   imagePrompt: ImagePromptPacket
 }
 

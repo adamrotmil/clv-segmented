@@ -42,7 +42,9 @@ import type {
   ChatMessage,
   CreativeGenerationRequest,
   ImagePromptPacket,
+  ImageInputReference,
   ImageVariant,
+  SceneDescription,
   SegmentAnnotation,
   SegmentSuggestion,
   StylePreset,
@@ -159,6 +161,8 @@ const sidebarWidthBounds: Record<SidebarSide, { min: number; max: number }> = {
   right: { min: 300, max: 520 },
 }
 
+const imageGenerationModel = 'gpt-image-2'
+
 const scoreScalarPreset: Record<string, Pick<AestheticScalar, 'value' | 'marker'>> = {
   staging: { value: 50, marker: 'Constructed' },
   abstraction: { value: 30, marker: 'Literal' },
@@ -174,7 +178,7 @@ function applyScorePreset(scalars: AestheticScalar[]) {
 const initialTrace: ChangeTrace = {
   id: 'seed',
   control: 'Creative prompt',
-  what: 'Updated image is projected at ES 83%.',
+  what: 'Remix 1 is projected at ES 83%.',
   why: 'The visible face and warmer direct-response copy increase emotional engagement.',
   before: 'ES 74%',
   after: 'ES 83%',
@@ -191,7 +195,7 @@ const initialAgentTasks: AgentTask[] = [
     kind: 'agent',
     status: 'done',
     goal: 'Read the active creative and selected segment.',
-    input: 'Original + updated canvas',
+    input: 'Original + remix canvas',
     output: 'Face, copy, CTA, product zones detected',
     test: 'Segments visible',
   },
@@ -397,6 +401,70 @@ function applyStylePresetToScalars(scalars: AestheticScalar[], preset: StylePres
 
 function presetScalarDisplayValue(value: number) {
   return (value / 100).toFixed(1).replace(/\.0$/, '')
+}
+
+function remixNumberFromTitle(title: string) {
+  const match = /^Remix\s+(\d+)$/i.exec(title.trim())
+  return match ? Number(match[1]) : 0
+}
+
+function nextRemixTitle(variants: ImageVariant[]) {
+  const maxRemixNumber = variants.reduce(
+    (highest, variant) => Math.max(highest, remixNumberFromTitle(variant.title)),
+    0,
+  )
+
+  return `Remix ${maxRemixNumber + 1}`
+}
+
+function variantRoleLabel(variant: ImageVariant) {
+  return variant.id === 'original' ? 'baseline' : 'remix'
+}
+
+function absoluteImageUrl(image: string) {
+  if (/^(https?:|data:|blob:)/.test(image)) return image
+  if (typeof window === 'undefined') return image
+
+  return new URL(image, window.location.origin).toString()
+}
+
+function mediaTypeForImage(image: string) {
+  const cleanImage = image.split('?')[0].toLowerCase()
+  if (cleanImage.endsWith('.png')) return 'image/png'
+  if (cleanImage.endsWith('.webp')) return 'image/webp'
+  return 'image/jpeg'
+}
+
+function scalarAdjustmentLine(change: CreativeGenerationRequest['scalarChanges'][number]) {
+  const delta = Math.round(change.after - change.before)
+  const target = delta >= 0 ? change.highLabel : change.lowLabel
+
+  return `${change.label}: ${delta >= 0 ? '+' : ''}${delta} toward ${target}`
+}
+
+function sceneDescriptionForVariant(
+  sourceVariant: ImageVariant,
+  focusedSegments: SegmentAnnotation[],
+): SceneDescription {
+  const segmentFocus = focusedSegments.map((segment) => segment.label).join(', ') || 'primary ad subject'
+
+  return {
+    subject:
+      sourceVariant.id === 'original'
+        ? 'Lifestyle beauty ad featuring a seated person, visible product placement, large overlaid ad copy, and a CTA.'
+        : 'Generated lifestyle beauty ad variant preserving the visible subject, product placement, ad copy system, and CTA structure from the source image.',
+    setting:
+      'Warm indoor editorial setting with a soft wall shadow, casual seated pose, and direct-response social ad framing.',
+    composition: `Square social creative with subject centered, copy occupying the middle of frame, product lower center, CTA anchored lower left, and current focus on ${segmentFocus}.`,
+    camera:
+      'Close editorial crop, portrait-oriented lens feel, shallow lifestyle framing, natural perspective, no wide-angle distortion.',
+    lighting:
+      'Warm directional indoor light with soft contrast, visible cast shadow, gentle highlight on skin and product surfaces.',
+    color:
+      'Warm amber and neutral skin tones balanced against dark marble/product details and muted denim blues.',
+    typography:
+      'Large high-contrast white ad headline, smaller italic subcopy, and compact CTA treatment should remain legible and native to the creative.',
+  }
 }
 
 function scoreTabLabel(tab: ScoreTab) {
@@ -1281,46 +1349,54 @@ function App() {
       .filter(Boolean) as CreativeGenerationRequest['scalarChanges']
   }
 
+  function buildImageInputs(sourceIds: string[], sourceVariant: ImageVariant): ImageInputReference[] {
+    const sourceVariants = [
+      sourceVariant,
+      ...sourceIds
+        .map((sourceId) => workingVariants.find((variant) => variant.id === sourceId))
+        .filter(Boolean),
+    ] as ImageVariant[]
+    const uniqueSourceVariants = sourceVariants.filter(
+      (variant, index, list) => list.findIndex((item) => item.id === variant.id) === index,
+    )
+
+    return uniqueSourceVariants.map((variant, index) => ({
+      id: variant.id,
+      title: variant.title,
+      url: absoluteImageUrl(variant.image),
+      role: index === 0 ? 'source' : 'reference',
+      mediaType: mediaTypeForImage(variant.image),
+    }))
+  }
+
   function buildImagePromptPacket({
     intent,
     outputTitle,
-    sourceIds,
     sourceVariant,
+    imageInputs,
     nextScalars,
     scalarChanges,
-    projectedScoreValue,
-    scoreLift,
+    sceneDescription,
     trace,
     promptHints,
   }: {
     intent: CreativeGenerationRequest['intent']
     outputTitle: string
-    sourceIds: string[]
     sourceVariant: ImageVariant
+    imageInputs: ImageInputReference[]
     nextScalars: AestheticScalar[]
     scalarChanges: CreativeGenerationRequest['scalarChanges']
-    projectedScoreValue: number
-    scoreLift: number
+    sceneDescription: SceneDescription
     trace: ChangeTrace
     promptHints: string[]
   }): ImagePromptPacket {
-    const sourceLabels = sourceIds.map(
-      (sourceId) =>
-        workingVariants.find((variant) => variant.id === sourceId)?.title ??
-        savedIdeas.find((idea) => idea.id === sourceId)?.label ??
-        sourceId,
-    )
     const focusedSegments = (selectedSegmentIds.length ? selectedSegmentIds : [activeSegment.id])
       .map((id) => activeVariantSegments.find((segment) => segment.id === id))
       .filter(Boolean) as SegmentAnnotation[]
-    const scalarPrompt = scalarChanges
-      .map(
-        (change) =>
-          `${change.label}: ${Math.round(change.before)} -> ${Math.round(change.after)} (${change.lowLabel} to ${change.highLabel}${change.marker ? `, marker ${change.marker}` : ''})`,
-      )
-      .join('; ')
+    const scalarAdjustments = scalarChanges.map(scalarAdjustmentLine)
     const scalarSnapshot = nextScalars
       .map((scalar) => `${scalar.label} ${Math.round(scalar.value)}`)
+      .slice(0, 8)
       .join(', ')
     const chatContext = messages
       .slice(-6)
@@ -1330,22 +1406,28 @@ function App() {
       .map((idea) => `${idea.label} ES ${idea.score}% (${idea.ingredients.join(', ')})`)
       .join('; ')
     const uniquePromptHints = Array.from(new Set(promptHints.filter(Boolean)))
+    const imageInputSummary = imageInputs
+      .map((input) => `${input.role}: ${input.title}`)
+      .join(', ')
     const prompt = [
-      `Generate ${outputTitle} for ${activeCanvasAsset.name} on ${activeCanvasAsset.channel}.`,
-      `Intent: ${intent}.`,
-      `Use source image "${sourceVariant.title}"${sourceLabels.length > 1 ? ` with source set ${sourceLabels.join(', ')}` : ''}.`,
+      `Create a new version of the attached source image for ${activeCanvasAsset.name} on ${activeCanvasAsset.channel}.`,
+      `The source pixels are supplied in imageInputs; use them as visual reference, not just as a named concept.`,
+      `Output: ${outputTitle}. Intent: ${intent}. Attached images: ${imageInputSummary}.`,
+      'Preserve the core subject, composition, product identity, aspect ratio, ad format, and legible in-image typography unless explicitly adjusted below.',
+      scalarAdjustments.length
+        ? `Apply these aesthetic adjustments:\n${scalarAdjustments.map((line) => `- ${line}`).join('\n')}`
+        : `No staged scalar deltas. Preserve the committed aesthetic recipe while using this compact signal: ${scalarSnapshot}.`,
+      `Scene read: ${sceneDescription.subject} ${sceneDescription.setting}`,
+      `Camera and composition: ${sceneDescription.camera} ${sceneDescription.composition}`,
+      `Lighting and color: ${sceneDescription.lighting} ${sceneDescription.color}`,
+      `Typography: ${sceneDescription.typography}`,
       focusedSegments.length
-        ? `Selected SAM segments: ${focusedSegments.map((segment) => `${segment.label} (${segment.delta >= 0 ? '+' : ''}${segment.delta}% ES delta)`).join(', ')}.`
+        ? `SAM focus: ${focusedSegments.map((segment) => `${segment.label} (${segment.delta >= 0 ? '+' : ''}${segment.delta}% ES delta)`).join(', ')}.`
         : '',
-      scalarPrompt
-        ? `Apply these aesthetic scalar changes: ${scalarPrompt}.`
-        : `Keep the committed aesthetic scalar recipe: ${scalarSnapshot}.`,
-      `Projected engagement score after generation: ${projectedScoreValue + scoreLift}%.`,
-      `Current trace: ${trace.what} ${trace.why}`,
+      `Current edit context: ${trace.what} ${trace.why}`,
       savedIdeaContext ? `Saved idea context: ${savedIdeaContext}.` : '',
       chatContext ? `Recent assistant chat context:\n${chatContext}` : '',
       uniquePromptHints.length ? `Prompt hints: ${uniquePromptHints.join(' | ')}.` : '',
-      'Preserve brand/product identity, campaign format, legible ad copy, and the image aspect ratio.',
     ]
       .filter(Boolean)
       .join('\n')
@@ -1356,19 +1438,25 @@ function App() {
         'Avoid distorted anatomy, changed product identity, illegible CTA text, off-brand claims, duplicate faces, extra hands, heavy artifacts, or unreadable typography.',
       context: [
         { label: 'Asset', value: `${activeCanvasAsset.name} · ${activeCanvasAsset.version}` },
+        { label: 'Model', value: imageGenerationModel },
         { label: 'Intent', value: intent },
         { label: 'Output', value: outputTitle },
         { label: 'Source image', value: sourceVariant.title },
-        { label: 'Source IDs', value: sourceIds.join(', ') },
+        { label: 'Image inputs', value: imageInputSummary },
         {
           label: 'Selected SAM',
           value: focusedSegments.map((segment) => segment.label).join(', ') || activeSegment.label,
         },
         {
-          label: 'Scalar changes',
-          value: scalarPrompt || 'No staged scalar changes; committed recipe included.',
+          label: 'Adjustments',
+          value: scalarAdjustments.join('; ') || 'No staged scalar deltas; committed recipe included.',
         },
-        { label: 'Projected ES', value: `${projectedScoreValue}% + ${scoreLift}` },
+        {
+          label: 'Negative',
+          value:
+            'Avoid distorted anatomy, changed product identity, illegible CTA text, off-brand claims, duplicate faces, extra hands, heavy artifacts, or unreadable typography.',
+        },
+        { label: 'Scene read', value: `${sceneDescription.subject} ${sceneDescription.lighting}` },
         {
           label: 'Recent chat',
           value: chatContext || 'No recent user chat context.',
@@ -1420,27 +1508,33 @@ function App() {
       initialVariants[1]
     const scalarChanges = scalarChangesBetween(beforeScalars, nextScalars)
     const uniquePromptHints = Array.from(new Set(promptHints.filter(Boolean)))
+    const imageInputs = buildImageInputs(sourceIds, sourceVariant)
+    const focusedSegments = (selectedSegmentIds.length ? selectedSegmentIds : [activeSegment.id])
+      .map((segmentId) => activeVariantSegments.find((segment) => segment.id === segmentId))
+      .filter(Boolean) as SegmentAnnotation[]
+    const sceneDescription = sceneDescriptionForVariant(sourceVariant, focusedSegments)
     const imagePrompt = buildImagePromptPacket({
       intent,
       outputTitle,
-      sourceIds,
       sourceVariant,
+      imageInputs,
       nextScalars,
       scalarChanges,
-      projectedScoreValue,
-      scoreLift,
+      sceneDescription,
       trace,
       promptHints: uniquePromptHints,
     })
 
     return {
       id,
+      model: imageGenerationModel,
       intent,
       outputTitle,
       createdAt: new Date().toISOString(),
       asset: activeCanvasAsset,
       sourceVariant,
       sourceIds,
+      imageInputs,
       selectedSegment: activeSegment,
       scalars: nextScalars,
       scalarChanges,
@@ -1461,6 +1555,7 @@ function App() {
       baseFilter,
       fallbackImage: sourceVariant.image,
       promptHints: uniquePromptHints,
+      sceneDescription,
       imagePrompt,
     }
   }
@@ -1548,7 +1643,7 @@ function App() {
       (scalar) => scalar.value !== scalarValue(beforeScalars, scalar.id),
     )
     const nextId = `remix-${Date.now()}`
-    const outputTitle = `Remix ${variants.length}`
+    const outputTitle = nextRemixTitle(variants)
     const predictedScore = Math.min(96, nextScore + 1)
     const pendingTrace: ChangeTrace = {
       id: `${nextId}-trace`,
@@ -1670,7 +1765,7 @@ function App() {
       scoreBefore: workingScore,
       scoreAfter: 83,
       segment: activeSegment.label,
-      ingredients: ['Current style', 'Baseline scalars', 'Updated image'],
+      ingredients: ['Current style', 'Baseline scalars', 'Remix 1'],
     }
     setScalars(initialScalars)
     setDraftScalars(initialScalars)
@@ -1722,14 +1817,14 @@ function App() {
         ? [...sources[0].ingredients.slice(0, 2), ...sources[1].ingredients.slice(0, 2)]
         : lastChange.ingredients
     const nextId = `remix-${Date.now()}`
-    const outputTitle = sources.length === 2 ? 'Remix A+B' : `Remix ${variants.length}`
+    const outputTitle = nextRemixTitle(variants)
     const predictedScore = Math.min(96, remixScore + (sources.length === 2 ? 3 : 1))
     const pendingTrace: ChangeTrace = {
       id: `${nextId}-trace`,
       control: 'Remix',
       what:
         sources.length === 2
-          ? 'Combined Variant A and Variant B into Remix A+B.'
+          ? `Combined Variant A and Variant B into ${outputTitle}.`
           : 'Created a remix from the current scalar trace.',
       why:
         sources.length === 2
@@ -1817,7 +1912,7 @@ function App() {
     const remixScalars = promptScalars
     const remixScore = projectedScore(remixScalars)
     const nextId = `remix-${Date.now()}`
-    const outputTitle = `Remix ${variants.length}`
+    const outputTitle = nextRemixTitle(variants)
     const predictedScore = Math.min(96, Math.max(sourceVariant.score + 2, remixScore + 1))
     const pendingTrace: ChangeTrace = {
       id: `${nextId}-trace`,
@@ -1914,7 +2009,7 @@ function App() {
     const remixScalars = promptScalars
     const remixScore = projectedScore(remixScalars)
     const nextId = `delta-remix-${Date.now()}`
-    const outputTitle = `Delta remix ${variants.length}`
+    const outputTitle = nextRemixTitle(variants)
     const targetScore = Math.max(...targetVariants.map((variant) => variant.score))
     const predictedScore = Math.min(96, Math.max(targetScore + 2, remixScore + 2))
     const targetTitles = targetVariants.map((variant) => variant.title)
@@ -2048,13 +2143,13 @@ function App() {
     const contextMessage: ChatMessage = {
       id: `comparison-context-${Date.now()}`,
       role: 'assistant',
-      activity: 'Added comparison >',
-      content: `Comparison added: ${anchorVariant.title} is the anchor. Selected differences: ${targetSummary}. I will use those deltas when discussing or remixing the image.`,
+      activity: 'Added selected images >',
+      content: `Selected images added: ${anchorVariant.title} is the temporary comparison anchor. Differences: ${targetSummary}. I will use the full selected set when discussing, blending, or remixing deltas.`,
     }
     setMessages((current) => [...current, contextMessage])
     recordPrototypeAction(
-      'Comparison in context',
-      `Comparison added for ${anchorVariant.title}.`,
+      'Selected images in context',
+      `Selected image set added for ${anchorVariant.title}.`,
       'The selected canvas differences were added to the recent assistant context for the next generation request.',
     )
   }
@@ -2062,7 +2157,7 @@ function App() {
   function removeCanvasVariant(variantId: string) {
     const variant = workingVariants.find((item) => item.id === variantId)
     if (!variant || variant.kind !== 'generated') {
-      flashToast('Base images stay on canvas')
+      flashToast('Baseline and Remix 1 stay on canvas')
       return
     }
 
@@ -2073,7 +2168,7 @@ function App() {
     recordPrototypeAction(
       'Variant removed',
       `${variant.title} removed from the canvas.`,
-      'Generated alternates can be cleared while the original and updated approval images remain pinned.',
+      'Generated alternates can be cleared while the original baseline and first remix remain pinned.',
     )
   }
 
@@ -2084,6 +2179,7 @@ function App() {
     const nextScalars = applySegmentScalarNudge(scalars, suggestion)
     const scoreAfter = Math.min(96, projectedScore(nextScalars) + Math.ceil(suggestion.impact / 3))
     const nextId = `segment-${segment.id}-${suggestion.id}-${Date.now()}`
+    const outputTitle = nextRemixTitle(variants)
     const pendingTrace: ChangeTrace = {
       id: `${nextId}-trace`,
       control: suggestion.label,
@@ -2103,7 +2199,7 @@ function App() {
     const generationRequest = buildGenerationRequest({
       id: nextId,
       intent: 'segment-edit',
-      outputTitle: `${segment.label.split(' ')[0]} edit`,
+      outputTitle,
       sourceIds: [selectedVariantId],
       beforeScalars,
       nextScalars,
@@ -2188,12 +2284,12 @@ function App() {
     const blendScalars = promptScalars
     const blendScore = projectedScore(blendScalars)
     const nextId = `blend-${Date.now()}`
-    const outputTitle = `Blend ${Math.max(1, variants.length - 1)}`
+    const outputTitle = nextRemixTitle(variants)
     const predictedScore = Math.min(96, Math.round((sourceVariant.score + targetVariant.score) / 2) + 4)
     const pendingTrace: ChangeTrace = {
       id: `${nextId}-trace`,
       control: 'Image blend',
-      what: `Blended ${sourceVariant.title} and ${targetVariant.title}.`,
+      what: `Blended ${sourceVariant.title} and ${targetVariant.title} into ${outputTitle}.`,
       why: 'The overlap gesture sent both canvas images, current photographic aesthetics, and recent chat context as one blend request.',
       before: `${sourceVariant.title} + ${targetVariant.title}`,
       after: outputTitle,
@@ -3405,14 +3501,13 @@ function CanvasWorkspace({
   lastChange: ChangeTrace
   pendingPhase: PendingPhase
 }) {
-  const baseComparisonVariants = variants.slice(0, 2)
-  const selectedGeneratedVariant = variants.find(
-    (variant) =>
-      variant.id === selectedVariantId &&
-      !baseComparisonVariants.some((baseVariant) => baseVariant.id === variant.id),
+  const selectedRemixVariant = variants.find(
+    (variant) => variant.id === selectedVariantId && variant.id !== 'original',
   )
   const canvasVariants = variants
-  const generatedVariants = variants.slice(2)
+  const generatedVariants = variants.filter(
+    (variant) => variant.id !== 'original' && variant.id !== 'updated',
+  )
   const [nodeMenu, setNodeMenu] = useState<NodeMenuState | null>(null)
   const [variantDetails, setVariantDetails] = useState<VariantDetailsState | null>(null)
   const [comparisonIds, setComparisonIds] = useState<string[]>([])
@@ -3549,12 +3644,7 @@ function CanvasWorkspace({
           ? [selectedVariantId]
           : []
 
-      if (seed.includes(variantId)) {
-        const next = seed.filter((id) => id !== variantId)
-        return next.length ? next : [variantId]
-      }
-
-      return [...seed, variantId]
+      return [variantId, ...seed.filter((id) => id !== variantId)]
     })
     onSelectVariant(variantId)
   }
@@ -3563,8 +3653,10 @@ function CanvasWorkspace({
     const selectedPeer = comparisonIds.find((id) => id !== variantId)
     const peerId = selectedPeer ?? nodeMenu?.peerVariantId
     if (peerId && peerId !== variantId) return peerId
-    if (variantId === 'updated') return 'original'
-    return 'updated'
+    if (variantId === 'original') {
+      return canvasVariants.find((variant) => variant.id !== 'original')?.id ?? 'original'
+    }
+    return 'original'
   }
 
   function closeNodeMenu() {
@@ -3645,19 +3737,19 @@ function CanvasWorkspace({
               const focusVariantId = comparisonIds.length > 1 ? selectedVariantId : ''
               const isActiveComparison = focusVariantId
                 ? focusVariantId === variant.id
-                : selectedGeneratedVariant
-                  ? selectedGeneratedVariant.id === variant.id
+                : selectedRemixVariant
+                  ? selectedRemixVariant.id === variant.id
                   : variant.id === 'updated'
               const isComparisonSelection = comparisonIds.length > 1 && comparisonIds.includes(variant.id)
               const isComparisonAnchor = isComparisonSelection && comparisonIds[0] === variant.id
               const isBaselineSegmentComparison =
                 comparisonIds.length <= 1 &&
-                !selectedGeneratedVariant &&
+                !selectedRemixVariant &&
                 (variant.id === 'original' || variant.id === 'updated')
               const isGeneratedSegmentComparison =
                 comparisonIds.length <= 1 &&
-                Boolean(selectedGeneratedVariant) &&
-                (variant.id === 'original' || variant.id === selectedGeneratedVariant?.id)
+                Boolean(selectedRemixVariant) &&
+                (variant.id === 'original' || variant.id === selectedRemixVariant?.id)
               const isSegmentComparisonFocus =
                 hasSegmentSelection &&
                 (isComparisonSelection ||
@@ -3915,7 +4007,7 @@ function NodeContextMenu({
       </button>
       <button type="button" role="menuitem" onClick={onUseAsContext}>
         <Copy size={14} />
-        Use as chat context
+        Use image in chat
       </button>
       <span className="node-menu-rule" />
       <button type="button" role="menuitem" onClick={onViewDetails}>
@@ -3964,7 +4056,7 @@ function VariantDetailsPanel({
       </div>
       <div className="variant-detail-title">
         <b>{variant.title}</b>
-        <span>{variant.kind}</span>
+        <span>{variantRoleLabel(variant)}</span>
       </div>
       <dl className="variant-detail-grid">
         <div>
@@ -3998,7 +4090,11 @@ function comparisonFactors(anchor: ImageVariant, target: ImageVariant) {
   const targetSignals = target.ingredients ?? []
   if (targetSignals.length > 0) return targetSignals.slice(0, 3)
 
-  if (anchor.id === 'original' && target.id === 'updated') {
+  const comparesOriginalToRemix =
+    (anchor.id === 'original' && target.id !== 'original') ||
+    (target.id === 'original' && anchor.id !== 'original')
+
+  if (comparesOriginalToRemix) {
     return ['Face visibility', 'CTA clarity', 'Warmer tone']
   }
 
@@ -4128,7 +4224,7 @@ function SelectedComparisonPanel({
       <div className="selection-compare-actions">
         <button type="button" onClick={onUseInChat} disabled={targets.length === 0}>
           <Copy size={14} />
-          Chat
+          Use selected
         </button>
         <button type="button" onClick={onRemixDelta} disabled={targets.length === 0}>
           <RefreshCw size={14} />
@@ -4136,7 +4232,7 @@ function SelectedComparisonPanel({
         </button>
         <button type="button" onClick={onBlend} disabled={targets.length === 0}>
           <Sparkles size={14} />
-          Blend first pair
+          Blend selected
         </button>
       </div>
     </aside>
@@ -4826,10 +4922,19 @@ function GenerationPromptTrace({
             <span>{status === 'running' ? request.intent : `sent · ${request.intent}`}</span>
           </div>
           <pre>{request.imagePrompt.prompt}</pre>
-          <div className="prompt-negative">
-            <span>Negative</span>
-            <p>{request.imagePrompt.negativePrompt}</p>
-          </div>
+          {request.imageInputs.length ? (
+            <div className="prompt-image-inputs" aria-label="Image inputs in generation payload">
+              {request.imageInputs.map((input) => (
+                <figure key={`${request.id}-${input.id}`}>
+                  <img src={input.url} alt="" />
+                  <figcaption>
+                    <span>{input.role}</span>
+                    {input.title}
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          ) : null}
           <dl className="prompt-context">
             {request.imagePrompt.context.map((item) => (
               <div key={`${request.id}-${item.label}`}>
