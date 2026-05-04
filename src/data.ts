@@ -10,7 +10,7 @@ import type {
 const byredoSourceTile = `${import.meta.env.BASE_URL}images/Image%20from%20iOS.jpg`
 const byredoRemixOneTile = `${import.meta.env.BASE_URL}images/byredo-remix-1-seed-portrait.png`
 const byredoMediaSize = { width: 853, height: 1844 }
-const byredoRemixOneMediaSize = { width: 1024, height: 1536 }
+const byredoRemixOneMediaSize = byredoMediaSize
 
 export const assets: CreativeAsset[] = [
   { id: 'byredo-a', name: "BYREDO - Bal d'Afrique", channel: 'Instagram', version: 'v 1.0.2 [Current]' },
@@ -398,39 +398,39 @@ export const initialScalars: AestheticScalar[] = [
     label: 'Staging',
     lowLabel: 'Constructed',
     highLabel: 'Candid',
-    value: 78,
-    marker: '> Candid',
+    value: 64,
+    marker: 'Lifestyle staged',
   },
   {
     id: 'abstraction',
     label: 'Abstraction',
     lowLabel: 'Literal',
     highLabel: 'Abstract',
-    value: 23,
-    marker: '> Literal',
+    value: 18,
+    marker: 'Literal',
   },
   {
     id: 'novelty',
     label: 'Novelty',
     lowLabel: 'Cliché',
     highLabel: 'Surreal',
-    value: 58,
-    marker: 'Balanced',
+    value: 34,
+    marker: 'Familiar',
   },
   {
     id: 'materiality',
     label: 'Materiality',
     lowLabel: 'Digital',
     highLabel: 'Tactile',
-    value: 50,
-    marker: 'Digital/Invisible',
+    value: 70,
+    marker: 'Tactile',
   },
   {
     id: 'hardness',
     label: 'Hardness',
     lowLabel: 'Soft',
     highLabel: 'Hard',
-    value: 80,
+    value: 72,
     marker: 'Hard/Specular',
   },
   {
@@ -438,15 +438,15 @@ export const initialScalars: AestheticScalar[] = [
     label: 'Key',
     lowLabel: 'Low',
     highLabel: 'Bright',
-    value: 100,
-    marker: 'Low/Dark',
+    value: 86,
+    marker: 'Bright',
   },
   {
     id: 'chromatics',
     label: 'Chromatics',
     lowLabel: 'Muted',
     highLabel: 'Vivid',
-    value: 30,
+    value: 58,
     marker: 'Natural',
   },
   {
@@ -454,15 +454,15 @@ export const initialScalars: AestheticScalar[] = [
     label: 'Complexity',
     lowLabel: 'Minimal',
     highLabel: 'Dense',
-    value: 40,
-    marker: 'Minimalist',
+    value: 48,
+    marker: 'Balanced',
   },
   {
     id: 'balance',
     label: 'Balance',
     lowLabel: 'Static',
     highLabel: 'Tension',
-    value: 50,
+    value: 55,
     marker: 'Dynamic/Tension',
   },
   {
@@ -470,15 +470,15 @@ export const initialScalars: AestheticScalar[] = [
     label: 'Depth',
     lowLabel: 'Planar',
     highLabel: 'Deep',
-    value: 20,
-    marker: 'Planar/Flat',
+    value: 72,
+    marker: 'Deep',
   },
   {
     id: 'groundedness',
     label: 'Groundedness',
     lowLabel: 'Abstract',
     highLabel: 'In Context',
-    value: 100,
+    value: 95,
     marker: 'In Context',
   },
   {
@@ -486,15 +486,15 @@ export const initialScalars: AestheticScalar[] = [
     label: 'Human Presence',
     lowLabel: 'None',
     highLabel: 'Present',
-    value: 0,
-    marker: 'None',
+    value: 82,
+    marker: 'Present',
   },
   {
     id: 'gaze',
     label: 'Gaze',
     lowLabel: 'Averted',
     highLabel: 'Direct',
-    value: 50,
+    value: 24,
     marker: 'Averted',
   },
   {
@@ -502,7 +502,7 @@ export const initialScalars: AestheticScalar[] = [
     label: 'Emotional Valence',
     lowLabel: 'Negative',
     highLabel: 'Positive',
-    value: 90,
+    value: 88,
     marker: 'Positive',
   },
   {
@@ -510,7 +510,7 @@ export const initialScalars: AestheticScalar[] = [
     label: 'Arousal',
     lowLabel: 'Calm',
     highLabel: 'High',
-    value: 30,
+    value: 32,
     marker: 'Calm',
   },
   {
@@ -518,8 +518,8 @@ export const initialScalars: AestheticScalar[] = [
     label: 'Stopping Power',
     lowLabel: 'Low',
     highLabel: 'High',
-    value: 10,
-    marker: 'Quiet',
+    value: 52,
+    marker: 'Moderate',
   },
 ]
 

@@ -527,16 +527,16 @@ function seededPromptRecipeForVariant(variant: ImageVariant): PromptRecipe {
 
 function projectedDelta(scalars: AestheticScalar[]) {
   const delta = Math.round(
-    (scalarValue(scalars, 'staging') - 78) / 8 +
-      (23 - scalarValue(scalars, 'abstraction')) / 6 +
-      (scalarValue(scalars, 'novelty') - 58) / 10 +
-      (scalarValue(scalars, 'materiality') - 50) / 12,
+    (scalarValue(scalars, 'staging') - 64) / 8 +
+      (18 - scalarValue(scalars, 'abstraction')) / 6 +
+      (scalarValue(scalars, 'novelty') - 34) / 10 +
+      (scalarValue(scalars, 'materiality') - 70) / 12,
   )
   return Math.max(-8, Math.min(12, delta))
 }
 
 function projectedScore(scalars: AestheticScalar[]) {
-  return Math.max(68, Math.min(96, 83 + projectedDelta(scalars)))
+  return Math.max(68, Math.min(96, 74 + projectedDelta(scalars)))
 }
 
 function clampFilterValue(value: number, min: number, max: number) {
@@ -544,10 +544,10 @@ function clampFilterValue(value: number, min: number, max: number) {
 }
 
 function imageFilterForScalars(scalars: AestheticScalar[]) {
-  const contrast = clampFilterValue(1 + (23 - scalarValue(scalars, 'abstraction')) / 260, 0.9, 1.13)
-  const saturation = clampFilterValue(1 + (scalarValue(scalars, 'novelty') - 58) / 220, 0.86, 1.22)
-  const brightness = clampFilterValue(1 + (scalarValue(scalars, 'staging') - 78) / 320, 0.94, 1.08)
-  const sepia = clampFilterValue((scalarValue(scalars, 'materiality') - 50) / 520, 0, 0.12)
+  const contrast = clampFilterValue(1 + (18 - scalarValue(scalars, 'abstraction')) / 260, 0.9, 1.13)
+  const saturation = clampFilterValue(1 + (scalarValue(scalars, 'novelty') - 34) / 220, 0.86, 1.22)
+  const brightness = clampFilterValue(1 + (scalarValue(scalars, 'staging') - 64) / 320, 0.94, 1.08)
+  const sepia = clampFilterValue((scalarValue(scalars, 'materiality') - 70) / 520, 0, 0.12)
   return `contrast(${contrast.toFixed(2)}) saturate(${saturation.toFixed(2)}) brightness(${brightness.toFixed(2)}) sepia(${sepia.toFixed(2)})`
 }
 
@@ -2185,7 +2185,7 @@ function App() {
   const [selectedAssetId, setSelectedAssetId] = useState(assets[0].id)
   const [selectedVersion, setSelectedVersion] = useState(assets[0].version)
   const [selectedStylePresetId, setSelectedStylePresetId] = useState('current')
-  const [selectedVariantId, setSelectedVariantId] = useState('updated')
+  const [selectedVariantId, setSelectedVariantId] = useState('original')
   const [selectedSegmentId, setSelectedSegmentId] = useState('')
   const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([])
   const [annotationsVisible, setAnnotationsVisible] = useState(true)

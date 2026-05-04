@@ -39,9 +39,9 @@ test('inline action summary shows slider effect, shimmer, explanation, and undo'
   await expect(page.locator('.assistant-title')).toHaveText('Assistant')
 
   const staging = page.getByLabel('Staging')
-  await expect(staging).toHaveValue('78')
+  await expect(staging).toHaveValue('64')
 
-  await staging.fill('92')
+  await staging.fill('78')
   await expect(page.getByLabel('Pending remix actions')).toBeVisible()
   await expect(page.getByTestId('pending-shimmer').first()).toBeHidden()
   await expect(page.getByLabel('Completed action summary')).toContainText('What changed')
@@ -56,10 +56,10 @@ test('inline action summary shows slider effect, shimmer, explanation, and undo'
   expect(stagedFill).toBe('1')
 
   await page.getByRole('button', { name: 'Reset Changes' }).click()
-  await expect(staging).toHaveValue('78')
+  await expect(staging).toHaveValue('64')
   await expect(page.getByLabel('Pending remix actions')).toBeHidden()
 
-  await staging.fill('92')
+  await staging.fill('78')
   await page.getByRole('button', { name: 'Remix Image' }).click()
   await expect(page.getByTestId('pending-shimmer').first()).toBeVisible()
   await expect(page.locator('.variant-strip').getByText(/Remix/)).toBeVisible()
@@ -108,10 +108,10 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Image generation prompt')).toContainText('gpt-image-2')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Image Prompt')
   await expect(page.getByLabel('Image generation prompt')).toContainText(
-    'Create a vertical premium social ad matching the selected source aspect ratio (1024:1536)',
+    'Create a vertical premium social ad matching the selected source aspect ratio (853:1844)',
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText(
-    'imageInputs[0]: source; id updated; title Remix 1',
+    'imageInputs[0]: source; id original; title Original Image',
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText(
     'Helvetica Neue Regular glyph reference',
@@ -124,7 +124,7 @@ test('new remix generation reserves a shimmering target frame before resolving',
     'Aesthetic direction from sliders',
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText(
-    'the image should be just slightly surreal but not very surreal',
+    'Keep the image familiar, safe, conventional, and easy to understand',
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText('Canvas context')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Source preservation')
@@ -173,7 +173,7 @@ test('new remix generation reserves a shimmering target frame before resolving',
     expect(scrollMetrics.max - scrollMetrics.top).toBeLessThan(4)
   }
   await expect(page.locator('.prompt-observer-head')).toHaveCount(0)
-  await expect(page.getByLabel('Image generation prompt')).toContainText('active canvas node: Remix 1')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('active canvas node: Original Image')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Recent chat')
   await expect(page.getByLabel('Image generation prompt')).not.toContainText('Lifestyle beauty ad')
   await expect(page.getByLabel('Image generation prompt')).not.toContainText('Warm indoor')
@@ -388,13 +388,13 @@ test('saving current style adds a reusable persisted preset', async ({ page }) =
 test('suggestion apply generates a remix from the selected canvas source', async ({ page }) => {
   await page.goto('/')
 
-  await expect(page.getByLabel('Materiality')).toHaveValue('50')
-  await expect(page.getByLabel('Abstraction')).toHaveValue('23')
+  await expect(page.getByLabel('Materiality')).toHaveValue('70')
+  await expect(page.getByLabel('Abstraction')).toHaveValue('18')
 
   await page.getByRole('button', { name: 'Original Image', exact: true }).click()
   await page.getByRole('button', { name: 'Apply suggestion' }).click()
-  await expect(page.getByLabel('Materiality')).toHaveValue('62')
-  await expect(page.getByLabel('Abstraction')).toHaveValue('13')
+  await expect(page.getByLabel('Materiality')).toHaveValue('82')
+  await expect(page.getByLabel('Abstraction')).toHaveValue('8')
   await expect(page.getByLabel('Image generation prompt')).toContainText(
     'Use Original Image as the selected canvas source',
   )
@@ -614,8 +614,8 @@ test('remix from an uploaded canvas source carries staged slider deltas', async 
   await expect(prompt).toContainText('active canvas node: image-1')
   await expect(prompt).toContainText('Combined staged slider bundle')
   await expect(prompt).toContainText('Apply all 2 staged slider deltas together')
-  await expect(prompt).toContainText('Staging: +14 toward Candid')
-  await expect(prompt).toContainText('Materiality: +16 toward Tactile')
+  await expect(prompt).toContainText('Staging: +28 toward Candid')
+  await expect(prompt).toContainText('Materiality: -4 toward Digital')
   await expect(prompt).toContainText('Treat the uploaded pixels as the source of truth')
 })
 
@@ -840,9 +840,24 @@ test('selected canvas image shows its scalar recipe star plot above chat', async
     .getAttribute('src')
   expect(remixImageSrc).toContain('byredo-remix-1-seed-portrait.png')
   expect(remixImageSrc).not.toBe(originalImageSrc)
+  const originalBox = await page
+    .locator('.artboard-row .creative-stack')
+    .filter({ hasText: 'Original Image' })
+    .locator('.creative-card')
+    .boundingBox()
+  const remixBox = await page
+    .locator('.artboard-row .creative-stack')
+    .filter({ hasText: 'Remix 1' })
+    .locator('.creative-card')
+    .boundingBox()
+  expect(originalBox?.height).toBe(remixBox?.height)
 
   const starPlot = page.getByLabel('Selected image scalar recipe')
   await expect(starPlot).toBeVisible()
+  await expect(starPlot).toHaveAttribute('data-selected-variant-title', 'Original Image')
+  await expect(starPlot).toHaveAttribute('data-scalar-values', /presence:82/)
+
+  await page.getByRole('button', { name: 'Remix 1', exact: true }).click()
   await expect(starPlot).toHaveAttribute('data-selected-variant-title', 'Remix 1')
   await expect(starPlot).toHaveAttribute('data-scalar-values', /staging:84/)
   await expect(starPlot).toContainText('Staging')
@@ -854,9 +869,6 @@ test('selected canvas image shows its scalar recipe star plot above chat', async
   expect(plotBox).not.toBeNull()
   expect(chatLogBox).not.toBeNull()
   expect((plotBox?.y ?? 0) + (plotBox?.height ?? 0)).toBeLessThanOrEqual((chatLogBox?.y ?? 0) + 1)
-
-  await page.getByRole('button', { name: 'Original Image', exact: true }).click()
-  await expect(starPlot).toHaveAttribute('data-selected-variant-title', 'Original Image')
 
   const canvas = page.locator('.canvas-scroll')
   const canvasBox = await canvas.boundingBox()
@@ -983,7 +995,7 @@ test('dragging one artboard onto another creates a blended variant', async ({ pa
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText('Blend scalar midpoint')
   await expect(page.getByLabel('Image generation prompt')).toContainText(
-    'Staging midpoint: Original Image 78/100 + Remix 1 84/100 -> 81/100',
+    'Staging midpoint: Original Image 64/100 + Remix 1 84/100 -> 74/100',
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText(
     'Aesthetic direction from sliders',
@@ -1017,12 +1029,12 @@ test('blended variants average their recorded scalar recipes into verbal prompts
   const promptObserver = page.getByLabel('Image generation prompt')
   await expect(promptObserver).toContainText('Blend scalar midpoint')
   await expect(promptObserver).toContainText(
-    /Abstraction midpoint: (Original Image 23\/100 \+ Remix 2 100\/100|Remix 2 100\/100 \+ Original Image 23\/100) -> 62\/100/,
+    /Abstraction midpoint: (Original Image 18\/100 \+ Remix 2 100\/100|Remix 2 100\/100 \+ Original Image 18\/100) -> 59\/100/,
   )
   await expect(promptObserver).toContainText(
     'keep abstraction balanced, with enough stylization to feel designed',
   )
-  await expect(promptObserver).toContainText('scalar recipe Staging: 78/100')
+  await expect(promptObserver).toContainText('scalar recipe Staging: 64/100')
   await expect(page.getByText('Images blended')).toBeVisible()
 })
 
@@ -1151,13 +1163,13 @@ test('completed action summaries appear inline in chat with undo only', async ({
 
   await page.getByLabel('Novelty').fill('82')
   const summary = page.getByLabel('Completed action summary')
-  await expect(summary).toContainText('Novelty staged from 58 to 82')
+  await expect(summary).toContainText('Novelty staged from 34 to 82')
   await expect(summary).toContainText('Why it changed')
   await expect(summary).not.toContainText('Save Variant A')
   await expect(summary).not.toContainText('Save Variant B')
   await expect(summary).not.toContainText('Combine')
   await summary.getByRole('button', { name: 'Undo' }).click()
-  await expect(page.getByLabel('Novelty')).toHaveValue('58')
+  await expect(page.getByLabel('Novelty')).toHaveValue('34')
 })
 
 test('chat and failure states stay state-aware without exposed agent activity', async ({ page }) => {
@@ -1189,14 +1201,14 @@ test('chat and failure states stay state-aware without exposed agent activity', 
 
   await page.getByPlaceholder('Ask anything...').fill('make the face more candid')
   await page.getByRole('button', { name: 'Send message' }).click()
-  await expect(page.getByLabel('Staging')).toHaveValue('86')
+  await expect(page.getByLabel('Staging')).toHaveValue('72')
   await expect(page.getByTestId('chat-thinking')).toBeVisible()
   const streamingReply = page.locator('.chat-message.assistant[data-streaming="true"]').last()
   await expect(streamingReply).toBeVisible()
   const partialReply = await streamingReply.locator('.message-content').textContent()
   expect(partialReply?.length ?? 0).toBeGreaterThan(0)
   expect(partialReply?.length ?? 0).toBeLessThan(
-    'Staged: Staging staged from 78 to 86. Use Remix Image to generate the committed image.'.length,
+    'Staged: Staging 64 to 72. Use Remix Image to generate the committed image as a new canvas variant while preserving the latest chat context.'.length,
   )
   await expect(page.getByText(/committed image/)).toBeVisible()
   await expect(page.locator('.chat-message.assistant[data-streaming="true"]')).toHaveCount(0)
@@ -1238,7 +1250,7 @@ test('remix generation request includes recent chat and scalar context', async (
 
   await page.getByPlaceholder('Ask anything...').fill('make the face more candid')
   await page.getByRole('button', { name: 'Send message' }).click()
-  await expect(page.getByLabel('Staging')).toHaveValue('86')
+  await expect(page.getByLabel('Staging')).toHaveValue('72')
   await expect(page.getByLabel('Pending remix actions')).toBeVisible()
 
   await page.getByRole('button', { name: 'Remix Image' }).click()
@@ -1268,10 +1280,10 @@ test('remix generation request sends multiple staged slider changes together', a
   await expect(prompt).toContainText('Combined staged slider bundle')
   await expect(prompt).toContainText('Apply all 4 staged slider deltas together')
   await expect(prompt).toContainText('not only the most recent slider change')
-  await expect(prompt).toContainText('Staging: +14 toward Candid')
-  await expect(prompt).toContainText('Abstraction: -15 toward Literal')
-  await expect(prompt).toContainText('Novelty: +24 toward Surreal')
-  await expect(prompt).toContainText('Materiality: +16 toward Tactile')
+  await expect(prompt).toContainText('Staging: +28 toward Candid')
+  await expect(prompt).toContainText('Abstraction: -10 toward Literal')
+  await expect(prompt).toContainText('Novelty: +48 toward Surreal')
+  await expect(prompt).toContainText('Materiality: -4 toward Digital')
   await expect(prompt).toContainText('Aesthetic controls')
   await expect(prompt).toContainText('Materiality: 66/100')
   await expect(prompt).toContainText('Scalar ontology / visual calibration')
