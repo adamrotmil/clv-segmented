@@ -24,6 +24,15 @@ The app sends a `CreativeGenerationRequest` payload. The important server-facing
   sourceVariant: ImageVariant
   sourceIds: string[]
   imageInputs: ImageInputReference[]
+  outputFrame: {
+    sourceMediaSize?: { width: number; height: number }
+    sourceAspectRatioLabel: string
+    simplifiedAspectRatioLabel: string
+    modelSize: "1024x1024" | "1024x1536" | "1536x1024" | "auto"
+    visibleSourceFramePercent: { x: number; y: number; width: number; height: number }
+    safeFramePercent: { x: number; y: number; width: number; height: number }
+    instruction: string
+  }
   scalars: AestheticScalar[]
   scalarChanges: ScalarGenerationChange[]
   selectedSegment: SegmentAnnotation
@@ -46,6 +55,7 @@ The app sends a `CreativeGenerationRequest` payload. The important server-facing
     sourceVariantId: string
     sourceIds: string[]
     imageInputs: ImageInputReference[]
+    outputFrame: GenerationOutputFrame
     scalars: AestheticScalar[]
     scalarChanges: ScalarGenerationChange[]
     selectedSegments: SegmentAnnotation[]
@@ -198,11 +208,13 @@ const result = await openai.images.edit({
   ].filter(Boolean),
   prompt: promptRecipe.finalPrompt,
   quality: 'high',
-  size: outputSizeForSourceAspect,
+  size: request.outputFrame.modelSize,
 })
 ```
 
 If using a Responses API image tool instead, force edit behavior and fail closed if no image input is present. The important product rule is the same: a source-preserving remix must have real image inputs in the downstream image call.
+
+The worker should treat `outputFrame` as a frame contract, not decoration. For tall source assets, the closest image-model bucket may be wider than the source canvas. In that case, keep all typography, CTA, faces, hands, and product/package details inside `safeFramePercent` so that rendering in the source-ratio canvas does not crop the brand, copy, or product.
 
 ## Observability
 

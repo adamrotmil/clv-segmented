@@ -257,6 +257,31 @@ export type ImageInputReference = {
   scalarRecipe?: AestheticScalar[]
 }
 
+export type GenerationOutputFrame = {
+  sourceMediaSize?: {
+    width: number
+    height: number
+  }
+  sourceAspectRatio: number
+  sourceAspectRatioLabel: string
+  simplifiedAspectRatioLabel: string
+  modelSize: '1024x1024' | '1024x1536' | '1536x1024' | 'auto'
+  modelAspectRatio: number
+  visibleSourceFramePercent: {
+    x: number
+    y: number
+    width: number
+    height: number
+  }
+  safeFramePercent: {
+    x: number
+    y: number
+    width: number
+    height: number
+  }
+  instruction: string
+}
+
 export type SceneDescription = {
   subject: string
   setting: string
@@ -332,6 +357,7 @@ export type PromptComposerRequest = {
   }
   scalarOntologyRefs: string[]
   scalarVisualCalibrationRefs: string[]
+  outputFrame: GenerationOutputFrame
   selectedSegments: SegmentAnnotation[]
   chatContext: ChatMessage[]
   promptDraft: string
@@ -360,6 +386,7 @@ export type CreativeGenerationRequest = {
   sourceVariant: ImageVariant
   sourceIds: string[]
   imageInputs: ImageInputReference[]
+  outputFrame: GenerationOutputFrame
   selectedSegment: SegmentAnnotation
   scalars: AestheticScalar[]
   scalarChanges: ScalarGenerationChange[]

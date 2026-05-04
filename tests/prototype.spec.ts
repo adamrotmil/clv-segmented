@@ -110,6 +110,16 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Image generation prompt')).toContainText(
     'Create a vertical premium social ad matching the selected source aspect ratio (853:1844)',
   )
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Frame contract / crop safety')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('sourceAspect 853:1844')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('modelSize 1024x1536')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('visibleSourceFrame x15.3%')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('safeFrame x19.3%')
+  await expect(page.getByLabel('Image generation prompt')).toContainText(
+    'Keep the complete wordmark, product line, subcopy, CTA, and product package fully in-frame',
+  )
+  await expect(page.getByLabel('Generation observability stream')).toContainText('"size": "1024x1536"')
+  await expect(page.getByLabel('Generation observability stream')).toContainText('"outputFrame"')
   await expect(page.getByLabel('Image generation prompt')).toContainText(
     'imageInputs[0]: source; id original; title Original Image',
   )
@@ -668,6 +678,8 @@ test('uploaded portrait images keep aspect ratio and get upload-specific segment
     'Create a vertical premium social ad matching the selected source aspect ratio',
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText('dimensions 853x1844')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('modelSize 1024x1536')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('safeFrame')
   await expect(page.getByLabel('Image generation prompt')).toContainText(
     'do not crop it into a square',
   )

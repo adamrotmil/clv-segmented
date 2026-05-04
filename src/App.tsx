@@ -51,6 +51,7 @@ import type {
   CreativeAsset,
   CreativeGenerationRequest,
   GenerationTraceEvent,
+  GenerationOutputFrame,
   ImagePromptPacket,
   ImageInputReference,
   ImageVariant,
@@ -848,6 +849,102 @@ function readImageSize(imageUrl: string) {
   })
 }
 
+function greatestCommonDivisor(a: number, b: number): number {
+  return b === 0 ? Math.abs(a) : greatestCommonDivisor(b, a % b)
+}
+
+function simplifiedAspectRatioLabel(width: number, height: number) {
+  const divisor = greatestCommonDivisor(width, height) || 1
+  return `${Math.round(width / divisor)}:${Math.round(height / divisor)}`
+}
+
+function modelSizeForAspectRatio(aspectRatio: number): GenerationOutputFrame['modelSize'] {
+  if (!Number.isFinite(aspectRatio) || aspectRatio <= 0) return 'auto'
+  if (aspectRatio < 0.85) return '1024x1536'
+  if (aspectRatio > 1.15) return '1536x1024'
+  return '1024x1024'
+}
+
+function modelAspectRatioForSize(size: GenerationOutputFrame['modelSize']) {
+  if (size === '1024x1536') return 1024 / 1536
+  if (size === '1536x1024') return 1536 / 1024
+  return 1
+}
+
+function insetFrame(
+  frame: GenerationOutputFrame['visibleSourceFramePercent'],
+  insetPercent: number,
+) {
+  const horizontalInset = Math.min(frame.width / 2 - 1, insetPercent)
+  const verticalInset = Math.min(frame.height / 2 - 1, insetPercent)
+
+  return {
+    x: Number((frame.x + horizontalInset).toFixed(1)),
+    y: Number((frame.y + verticalInset).toFixed(1)),
+    width: Number(Math.max(1, frame.width - horizontalInset * 2).toFixed(1)),
+    height: Number(Math.max(1, frame.height - verticalInset * 2).toFixed(1)),
+  }
+}
+
+function outputFrameForVariant(sourceVariant: ImageVariant): GenerationOutputFrame {
+  const sourceMediaSize = sourceVariant.mediaSize
+  const sourceAspectRatio =
+    sourceMediaSize?.width && sourceMediaSize.height
+      ? sourceMediaSize.width / sourceMediaSize.height
+      : 1
+  const sourceAspectRatioLabel = sourceMediaSize
+    ? `${sourceMediaSize.width}:${sourceMediaSize.height}`
+    : 'unknown'
+  const simplifiedRatio = sourceMediaSize
+    ? simplifiedAspectRatioLabel(sourceMediaSize.width, sourceMediaSize.height)
+    : '1:1'
+  const modelSize = modelSizeForAspectRatio(sourceAspectRatio)
+  const modelAspectRatio = modelAspectRatioForSize(modelSize)
+  const visibleWidth =
+    sourceAspectRatio < modelAspectRatio
+      ? Number(((sourceAspectRatio / modelAspectRatio) * 100).toFixed(1))
+      : 100
+  const visibleHeight =
+    sourceAspectRatio > modelAspectRatio
+      ? Number(((modelAspectRatio / sourceAspectRatio) * 100).toFixed(1))
+      : 100
+  const visibleSourceFramePercent = {
+    x: Number(((100 - visibleWidth) / 2).toFixed(1)),
+    y: Number(((100 - visibleHeight) / 2).toFixed(1)),
+    width: visibleWidth,
+    height: visibleHeight,
+  }
+  const safeFramePercent = insetFrame(visibleSourceFramePercent, 4)
+
+  return {
+    sourceMediaSize,
+    sourceAspectRatio: Number(sourceAspectRatio.toFixed(4)),
+    sourceAspectRatioLabel,
+    simplifiedAspectRatioLabel: simplifiedRatio,
+    modelSize,
+    modelAspectRatio: Number(modelAspectRatio.toFixed(4)),
+    visibleSourceFramePercent,
+    safeFramePercent,
+    instruction:
+      `Preserve the selected source frame ${sourceAspectRatioLabel} (${simplifiedRatio}). ` +
+      `If ${modelSize} is used by the image model, compose all critical typography, CTA, faces, and product/package details inside the visible source-frame window ` +
+      `x${visibleSourceFramePercent.x}% y${visibleSourceFramePercent.y}% w${visibleSourceFramePercent.width}% h${visibleSourceFramePercent.height}%, with the practical safe area ` +
+      `x${safeFramePercent.x}% y${safeFramePercent.y}% w${safeFramePercent.width}% h${safeFramePercent.height}%.`,
+  }
+}
+
+function outputFramePromptLines(outputFrame: GenerationOutputFrame) {
+  return [
+    `sourceDimensions ${outputFrame.sourceAspectRatioLabel}`,
+    `sourceAspect ${outputFrame.sourceAspectRatioLabel} (${outputFrame.simplifiedAspectRatioLabel}; ${outputFrame.sourceAspectRatio}:1)`,
+    `modelSize ${outputFrame.modelSize}`,
+    `modelAspect ${outputFrame.modelAspectRatio}:1`,
+    `visibleSourceFrame x${outputFrame.visibleSourceFramePercent.x}% y${outputFrame.visibleSourceFramePercent.y}% w${outputFrame.visibleSourceFramePercent.width}% h${outputFrame.visibleSourceFramePercent.height}%`,
+    `safeFrame x${outputFrame.safeFramePercent.x}% y${outputFrame.safeFramePercent.y}% w${outputFrame.safeFramePercent.width}% h${outputFrame.safeFramePercent.height}%`,
+    outputFrame.instruction,
+  ]
+}
+
 function cleanUploadTitle(fileName: string) {
   const baseName = fileName.replace(/\.[^.]+$/, '').trim()
   return baseName || 'Imported image'
@@ -1346,6 +1443,7 @@ function imageModelPromptForRequest({
   focusedSegments,
   scalarChanges,
   scalarTranslation,
+  outputFrame,
   sceneDescription,
   trace,
   chatText,
@@ -1359,6 +1457,7 @@ function imageModelPromptForRequest({
   focusedSegments: SegmentAnnotation[]
   scalarChanges: CreativeGenerationRequest['scalarChanges']
   scalarTranslation: ScalarPromptTranslation
+  outputFrame: GenerationOutputFrame
   sceneDescription: SceneDescription
   trace: ChangeTrace
   chatText: string
@@ -1373,10 +1472,12 @@ function imageModelPromptForRequest({
   const typographyLines = typographyDnaLines(sourceVariant)
   const selectedSegmentLabels = focusedSegments.map((segment) => segment.label).join(', ')
   const inputSummary = imageInputs.map((input, index) => imageInputLine(input, index)).join('\n')
+  const outputFrameLines = outputFramePromptLines(outputFrame)
 
   return [
     'Image Prompt',
     `${aspectRatioPromptForVariant(sourceVariant)} for ${brandCategoryForPrompt(asset, sourceVariant)}. Use ${sourceVariant.title} as the selected canvas source and preserve its campaign identity while generating ${outputTitle}.`,
+    `Frame contract / crop safety:\n${outputFrameLines.map((line) => `- ${line}`).join('\n')}\nDo not place text, CTA, faces, hands, or the advertised product outside that safe frame. Keep the complete wordmark, product line, subcopy, CTA, and product package fully in-frame with intentional breathing room.`,
     `Editorial lifestyle photography should be grounded in the source image DNA: ${sourceDna.join(' ')} The result should feel like a refined production-ready ad, not a layout mockup or UI screen.`,
     `Subject and scene: ${sceneDescription.subject} ${sceneDescription.setting} ${sceneDescription.composition}`,
     `Product: preserve ${productLines.join(' ')}. The product should remain premium, tactile, visible, correctly scaled, and recognizably the exact same advertised product from imageInputs[0].`,
@@ -1435,6 +1536,7 @@ function visualContextForGeneratedRequest(request: CreativeGenerationRequest): I
 
 function buildNegativePrompt({
   sourceVariant,
+  outputFrame,
   imageInputs,
   intent,
   focusedSegments,
@@ -1442,6 +1544,7 @@ function buildNegativePrompt({
   chatContext,
 }: {
   sourceVariant: ImageVariant
+  outputFrame: GenerationOutputFrame
   imageInputs: ImageInputReference[]
   intent: CreativeGenerationRequest['intent']
   focusedSegments: SegmentAnnotation[]
@@ -1475,6 +1578,7 @@ function buildNegativePrompt({
     sourceVariant.mediaSize
       ? `Do not crop, pad, or reframe the source into a square. Preserve the source aspect ratio ${sourceVariant.mediaSize.width}x${sourceVariant.mediaSize.height}.`
       : '',
+    `Do not place typography, CTA, faces, hands, or the product outside the source-visible safe frame: x${outputFrame.safeFramePercent.x}% y${outputFrame.safeFramePercent.y}% w${outputFrame.safeFramePercent.width}% h${outputFrame.safeFramePercent.height}%. Avoid edge-cropped wordmarks, truncated copy, and half-visible product packaging.`,
     userInstruction ? `Do not contradict the latest user chat instruction: ${userInstruction}.` : '',
     ...sourceAvoidanceLines(sourceVariant).map((item) => `Avoid ${item}.`),
     `Do not invent unsupported product, brand, audience, or claim context beyond the supplied request packet.`,
@@ -3129,6 +3233,7 @@ function App() {
     outputTitle,
     sourceVariant,
     imageInputs,
+    outputFrame,
     nextScalars,
     scalarChanges,
     scalarTranslation,
@@ -3142,6 +3247,7 @@ function App() {
     outputTitle: string
     sourceVariant: ImageVariant
     imageInputs: ImageInputReference[]
+    outputFrame: GenerationOutputFrame
     nextScalars: AestheticScalar[]
     scalarChanges: CreativeGenerationRequest['scalarChanges']
     scalarTranslation: ScalarPromptTranslation
@@ -3186,8 +3292,10 @@ function App() {
       sourceVariant,
       imageInputs,
     })
+    const outputFrameLines = outputFramePromptLines(outputFrame)
     const negativePrompt = buildNegativePrompt({
       sourceVariant,
+      outputFrame,
       imageInputs,
       intent,
       focusedSegments,
@@ -3212,6 +3320,7 @@ function App() {
       focusedSegments,
       scalarChanges,
       scalarTranslation,
+      outputFrame,
       sceneDescription,
       trace,
       chatText,
@@ -3223,6 +3332,7 @@ function App() {
       `Intent: ${intent}`,
       `Asset: ${activeCanvasAsset.name}; channel ${activeCanvasAsset.channel}; version ${activeCanvasAsset.version}`,
       `Canvas context:\n${generationInputs}`,
+      `Frame contract / crop safety:\n${outputFrameLines.map((line) => `- ${line}`).join('\n')}`,
       `Source preservation:\n${sourceLockLines(sourceVariant).map((line) => `- ${line}`).join('\n')}`,
       `Source-fidelity remix gate:\n- ${sourceFidelityPolicy.primaryRoute}\n- ${sourceFidelityPolicy.fallbackPolicy}\n- Region locks:\n${sourceFidelityPolicy.regionLocks.map((line) => `  - ${line}`).join('\n')}\n- Critic checks:\n${sourceFidelityPolicy.criticChecks.map((line) => `  - ${line}`).join('\n')}`,
       `Source image DNA / vision read:\n${sourceDnaLines(sourceVariant).map((line) => `- ${line}`).join('\n')}`,
@@ -3259,6 +3369,7 @@ function App() {
         { label: 'Intent', value: intent },
         { label: 'Output', value: outputTitle },
         { label: 'Source image', value: sourceVariant.title },
+        { label: 'Frame contract', value: outputFrameLines.join('\n') },
         { label: 'Image inputs', value: imageInputSummary },
         {
           label: 'Selected SAM',
@@ -3374,6 +3485,7 @@ function App() {
       new Set([...promptHints, scalarBundlePromptHint(scalarChanges)].filter(Boolean)),
     )
     const imageInputs = buildImageInputs(sourceIds, sourceVariant)
+    const outputFrame = outputFrameForVariant(sourceVariant)
     const sourceSegments = segmentsForVariant(sourceVariant)
     const focusedSegmentIds = focusedSegmentIdsOverride?.length
       ? focusedSegmentIdsOverride
@@ -3408,6 +3520,7 @@ function App() {
       outputTitle,
       sourceVariant,
       imageInputs,
+      outputFrame,
       nextScalars,
       scalarChanges,
       scalarTranslation,
@@ -3432,6 +3545,7 @@ function App() {
       sourceVariantId: sourceVariant.id,
       sourceIds,
       imageInputs,
+      outputFrame,
       scalars: nextScalars,
       scalarChanges,
       scalarBundle: {
@@ -3468,6 +3582,7 @@ function App() {
       sourceVariant,
       sourceIds,
       imageInputs,
+      outputFrame,
       selectedSegment: selectedGenerationSegment,
       scalars: nextScalars,
       scalarChanges,
@@ -7794,7 +7909,6 @@ function generationTraceEventsForRun(run: GenerationPromptRun): GenerationTraceE
 
 function redactedImageRequestPayloadForRun(run: GenerationPromptRun) {
   const { request } = run
-  const mediaSize = generationMediaSizeForRequest(request) ?? { width: 1024, height: 1024 }
   const evidence = run.sourceFidelity?.evidence
   const scalarTranslation = request.promptComposer.scalarPromptTranslation
 
@@ -7809,7 +7923,8 @@ function redactedImageRequestPayloadForRun(run: GenerationPromptRun) {
     intent: request.intent,
     output: request.outputTitle,
     quality: 'high',
-    size: `${mediaSize.width}x${mediaSize.height}`,
+    size: request.outputFrame.modelSize,
+    outputFrame: request.outputFrame,
     providerMode: run.providerMode ?? 'pending-source-preserving-edit',
     imageInputs: request.imageInputs.map((input, index) => redactedImageInputPayload(input, index)),
     prompt: run.promptRecipe?.finalPrompt ?? request.imagePrompt.promptDraft,
