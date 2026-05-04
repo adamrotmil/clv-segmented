@@ -796,6 +796,56 @@ test('dragging empty canvas pans the viewport like a canvas tool', async ({ page
   expect(Math.abs(firstDy - secondDy)).toBeLessThan(1)
 })
 
+test('thumbnail strip navigates to and centers the matching remix', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByLabel('Staging').fill('78')
+  await page.getByRole('button', { name: 'Remix Image' }).click()
+  await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
+
+  const canvas = page.locator('.canvas-scroll')
+  const remixStack = page.locator('.artboard-row .creative-stack').filter({ hasText: 'Remix 2' }).first()
+  const remixCard = remixStack.locator('.creative-card')
+  const remixTitle = remixStack.getByRole('button', { name: 'Remix 2', exact: true })
+  const canvasBox = await canvas.boundingBox()
+  expect(canvasBox).not.toBeNull()
+
+  const startX = (canvasBox?.x ?? 0) + (canvasBox?.width ?? 0) / 2
+  const startY = (canvasBox?.y ?? 0) + 132
+  await page.mouse.move(startX, startY)
+  await page.mouse.down()
+  await page.mouse.move(startX - 210, startY - 116, { steps: 8 })
+  await page.mouse.up()
+
+  await page.getByRole('button', { name: 'Navigate to Remix 2' }).click()
+  await expect(remixStack).toHaveClass(/selected/)
+
+  await expect
+    .poll(async () => {
+      const currentCanvasBox = await canvas.boundingBox()
+      const currentCardBox = await remixCard.boundingBox()
+      if (!currentCanvasBox || !currentCardBox) return Number.POSITIVE_INFINITY
+
+      const canvasCenter = currentCanvasBox.x + currentCanvasBox.width / 2
+      const cardCenter = currentCardBox.x + currentCardBox.width / 2
+      return Math.abs(cardCenter - canvasCenter)
+    })
+    .toBeLessThan(46)
+
+  const finalCanvasBox = await canvas.boundingBox()
+  const finalTitleBox = await remixTitle.boundingBox()
+  const finalCardBox = await remixCard.boundingBox()
+  const stripBox = await page.locator('.variant-strip').boundingBox()
+  expect(finalCanvasBox).not.toBeNull()
+  expect(finalTitleBox).not.toBeNull()
+  expect(finalCardBox).not.toBeNull()
+  expect(stripBox).not.toBeNull()
+  expect(finalTitleBox?.y ?? 0).toBeGreaterThanOrEqual((finalCanvasBox?.y ?? 0) + 34)
+  expect((finalCardBox?.y ?? 0) + (finalCardBox?.height ?? 0)).toBeLessThanOrEqual(
+    (stripBox?.y ?? 0) - 12,
+  )
+})
+
 test('canvas background click clears selection and enables trackpad panning', async ({ page }) => {
   await page.goto('/')
 

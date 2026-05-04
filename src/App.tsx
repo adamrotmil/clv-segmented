@@ -1869,6 +1869,56 @@ function panForArtboardVisibility({
   }
 }
 
+function panForArtboardCenter({
+  origin,
+  size,
+  scale,
+  viewportWidth,
+  viewportHeight,
+  paddingTop,
+  columns,
+  hasVariantStrip,
+}: {
+  origin: DragOffset
+  size: { width: number; height: number }
+  scale: number
+  viewportWidth: number
+  viewportHeight: number
+  paddingTop: number
+  columns: number
+  hasVariantStrip: boolean
+}) {
+  const safeScale = scale || 1
+  const rowWidth = artboardRowWidth(columns) * safeScale
+  const rowLeft = viewportWidth / 2 - rowWidth / 2
+  const titleSegmentAndScoreInset = 74 * safeScale
+  const breathing = Math.min(56, Math.max(34, viewportWidth * 0.055))
+  const topBreathing = Math.min(82, Math.max(58, viewportHeight * 0.08))
+  const bottomInset = hasVariantStrip
+    ? Math.min(150, Math.max(116, viewportHeight * 0.16))
+    : Math.min(78, Math.max(54, viewportHeight * 0.08))
+  const baseLeft = rowLeft + origin.x * safeScale
+  const baseTop = paddingTop + origin.y * safeScale - 6 * safeScale
+  const targetWidth = size.width * safeScale
+  const targetHeight = size.height * safeScale + titleSegmentAndScoreInset
+  const centeredPan = {
+    x: (breathing + (viewportWidth - breathing)) / 2 - baseLeft - targetWidth / 2,
+    y: (topBreathing + (viewportHeight - bottomInset)) / 2 - baseTop - targetHeight / 2,
+  }
+
+  return panForArtboardVisibility({
+    origin,
+    size,
+    pan: centeredPan,
+    scale,
+    viewportWidth,
+    viewportHeight,
+    paddingTop,
+    columns,
+    hasVariantStrip,
+  })
+}
+
 function arrangedPositionsForGroups(
   variants: ImageVariant[],
   action: Extract<AssistantCanvasAction, { type: 'arrange-canvas' }>,
@@ -6027,6 +6077,35 @@ function CanvasWorkspace({
     artboardDrag.resetPositions(canvasVariants.map((variant) => variant.id))
   }
 
+  function focusVariantOnCanvas(variantId: string) {
+    const targetIndex = canvasVariants.findIndex((variant) => variant.id === variantId)
+    const targetVariant = canvasVariants[targetIndex]
+    const viewport = canvasScrollRef.current
+    if (!targetVariant || !viewport) return
+
+    const targetOrigin = artboardOrigin(
+      targetIndex,
+      artboardDrag.positions[targetVariant.id],
+      gridColumns,
+    )
+    const targetPan = panForArtboardCenter({
+      origin: targetOrigin,
+      size: displaySizeForVariant(targetVariant),
+      scale: artboardScale,
+      viewportWidth: viewport.clientWidth,
+      viewportHeight: viewport.clientHeight,
+      paddingTop: Number.parseFloat(window.getComputedStyle(viewport).paddingTop) || 0,
+      columns: gridColumns,
+      hasVariantStrip: generatedVariants.length > 0,
+    })
+    canvasPan.animatePanTo(targetPan)
+  }
+
+  function navigateToVariant(variantId: string) {
+    selectCanvasVariant(variantId)
+    focusVariantOnCanvas(variantId)
+  }
+
   function openNodeMenu(variantId: string, event: MouseEvent<HTMLElement>) {
     event.preventDefault()
     event.stopPropagation()
@@ -6240,7 +6319,8 @@ function CanvasWorkspace({
                 } ${
                   variant.sourceFidelity?.mode === 'fallback-generation' ? 'fallback-generated' : ''
                 }`}
-                onClick={() => onSelectVariant(variant.id)}
+                aria-label={`Navigate to ${variant.title}`}
+                onClick={() => navigateToVariant(variant.id)}
               >
                 <img src={variant.image} alt="" style={{ filter: variant.filter }} />
                 {variant.status === 'generating' ? <span className="thumb-shimmer" /> : null}
