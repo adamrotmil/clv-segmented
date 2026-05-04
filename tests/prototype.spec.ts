@@ -102,6 +102,11 @@ test('new remix generation reserves a shimmering target frame before resolving',
     (stripBox?.y ?? 0) - 14,
   )
   await expect(page.getByLabel('Image generation prompt')).toBeVisible()
+  const starPlotBox = await page.getByLabel('Selected image scalar recipe').boundingBox()
+  const observabilityBox = await page.getByLabel('Image generation prompt').boundingBox()
+  expect(starPlotBox).not.toBeNull()
+  expect(observabilityBox).not.toBeNull()
+  expect((starPlotBox?.y ?? 0) + (starPlotBox?.height ?? 0)).toBeLessThanOrEqual((observabilityBox?.y ?? 0) + 1)
   await expect(page.getByLabel('Image generation prompt')).toContainText('Generation target: Remix 2')
   await expect(page.getByLabel('Image generation prompt')).toContainText('imageInputs')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Image inputs')

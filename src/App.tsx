@@ -7792,6 +7792,9 @@ function AssistantPanel({
           <PanelRight20Regular aria-hidden="true" />
         </button>
       </header>
+      {selectedVariant ? (
+        <AssistantScalarStarPlot variant={selectedVariant} scalars={selectedVariantScalars} />
+      ) : null}
       {showTraceRegion ? (
         <div className="assistant-trace-region">
           <InteractionTrace
@@ -7806,9 +7809,6 @@ function AssistantPanel({
             showSummary={false}
           />
         </div>
-      ) : null}
-      {selectedVariant ? (
-        <AssistantScalarStarPlot variant={selectedVariant} scalars={selectedVariantScalars} />
       ) : null}
       <div className="chat-log" ref={chatLogRef}>
         {messages.map((message) => (
