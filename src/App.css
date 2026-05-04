@@ -393,17 +393,7 @@ button {
   margin-bottom: 24px;
 }
 
-.section-title .spin-mark {
-  position: relative;
-  width: 16px;
-  height: 16px;
-  border: 2px solid #7c7f87;
-  border-left-color: transparent;
-  border-radius: 50%;
-}
-
-.section-title-label,
-.section-title span:nth-child(2) {
+.section-title-label {
   flex: 1;
 }
 

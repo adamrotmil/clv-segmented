@@ -1141,6 +1141,7 @@ test('SAM segment focus mirrors across compared images and supports shift select
 test('accordion controls collapse and restore inspector and score sections', async ({ page }) => {
   await page.goto('/')
 
+  await expect(page.locator('.styles-section .spin-mark')).toHaveCount(0)
   await expect(page.getByLabel('Staging')).toBeVisible()
   await page.getByRole('button', { name: /Intent & Style/ }).first().click()
   await expect(page.getByLabel('Staging')).toBeHidden()

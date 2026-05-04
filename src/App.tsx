@@ -5477,7 +5477,6 @@ function LeftInspector({
           title="Pre-set styles"
           open={stylesOpen}
           onToggle={() => setStylesOpen((open) => !open)}
-          leading={<span className="spin-mark" />}
         />
         {stylesOpen ? (
           <div
