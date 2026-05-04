@@ -169,7 +169,7 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Generation observability stream')).toContainText('scalar-remix')
   await expect(page.getByLabel('Generation observability stream')).toContainText('preservationLocks')
   await expect(page.getByLabel('Generation observability stream')).toContainText('tokenEvidence')
-  await expect(page.getByLabel('Generation observability stream')).toContainText('sam_request')
+  await expect(page.getByLabel('Generation observability stream')).toContainText('segmentation_fallback')
   await expect(page.getByLabel('Generation observability stream')).toContainText('projectedFallbackPreview')
   await expect(page.getByLabel('Generation observability stream')).not.toContainText(
     'details in SAM accordion',

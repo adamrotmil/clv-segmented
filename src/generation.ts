@@ -486,6 +486,7 @@ function normalizeGenerationResult(
     promptRecipe,
     sourceFidelity,
     traceEvents: fidelityResult.traceEvents ?? fidelityResult.generationTraceEvents,
+    mediaSize: fidelityResult.mediaSize,
   }
 }
 
@@ -532,6 +533,13 @@ function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+function mediaSizeForModelSize(size: CreativeGenerationRequest['outputFrame']['modelSize']) {
+  if (size === '1024x1024') return { width: 1024, height: 1024 }
+  if (size === '1024x1536') return { width: 1024, height: 1536 }
+  if (size === '1536x1024') return { width: 1536, height: 1024 }
+  return undefined
+}
+
 async function simulateGeneration(request: CreativeGenerationRequest) {
   await wait(1200)
   const intentFilter =
@@ -546,6 +554,7 @@ async function simulateGeneration(request: CreativeGenerationRequest) {
     {
       filter: `${request.baseFilter} ${intentFilter}`,
       promptRecipe: mockPromptRecipeFor(request),
+      mediaSize: mediaSizeForModelSize(request.outputFrame.modelSize),
     },
     'mock',
   )

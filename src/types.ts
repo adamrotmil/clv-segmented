@@ -76,6 +76,9 @@ export type SourceFidelityEvidence = {
   imageTokens?: number
   textTokens?: number
   totalTokens?: number
+  requestedModelSize?: string
+  providerModelSize?: string
+  providerPromptHash?: string
   retryCount?: number
   fallbackReason?: string
 }
@@ -304,6 +307,12 @@ export type ImagePromptPacket = {
 
 export type PromptRecipe = {
   visualRead: string
+  ontologyInterpretation?: Array<{
+    id: string
+    scale: string
+    definitionUsed: string
+    currentValueMeaning: string
+  }>
   finalPrompt: string
   negativePrompt: string
   composedAt: string
@@ -318,7 +327,23 @@ export type PromptRecipe = {
     label: string
     value: number
     instruction: string
+    before?: number
+    after?: number
+    promptImplication?: string
   }>
+  constraintPriorities?: string[]
+  promptStrategy?: string[]
+  conflictResolutions?: Array<{
+    conflict: string
+    resolution: string
+  }>
+  warnings?: string[]
+  composerPrompt?: string
+  providerPrompt?: string
+  composerPromptHash?: string
+  providerPromptHash?: string
+  providerPromptMatchesRecipe?: boolean
+  providerRequest?: Record<string, unknown>
   observability?: Array<{
     lane: 'vision' | 'prompt' | 'image' | 'sam' | 'context'
     text: string
@@ -327,10 +352,65 @@ export type PromptRecipe = {
 }
 
 export type GenerationTraceEvent =
-  | { type: 'payload'; label: 'image_request' | 'sam_request' | 'prompt_composer_request' | (string & {}); text: string; at: string }
-  | { type: 'phase'; text: string; at: string }
-  | { type: 'result'; durationMs: number; providerMode: string; imageTokens?: number; textTokens?: number; totalTokens?: number; sourceFidelity?: SourceFidelityAuthorityStatus; at: string }
-  | { type: 'error'; text: string; at: string }
+  | {
+      type: 'payload'
+      label:
+        | 'generation_request'
+        | 'generation_request_preview'
+        | 'composer_prompt'
+        | 'composer_output'
+        | 'image_request'
+        | 'image_result'
+        | 'segmentation_request'
+        | 'segmentation_result'
+        | 'segmentation_fallback'
+        | (string & {})
+      text: string
+      at: string
+      origin?: string
+      status?: 'preview' | 'queued' | 'started' | 'completed' | 'failed'
+      startedAt?: string
+      completedAt?: string
+      durationMs?: number
+      isSynthetic?: boolean
+    }
+  | {
+      type: 'phase'
+      text: string
+      at: string
+      origin?: string
+      status?: 'preview' | 'queued' | 'started' | 'completed' | 'failed'
+      startedAt?: string
+      completedAt?: string
+      durationMs?: number
+      isSynthetic?: boolean
+    }
+  | {
+      type: 'result'
+      durationMs: number
+      providerMode: string
+      imageTokens?: number
+      textTokens?: number
+      totalTokens?: number
+      sourceFidelity?: SourceFidelityAuthorityStatus
+      at: string
+      origin?: string
+      status?: 'preview' | 'queued' | 'started' | 'completed' | 'failed'
+      startedAt?: string
+      completedAt?: string
+      isSynthetic?: boolean
+    }
+  | {
+      type: 'error'
+      text: string
+      at: string
+      origin?: string
+      status?: 'preview' | 'queued' | 'started' | 'completed' | 'failed'
+      startedAt?: string
+      completedAt?: string
+      durationMs?: number
+      isSynthetic?: boolean
+    }
 
 export type PromptComposerRequest = {
   requestId: string
@@ -428,6 +508,10 @@ export type CreativeGenerationResult = {
   promptRecipe?: PromptRecipe
   sourceFidelity: SourceFidelityReport
   traceEvents?: GenerationTraceEvent[]
+  mediaSize?: {
+    width: number
+    height: number
+  }
 }
 
 export type SegmentImageRequest = {

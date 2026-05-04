@@ -136,6 +136,7 @@ type GenerationPromptRun = {
   segmentationResult?: SegmentImageResult
   segmentationError?: string
   traceEvents?: GenerationTraceEvent[]
+  mediaSize?: ImageVariant['mediaSize']
   completedAt?: string
 }
 
@@ -994,6 +995,13 @@ function modelAspectRatioForSize(size: GenerationOutputFrame['modelSize']) {
   return 1
 }
 
+function mediaSizeForModelSize(size: GenerationOutputFrame['modelSize']): ImageVariant['mediaSize'] {
+  if (size === '1024x1024') return { width: 1024, height: 1024 }
+  if (size === '1024x1536') return { width: 1024, height: 1536 }
+  if (size === '1536x1024') return { width: 1536, height: 1024 }
+  return undefined
+}
+
 function insetFrame(
   frame: GenerationOutputFrame['visibleSourceFramePercent'],
   insetPercent: number,
@@ -1785,7 +1793,20 @@ function clampDragOffset(value: number, limit: number) {
 }
 
 function generationMediaSizeForRequest(request: CreativeGenerationRequest) {
-  return request.sourceVariant.mediaSize
+  return mediaSizeForModelSize(request.outputFrame.modelSize) ?? request.sourceVariant.mediaSize
+}
+
+async function mediaSizeForGeneratedImage(
+  generation: CreativeGenerationResult,
+  request: CreativeGenerationRequest,
+) {
+  if (generation.mediaSize?.width && generation.mediaSize.height) return generation.mediaSize
+
+  try {
+    return await readImageSize(generation.image)
+  } catch {
+    return generationMediaSizeForRequest(request)
+  }
 }
 
 function useArtboardDrag(
@@ -2966,12 +2987,13 @@ function App() {
 
     const draftAtRequest = cloneScalarRecipe(draftScalars)
     const generation = await requestCreativeGeneration(generationRequest)
+    const generatedMediaSize = await mediaSizeForGeneratedImage(generation, generationRequest)
     const remix: ImageVariant = {
       id: nextId,
       title: generation.title,
       kind: 'generated',
       image: generation.image,
-      mediaSize: generationMediaSizeForRequest(generationRequest),
+      mediaSize: generatedMediaSize,
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -3028,12 +3050,13 @@ function App() {
       generation.providerMode,
       generation.sourceFidelity,
       generation.traceEvents,
+      generatedMediaSize,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
-      mediaSize: generationMediaSizeForRequest(generationRequest),
+      mediaSize: generatedMediaSize,
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
@@ -3848,6 +3871,7 @@ function App() {
     providerMode?: string,
     sourceFidelity?: SourceFidelityReport,
     traceEvents?: GenerationTraceEvent[],
+    mediaSize?: ImageVariant['mediaSize'],
   ) {
     updateGenerationRequestRun(requestId, {
       status: 'completed',
@@ -3856,6 +3880,7 @@ function App() {
       providerMode,
       sourceFidelity,
       traceEvents,
+      mediaSize,
       completedAt: new Date().toISOString(),
       segmentationStatus: 'segmenting',
     })
@@ -4223,12 +4248,13 @@ function App() {
     )
     startWork('remixing', pendingTrace, false)
     const generation = await requestCreativeGeneration(generationRequest)
+    const generatedMediaSize = await mediaSizeForGeneratedImage(generation, generationRequest)
     const remix: ImageVariant = {
       id: nextId,
       title: generation.title,
       kind: 'generated',
       image: generation.image,
-      mediaSize: generationMediaSizeForRequest(generationRequest),
+      mediaSize: generatedMediaSize,
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -4282,12 +4308,13 @@ function App() {
       generation.providerMode,
       generation.sourceFidelity,
       generation.traceEvents,
+      generatedMediaSize,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
-      mediaSize: generationMediaSizeForRequest(generationRequest),
+      mediaSize: generatedMediaSize,
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
@@ -4362,12 +4389,13 @@ function App() {
     startWork('remixing', pendingTrace, false)
     const draftAtRequest = cloneScalarRecipe(draftScalars)
     const generation = await requestCreativeGeneration(generationRequest)
+    const generatedMediaSize = await mediaSizeForGeneratedImage(generation, generationRequest)
     const remix: ImageVariant = {
       id: nextId,
       title: generation.title,
       kind: 'generated',
       image: generation.image,
-      mediaSize: generationMediaSizeForRequest(generationRequest),
+      mediaSize: generatedMediaSize,
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -4422,12 +4450,13 @@ function App() {
       generation.providerMode,
       generation.sourceFidelity,
       generation.traceEvents,
+      generatedMediaSize,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
-      mediaSize: generationMediaSizeForRequest(generationRequest),
+      mediaSize: generatedMediaSize,
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
@@ -4507,12 +4536,13 @@ function App() {
     )
     startWork('remixing', pendingTrace, false)
     const generation = await requestCreativeGeneration(generationRequest)
+    const generatedMediaSize = await mediaSizeForGeneratedImage(generation, generationRequest)
     const remix: ImageVariant = {
       id: nextId,
       title: generation.title,
       kind: 'generated',
       image: generation.image,
-      mediaSize: generationMediaSizeForRequest(generationRequest),
+      mediaSize: generatedMediaSize,
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -4567,12 +4597,13 @@ function App() {
       generation.providerMode,
       generation.sourceFidelity,
       generation.traceEvents,
+      generatedMediaSize,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
-      mediaSize: generationMediaSizeForRequest(generationRequest),
+      mediaSize: generatedMediaSize,
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
@@ -4717,12 +4748,13 @@ function App() {
     trackGenerationRequest(generationRequest)
     startWork('applying', pendingTrace, false)
     const generation = await requestCreativeGeneration(generationRequest)
+    const generatedMediaSize = await mediaSizeForGeneratedImage(generation, generationRequest)
     const segmentVariant: ImageVariant = {
       id: nextId,
       title: generation.title,
       kind: 'generated',
       image: generation.image,
-      mediaSize: generationMediaSizeForRequest(generationRequest),
+      mediaSize: generatedMediaSize,
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -4779,12 +4811,13 @@ function App() {
       generation.providerMode,
       generation.sourceFidelity,
       generation.traceEvents,
+      generatedMediaSize,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
-      mediaSize: generationMediaSizeForRequest(generationRequest),
+      mediaSize: generatedMediaSize,
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
@@ -4864,12 +4897,13 @@ function App() {
     )
     startWork('remixing', pendingTrace, false)
     const generation = await requestCreativeGeneration(generationRequest)
+    const generatedMediaSize = await mediaSizeForGeneratedImage(generation, generationRequest)
     const blendVariant: ImageVariant = {
       id: nextId,
       title: generation.title,
       kind: 'generated',
       image: generation.image,
-      mediaSize: generationMediaSizeForRequest(generationRequest),
+      mediaSize: generatedMediaSize,
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -4924,16 +4958,17 @@ function App() {
       generation.providerMode,
       generation.sourceFidelity,
       generation.traceEvents,
+      generatedMediaSize,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
-      mediaSize: generationMediaSizeForRequest(generationRequest),
+      mediaSize: generatedMediaSize,
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
-    flashToast('Images blended', 6000)
+    flashToast('Images blended', 12000)
   }
 
   function undoLastChange() {
@@ -5021,6 +5056,7 @@ function App() {
     const id = `assistant-${Date.now()}`
     const tokens = content.match(/\S+\s*/g) ?? [content]
     let index = 0
+    const minStreamingUntil = Date.now() + 1000
     chatStreamMessage.current = { id, content }
 
     setMessages((current) => [
@@ -5035,17 +5071,20 @@ function App() {
     ])
 
     function appendNextToken() {
-      index += 3
+      const nextIndex = index + 3
+      const shouldHoldPartial =
+        tokens.length > 1 && nextIndex >= tokens.length && Date.now() < minStreamingUntil
+      index = shouldHoldPartial ? Math.max(index, tokens.length - 1) : nextIndex
       const partial = tokens.slice(0, index).join('')
       setMessages((current) =>
         current.map((message) =>
           message.id === id
-            ? { ...message, content: partial, streaming: index < tokens.length }
+            ? { ...message, content: partial, streaming: shouldHoldPartial || index < tokens.length }
             : message,
         ),
       )
 
-      if (index >= tokens.length) {
+      if (index >= tokens.length && !shouldHoldPartial) {
         window.clearInterval(chatStreamTimer.current)
         chatStreamTimer.current = undefined
         chatStreamMessage.current = null
@@ -8254,19 +8293,23 @@ function GenerationPromptTrace({
 }
 
 function observabilityPayloadDataForRequest(run: GenerationPromptRun): {
+  availableSegments: SegmentAnnotation[]
   selectedSegments: SegmentAnnotation[]
+  focusSegments: SegmentAnnotation[]
+  sourceSegments: SegmentAnnotation[]
   projectedFallbackPreview: SegmentAnnotation[]
   samPayload: Record<string, unknown>
 } {
   const { request } = run
-  const selectedSegments = request.selectedSegment
-    ? [
-        request.selectedSegment,
-        ...(request.sourceVariant.segments ?? []).filter(
-          (segment) => segment.id !== request.selectedSegment.id,
-        ),
-      ]
-    : request.sourceVariant.segments ?? []
+  const sourceSegments = request.sourceVariant.segments ?? []
+  const selectedSegments = request.promptComposer.selectedSegments?.length
+    ? request.promptComposer.selectedSegments
+    : request.selectedSegment
+      ? [request.selectedSegment]
+      : []
+  const focusSegmentIds = new Set(selectedSegments.map((segment) => segment.id))
+  const availableSegments = sourceSegments.length ? sourceSegments : selectedSegments
+  const focusSegments = availableSegments.filter((segment) => focusSegmentIds.has(segment.id))
   const projectedFallbackPreview = projectSegmentsForRequest(
     request,
     run.imageUrl ?? request.fallbackImage,
@@ -8274,26 +8317,38 @@ function observabilityPayloadDataForRequest(run: GenerationPromptRun): {
   const segmentRequest = buildSegmentImageRequest({
     variantId: request.id,
     imageUrl: run.imageUrl ?? request.fallbackImage,
-    mediaSize: request.sourceVariant.mediaSize,
+    mediaSize: run.mediaSize ?? request.sourceVariant.mediaSize,
     generationRequest: request,
   })
+  const fallbackReason =
+    run.segmentationResult?.provider === 'mock'
+      ? 'No segmentation endpoint returned masks; using projected source boxes.'
+      : undefined
   const samPayload = {
-    tool: run.segmentationResult?.toolName ?? 'pending-segmentation',
+    provider: run.segmentationResult?.provider ?? 'pending',
+    toolName: run.segmentationResult?.toolName ?? 'pending-segmentation',
     requestId: request.id,
     status: run.segmentationStatus,
-    imageUrl: run.imageUrl ?? null,
+    imageRef: redactTraceImageRef(run.imageUrl ?? null),
+    actualMediaSize: run.mediaSize ?? null,
     segmentRequest,
+    availableSegments: segmentPayloadSegments(availableSegments),
     selectedSegment: segmentPayloadItem(request.selectedSegment),
-    sourceSegments: segmentPayloadSegments(request.sourceVariant.segments ?? []),
-    focusSegments: segmentPayloadSegments(selectedSegments.slice(0, 4)),
+    selectedSegments: segmentPayloadSegments(selectedSegments),
+    selectedSegmentIds: selectedSegments.map((segment) => segment.id),
+    sourceSegments: segmentPayloadSegments(sourceSegments),
+    focusSegments: segmentPayloadSegments(focusSegments),
     semanticHints: segmentRequest.semanticHints,
     masksReturned: run.segmentationResult?.segments.length ?? 0,
     finalSegments: segmentPayloadSegments(run.segmentationResult?.segments ?? []),
     projectedFallbackPreview: segmentPayloadSegments(projectedFallbackPreview),
-    rawResult: run.segmentationResult?.rawPayload ? '<redacted raw segmentation payload>' : undefined,
+    fallbackReason,
+    rawResult: run.segmentationResult?.rawPayload
+      ? redactTracePayload(run.segmentationResult.rawPayload)
+      : undefined,
     error: run.segmentationError,
   }
-  return { selectedSegments, projectedFallbackPreview, samPayload }
+  return { availableSegments, selectedSegments, focusSegments, sourceSegments, projectedFallbackPreview, samPayload }
 }
 
 function generationTraceEventsForRun(run: GenerationPromptRun): GenerationTraceEvent[] {
@@ -8307,23 +8362,34 @@ function generationTraceEventsForRun(run: GenerationPromptRun): GenerationTraceE
     : [
         {
           type: 'payload',
-          label: 'image_request',
+          label: 'generation_request_preview',
           text: formatTracePayload(redactedImageRequestPayloadForRun(run)),
           at: requestAt,
+          origin: 'deterministic/frontend',
+          status: 'preview',
+          isSynthetic: true,
         },
         ...workerEvents,
       ]
 
   if (run.segmentationStatus !== 'queued') {
-    const hasWorkerSamPayload = events.some(
-      (event) => event.type === 'payload' && event.label === 'sam_request',
+    const hasSegmentationPayload = events.some(
+      (event) =>
+        event.type === 'payload' &&
+        (event.label === 'segmentation_request' ||
+          event.label === 'segmentation_result' ||
+          event.label === 'segmentation_fallback'),
     )
-    if (!hasWorkerSamPayload) {
+    if (!hasSegmentationPayload) {
+      const fallback = run.segmentationResult?.provider === 'mock'
       events.push({
         type: 'payload',
-        label: 'sam_request',
+        label: fallback ? 'segmentation_fallback' : 'segmentation_request',
         text: formatTracePayload(redactedSamRequestPayloadForRun(run)),
         at: run.completedAt ?? new Date().toISOString(),
+        origin: fallback ? 'segmentation-fallback-returned' : 'segmentation-sent',
+        status: run.segmentationStatus === 'failed' ? 'failed' : run.segmentationStatus === 'completed' ? 'completed' : 'started',
+        isSynthetic: true,
       })
     }
   }
@@ -8341,6 +8407,8 @@ function generationTraceEventsForRun(run: GenerationPromptRun): GenerationTraceE
       totalTokens: evidence?.totalTokens,
       sourceFidelity: run.sourceFidelity?.status,
       at: run.completedAt ?? new Date().toISOString(),
+      origin: 'provider-returned',
+      status: 'completed',
     })
   }
 
@@ -8349,6 +8417,8 @@ function generationTraceEventsForRun(run: GenerationPromptRun): GenerationTraceE
       type: 'error',
       text: `segmentation_error ${run.segmentationError}`,
       at: run.completedAt ?? new Date().toISOString(),
+      origin: 'segmentation-returned',
+      status: 'failed',
     })
   }
 
@@ -8359,6 +8429,15 @@ function redactedImageRequestPayloadForRun(run: GenerationPromptRun) {
   const { request } = run
   const evidence = run.sourceFidelity?.evidence
   const scalarTranslation = request.promptComposer.scalarPromptTranslation
+  const observability = observabilityPayloadDataForRequest(run)
+  const finalPrompt = run.promptRecipe?.finalPrompt ?? request.imagePrompt.promptDraft
+  const negativePrompt = run.promptRecipe?.negativePrompt ?? request.imagePrompt.negativePrompt
+  const expectedProviderPrompt = providerPromptForRecipe(finalPrompt, negativePrompt)
+  const providerPrompt = run.promptRecipe?.providerPrompt ?? expectedProviderPrompt
+  const rawImageSize = run.mediaSize ?? null
+  const canvasNodeSize = rawImageSize
+    ? displaySizeForVariant({ ...request.sourceVariant, kind: 'generated', mediaSize: rawImageSize })
+    : null
 
   const endpoint =
     typeof evidence?.endpoint === 'string' && evidence.endpoint.startsWith('/v1/images/')
@@ -8371,12 +8450,60 @@ function redactedImageRequestPayloadForRun(run: GenerationPromptRun) {
     intent: request.intent,
     output: request.outputTitle,
     quality: 'high',
-    size: request.outputFrame.modelSize,
+    requestedModelSize: request.outputFrame.modelSize,
+    size: evidence?.providerModelSize ?? run.promptRecipe?.providerRequest?.size ?? request.outputFrame.modelSize,
     outputFrame: request.outputFrame,
     providerMode: run.providerMode ?? 'pending-source-preserving-edit',
+    origin: run.traceEvents?.some((event) => event.type === 'payload' && event.label === 'image_request')
+      ? 'provider-returned'
+      : 'deterministic/frontend-preview',
+    traceLanes: {
+      deterministicPreview: 'generation_request_preview',
+      imageProviderRequest: 'image_request',
+      imageProviderResult: 'image_result',
+      segmentationRequest: 'segmentation_request',
+      segmentationResult: 'segmentation_result',
+      segmentationFallback: 'segmentation_fallback',
+    },
     imageInputs: request.imageInputs.map((input, index) => redactedImageInputPayload(input, index)),
-    prompt: run.promptRecipe?.finalPrompt ?? request.imagePrompt.promptDraft,
-    negativePrompt: run.promptRecipe?.negativePrompt ?? request.imagePrompt.negativePrompt,
+    composerPrompt: run.promptRecipe?.composerPrompt ?? '<pending exact composer prompt from worker>',
+    composerPromptHash: run.promptRecipe?.composerPromptHash ?? null,
+    composerOutput: run.promptRecipe
+      ? {
+          visualRead: run.promptRecipe.visualRead,
+          ontologyInterpretation: run.promptRecipe.ontologyInterpretation ?? [],
+          sliderInterpretation: run.promptRecipe.sliderInterpretation ?? [],
+          constraintPriorities: run.promptRecipe.constraintPriorities ?? [],
+          promptStrategy: run.promptRecipe.promptStrategy ?? [],
+          conflictResolutions: run.promptRecipe.conflictResolutions ?? [],
+          warnings: run.promptRecipe.warnings ?? [],
+          finalPrompt,
+          negativePrompt,
+        }
+      : '<pending composer output>',
+    finalPrompt,
+    negativePrompt,
+    providerPrompt,
+    providerPromptHash: run.promptRecipe?.providerPromptHash ?? shortTraceHash(providerPrompt),
+    providerPromptInvariant: {
+      expected: 'providerPrompt === finalPrompt + optional Negative guardrails block',
+      matches:
+        run.promptRecipe?.providerPromptMatchesRecipe ??
+        providerPrompt === expectedProviderPrompt,
+      warning:
+        run.promptRecipe?.providerPromptMatchesRecipe === false
+          ? 'Provider prompt differs from composer output because the worker used a fallback route.'
+          : undefined,
+    },
+    providerRequestMetadata:
+      run.promptRecipe?.providerRequest ??
+      {
+        endpoint,
+        model: request.model,
+        size: request.outputFrame.modelSize,
+        providerPromptHash: shortTraceHash(providerPrompt),
+      },
+    sourceFidelityPolicy: request.promptComposer.sourceFidelity,
     preservationLocks: {
       product: true,
       copy: true,
@@ -8390,14 +8517,33 @@ function redactedImageRequestPayloadForRun(run: GenerationPromptRun) {
       referencedVisualCalibrationIds: scalarTranslation.referencedVisualCalibrationIds,
     },
     scalarChanges: request.scalarChanges,
-    selectedSegments: observabilityPayloadDataForRequest(run).selectedSegments.map(segmentPayloadItem),
+    availableSegments: observability.availableSegments.map(segmentPayloadItem),
+    selectedSegments: observability.selectedSegments.map(segmentPayloadItem),
+    focusSegments: observability.focusSegments.map(segmentPayloadItem),
+    sourceSegments: observability.sourceSegments.map(segmentPayloadItem),
     chatContext: request.chatContext.slice(-8).map(({ role, content }) => ({ role, content })),
     promptContext: {
       promptDraft: request.imagePrompt.promptDraft,
       requestScaffold: request.imagePrompt.requestScaffold,
       context: request.imagePrompt.context,
       promptHints: request.imagePrompt.promptHints,
-      composerRequest: request.promptComposer,
+      composerRequest: {
+        requestId: request.promptComposer.requestId,
+        selectedSegments: request.promptComposer.selectedSegments.map(segmentPayloadItem),
+        outputFrame: request.promptComposer.outputFrame,
+        scalarSummary: request.promptComposer.scalarPromptTranslation.summary,
+      },
+    },
+    canvasPreview: {
+      rawImageSize,
+      canvasNodeSize,
+      displayFit: 'contain',
+      scaleFactor:
+        rawImageSize && canvasNodeSize
+          ? Number(Math.min(canvasNodeSize.width / rawImageSize.width, canvasNodeSize.height / rawImageSize.height).toFixed(4))
+          : null,
+      cropPercent: 0,
+      sourceFramePolicy: request.outputFrame.instruction,
     },
     tokenEvidence: {
       imageTokens: evidence?.imageTokens ?? null,
@@ -8426,7 +8572,7 @@ function redactedImageInputPayload(input: ImageInputReference, index: number) {
     dimensions: input.mediaSize ? `${input.mediaSize.width}x${input.mediaSize.height}` : 'unknown',
     fileName: imageInputFileName(input.url, input.title),
     referenceType: input.referenceType ?? 'creative',
-    url: redactedImageUrl(input.url),
+    url: redactTraceImageRef(input.url),
     copywriting: input.copywriting ?? [],
   }
 }
@@ -8463,6 +8609,78 @@ function redactedImageUrl(url: string) {
   return imageInputFileName(url, url)
 }
 
+function providerPromptForRecipe(finalPrompt: string, negativePrompt?: string) {
+  return [finalPrompt, negativePrompt ? `Negative guardrails:\n${negativePrompt}` : '']
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+function shortTraceHash(value: string) {
+  let hash = 2166136261
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+
+  return `fnv1a-${(hash >>> 0).toString(16).padStart(8, '0')}`
+}
+
+function redactTraceImageRef(value: string | null | undefined) {
+  if (!value) return null
+  if (value.startsWith('data:')) {
+    const mimeType = value.match(/^data:([^;]+)/)?.[1] ?? 'image/*'
+    return {
+      kind: 'data-url',
+      mimeType,
+      byteLength: imageInputByteCount(value) ?? value.length,
+      hash: shortTraceHash(value),
+      preview: '<redacted data URL>',
+    }
+  }
+  if (value.startsWith('blob:')) {
+    return {
+      kind: 'blob-url',
+      hash: shortTraceHash(value),
+      preview: '<redacted blob URL>',
+    }
+  }
+
+  return redactedImageUrl(value)
+}
+
+function looksLikeLargeBase64(value: string) {
+  return value.length > 500 && /^[A-Za-z0-9+/=\s]+$/.test(value)
+}
+
+function redactTracePayload(payload: unknown): unknown {
+  if (typeof payload === 'string') {
+    if (payload.startsWith('data:image/')) return redactTraceImageRef(payload)
+    if (looksLikeLargeBase64(payload)) {
+      return {
+        kind: 'base64',
+        charLength: payload.length,
+        hash: shortTraceHash(payload),
+        preview: '<redacted base64>',
+      }
+    }
+    return payload
+  }
+  if (!payload || typeof payload !== 'object') return payload
+  if (Array.isArray(payload)) return payload.map(redactTracePayload)
+
+  return Object.fromEntries(
+    Object.entries(payload as Record<string, unknown>).map(([key, value]) => {
+      if (/imageUrl|image_url|url|b64_json|base64|image/i.test(key) && typeof value === 'string') {
+        return [key, redactTraceImageRef(value)]
+      }
+      if (/rawPayload|rawResult/i.test(key)) {
+        return [key, redactTracePayload(value)]
+      }
+      return [key, redactTracePayload(value)]
+    }),
+  )
+}
+
 function segmentPayloadSegments(items: SegmentAnnotation[]) {
   return items.map(segmentPayloadItem)
 }
@@ -8482,7 +8700,7 @@ function segmentPayloadItem(segment: SegmentAnnotation) {
 }
 
 function formatTracePayload(payload: unknown) {
-  return JSON.stringify(payload, null, 2)
+  return JSON.stringify(redactTracePayload(payload), null, 2)
 }
 
 function GenerationTraceEventText({
@@ -8521,13 +8739,23 @@ function transcriptPieces(text: string) {
 
 function generationTraceEventText(event: GenerationTraceEvent) {
   if (event.type === 'payload') {
-    return `${event.label}\n${event.text}`
+    const meta = [
+      event.origin ? `origin=${event.origin}` : '',
+      event.status ? `status=${event.status}` : '',
+      event.isSynthetic ? 'synthetic=true' : '',
+      typeof event.durationMs === 'number' ? `duration=${formatGenerationDuration(event.durationMs)}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
+    return `${event.label}${meta ? ` ${meta}` : ''}\n${event.text}`
   }
 
   if (event.type === 'result') {
     return [
       `Generated for ${formatGenerationDuration(event.durationMs)}`,
       `providerMode=${event.providerMode}`,
+      event.origin ? `origin=${event.origin}` : '',
+      event.status ? `status=${event.status}` : '',
       typeof event.imageTokens === 'number' ? `imageTokens=${event.imageTokens}` : '',
       typeof event.textTokens === 'number' ? `textTokens=${event.textTokens}` : '',
       typeof event.totalTokens === 'number' ? `totalTokens=${event.totalTokens}` : '',
