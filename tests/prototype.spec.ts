@@ -395,6 +395,35 @@ test('saving current style adds a reusable persisted preset', async ({ page }) =
   await expect(popover).toContainText('Brand')
 })
 
+test('preset overflow menu renames saved styles inline and persists', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByLabel('Materiality').fill('63')
+  await page.getByRole('button', { name: 'Save current style' }).click()
+
+  const savedPreset = page.locator('[data-testid^="style-preset-saved-style-"]').first()
+  await expect(savedPreset).toContainText('Saved current style')
+
+  await savedPreset
+    .getByRole('button', { name: /Open preset details for Saved current style/ })
+    .click()
+  await page.getByRole('button', { name: 'Rename' }).click()
+
+  const renameInput = page.getByRole('textbox', { name: 'Preset name' })
+  await expect(renameInput).toBeFocused()
+  await renameInput.fill('Warm creator cut')
+  await page.getByRole('button', { name: 'Save preset name' }).click()
+
+  await expect(savedPreset).toContainText('Warm creator cut')
+  await expect(page.getByLabel('Completed action summary')).toContainText('Preset renamed')
+
+  await page.reload()
+  const persistedPreset = page.locator('[data-testid^="style-preset-saved-style-"]').first()
+  await expect(persistedPreset).toContainText('Warm creator cut')
+  await persistedPreset.getByRole('button', { name: /Select Warm creator cut/ }).click()
+  await expect(page.getByLabel('Materiality')).toHaveValue('63')
+})
+
 test('suggestion apply generates a remix from the selected canvas source', async ({ page }) => {
   await page.goto('/')
 

@@ -11,6 +11,7 @@ import type {
 import {
   AlertTriangle,
   ArrowUp,
+  Check,
   ChevronDown,
   ChevronLeft,
   CornerDownRight,
@@ -655,6 +656,7 @@ function scalarSettingsFromScalars(scalars: AestheticScalar[]) {
 }
 
 const savedStylePresetsStorageKey = 'clv-segmented:saved-style-presets:v1'
+const stylePresetRenamesStorageKey = 'clv-segmented:style-preset-renames:v1'
 
 function isSavedStylePreset(value: unknown): value is StylePreset {
   if (!value || typeof value !== 'object') return false
@@ -687,6 +689,32 @@ function loadSavedStylePresets() {
 function persistSavedStylePresets(presets: StylePreset[]) {
   try {
     window.localStorage.setItem(savedStylePresetsStorageKey, JSON.stringify(presets.slice(0, 8)))
+  } catch {
+    // Local persistence is best effort for the prototype surface.
+  }
+}
+
+function loadStylePresetRenames() {
+  try {
+    const raw = window.localStorage.getItem(stylePresetRenamesStorageKey)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter((entry): entry is [string, string] => typeof entry[0] === 'string' && typeof entry[1] === 'string')
+        .map(([id, title]) => [id, title.trim()])
+        .filter(([, title]) => title.length > 0),
+    )
+  } catch {
+    return {}
+  }
+}
+
+function persistStylePresetRenames(renames: Record<string, string>) {
+  try {
+    window.localStorage.setItem(stylePresetRenamesStorageKey, JSON.stringify(renames))
   } catch {
     // Local persistence is best effort for the prototype surface.
   }
@@ -2355,6 +2383,9 @@ function App() {
   const [draftScalars, setDraftScalars] = useState(initialScalars)
   const [scoreScalars, setScoreScalars] = useState(() => applyScorePreset(initialScalars))
   const [savedStylePresets, setSavedStylePresets] = useState<StylePreset[]>(loadSavedStylePresets)
+  const [stylePresetRenames, setStylePresetRenames] = useState<Record<string, string>>(
+    loadStylePresetRenames,
+  )
   const [variants, setVariants] = useState<ImageVariant[]>(() =>
     initialVariants.map((variant) => ({
       ...variant,
@@ -2672,6 +2703,39 @@ function App() {
       'Current style saved into pre-set styles.',
       'The saved preset keeps the current scalar recipe, image context, brand metadata, and recent chat context available for future use.',
     )
+  }
+
+  function renameStylePreset(presetId: string, title: string) {
+    const nextTitle = title.trim().replace(/\s+/g, ' ')
+    if (!nextTitle || presetId === 'current') return
+
+    setSavedStylePresets((current) => {
+      let renamedSavedPreset = false
+      const next = current.map((preset) => {
+        if (preset.id !== presetId) return preset
+        renamedSavedPreset = true
+        return { ...preset, title: nextTitle }
+      })
+
+      if (renamedSavedPreset) {
+        persistSavedStylePresets(next)
+      }
+
+      return next
+    })
+
+    setStylePresetRenames((current) => {
+      const next = { ...current, [presetId]: nextTitle }
+      persistStylePresetRenames(next)
+      return next
+    })
+
+    recordPrototypeAction(
+      'Preset renamed',
+      `${nextTitle} saved as the preset name.`,
+      'The preset keeps the same scalar recipe and context; only the display name changed.',
+    )
+    flashToast('Preset renamed')
   }
 
   function selectStylePreset(preset: StylePreset) {
@@ -5185,9 +5249,11 @@ function App() {
               committedScalars={scalars}
               selectedStylePresetId={selectedStylePresetId}
               savedStylePresets={savedStylePresets}
+              stylePresetRenames={stylePresetRenames}
               onScalarChange={updateScalar}
               onSelectStylePreset={selectStylePreset}
               onSaveCurrentStyle={saveCurrentStyle}
+              onRenameStylePreset={renameStylePreset}
               onApplySuggestion={applySuggestion}
               onDismissSuggestion={dismissSuggestion}
             />
@@ -5510,9 +5576,11 @@ function LeftInspector({
   committedScalars,
   selectedStylePresetId,
   savedStylePresets,
+  stylePresetRenames,
   onScalarChange,
   onSelectStylePreset,
   onSaveCurrentStyle,
+  onRenameStylePreset,
   onApplySuggestion,
   onDismissSuggestion,
 }: {
@@ -5522,14 +5590,18 @@ function LeftInspector({
   committedScalars: AestheticScalar[]
   selectedStylePresetId: string
   savedStylePresets: StylePreset[]
+  stylePresetRenames: Record<string, string>
   onScalarChange: (id: string, value: number) => void
   onSelectStylePreset: (preset: StylePreset) => void
   onSaveCurrentStyle: () => void
+  onRenameStylePreset: (presetId: string, title: string) => void
   onApplySuggestion: () => void
   onDismissSuggestion: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [openPresetMenuId, setOpenPresetMenuId] = useState('')
+  const [renamingPresetId, setRenamingPresetId] = useState('')
+  const [renameDraft, setRenameDraft] = useState('')
   const [stylesOpen, setStylesOpen] = useState(true)
   const [showAllStyles, setShowAllStyles] = useState(false)
   const [intentOpen, setIntentOpen] = useState(true)
@@ -5537,10 +5609,15 @@ function LeftInspector({
   const [searchQuery, setSearchQuery] = useState('')
   const presetPanelRef = useRef<HTMLDivElement>(null)
   const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0]
-  const presetOptions = useMemo(
-    () => [currentStylePreset(scalars), ...savedStylePresets, ...stylePresets],
-    [savedStylePresets, scalars],
-  )
+  const presetOptions = useMemo(() => {
+    const options = [currentStylePreset(scalars), ...savedStylePresets, ...stylePresets]
+
+    return options.map((preset) => {
+      const renamedTitle = stylePresetRenames[preset.id]
+      if (!renamedTitle || preset.id === 'current') return preset
+      return { ...preset, title: renamedTitle }
+    })
+  }, [savedStylePresets, scalars, stylePresetRenames])
   const committedScalarMap = new Map(committedScalars.map((scalar) => [scalar.id, scalar]))
   const filteredScalars = useMemo(
     () => filterScalarsByQuery(scalars, searchQuery),
@@ -5605,7 +5682,10 @@ function LeftInspector({
             id="preset-styles-panel"
             ref={presetPanelRef}
             onKeyDown={(event) => {
-              if (event.key === 'Escape') setOpenPresetMenuId('')
+              if (event.key === 'Escape') {
+                setOpenPresetMenuId('')
+                setRenamingPresetId('')
+              }
             }}
           >
             <div className="preset-list">
@@ -5616,6 +5696,8 @@ function LeftInspector({
                   active={preset.id === selectedStylePresetId}
                   menuOpen={preset.id === openPresetMenuId}
                   scalars={scalars}
+                  renaming={preset.id === renamingPresetId}
+                  renameDraft={preset.id === renamingPresetId ? renameDraft : preset.title}
                   onSelect={() => {
                     onSelectStylePreset(preset)
                     setOpenPresetMenuId('')
@@ -5624,6 +5706,25 @@ function LeftInspector({
                   onToggleMenu={() =>
                     setOpenPresetMenuId((current) => (current === preset.id ? '' : preset.id))
                   }
+                  onBeginRename={
+                    preset.id === 'current'
+                      ? undefined
+                      : () => {
+                          setOpenPresetMenuId('')
+                          setRenamingPresetId(preset.id)
+                          setRenameDraft(preset.title)
+                        }
+                  }
+                  onRenameDraftChange={setRenameDraft}
+                  onCommitRename={() => {
+                    onRenameStylePreset(preset.id, renameDraft)
+                    setRenamingPresetId('')
+                    setRenameDraft('')
+                  }}
+                  onCancelRename={() => {
+                    setRenamingPresetId('')
+                    setRenameDraft('')
+                  }}
                 />
               ))}
             </div>
@@ -5746,70 +5847,146 @@ function PresetRow({
   active,
   menuOpen,
   scalars,
+  renaming,
+  renameDraft,
   onSelect,
   onSave,
   onToggleMenu,
+  onBeginRename,
+  onRenameDraftChange,
+  onCommitRename,
+  onCancelRename,
 }: {
   preset: StylePreset
   active: boolean
   menuOpen: boolean
   scalars: AestheticScalar[]
+  renaming: boolean
+  renameDraft: string
   onSelect: () => void
   onSave?: () => void
   onToggleMenu: () => void
+  onBeginRename?: () => void
+  onRenameDraftChange: (title: string) => void
+  onCommitRename: () => void
+  onCancelRename: () => void
 }) {
+  const renameInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!renaming) return
+    const input = renameInputRef.current
+    input?.focus()
+    input?.select()
+  }, [renaming])
+
+  function commitRename(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault()
+    if (!renameDraft.trim()) {
+      onCancelRename()
+      return
+    }
+
+    onCommitRename()
+  }
+
   return (
     <div
-      className={`preset-row ${active ? 'active' : ''} ${menuOpen ? 'menu-open' : ''}`}
+      className={`preset-row ${active ? 'active' : ''} ${menuOpen ? 'menu-open' : ''} ${
+        renaming ? 'is-renaming' : ''
+      }`}
       data-testid={`style-preset-${preset.id}`}
     >
-      <button
-        className="preset-select"
-        type="button"
-        aria-label={`Select ${preset.title}`}
-        aria-pressed={active}
-        onClick={onSelect}
-      >
-        <span className="radio-dot" aria-hidden="true" />
-        <span className="preset-copy">
-          <strong>{preset.title}</strong>
-          <small>{preset.detail}</small>
-        </span>
-      </button>
-      <span className="preset-actions">
-        {onSave ? (
-          <button
-            className="save-pill"
-            type="button"
-            aria-label="Save current style"
-            onClick={(event) => {
-              event.stopPropagation()
-              onSelect()
-              onSave()
+      {renaming ? (
+        <form className="preset-edit" aria-label={`Rename ${preset.title}`} onSubmit={commitRename}>
+          <span className="radio-dot" aria-hidden="true" />
+          <input
+            ref={renameInputRef}
+            aria-label="Preset name"
+            value={renameDraft}
+            maxLength={48}
+            onChange={(event) => onRenameDraftChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                onCancelRename()
+              }
             }}
+          />
+          <span className="preset-edit-actions">
+            <button type="button" aria-label="Cancel rename" onClick={onCancelRename}>
+              <X size={15} />
+            </button>
+            <button type="submit" aria-label="Save preset name" disabled={!renameDraft.trim()}>
+              <Check size={15} />
+            </button>
+          </span>
+        </form>
+      ) : (
+        <>
+          <button
+            className="preset-select"
+            type="button"
+            aria-label={`Select ${preset.title}`}
+            aria-pressed={active}
+            onClick={onSelect}
           >
-            Save
+            <span className="radio-dot" aria-hidden="true" />
+            <span className="preset-copy">
+              <strong>{preset.title}</strong>
+              <small>{preset.detail}</small>
+            </span>
           </button>
-        ) : null}
-        <button
-          className={`preset-more ${menuOpen ? 'open' : ''}`}
-          type="button"
-          aria-label={`Open preset details for ${preset.title}`}
-          aria-expanded={menuOpen}
-          onClick={(event) => {
-            event.stopPropagation()
-            onToggleMenu()
-          }}
-        >
-          <MoreHorizontal size={18} />
-        </button>
-      </span>
-      {menuOpen ? <PresetPopover preset={preset} scalars={scalars} /> : null}
+          <span className="preset-actions">
+            {onSave ? (
+              <button
+                className="save-pill"
+                type="button"
+                aria-label="Save current style"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onSelect()
+                  onSave()
+                }}
+              >
+                Save
+              </button>
+            ) : null}
+            <button
+              className={`preset-more ${menuOpen ? 'open' : ''}`}
+              type="button"
+              aria-label={`Open preset details for ${preset.title}`}
+              aria-expanded={menuOpen}
+              onClick={(event) => {
+                event.stopPropagation()
+                onToggleMenu()
+              }}
+            >
+              <MoreHorizontal size={18} />
+            </button>
+          </span>
+          {menuOpen ? (
+            <PresetPopover
+              preset={preset}
+              scalars={scalars}
+              onRename={onBeginRename}
+            />
+          ) : null}
+        </>
+      )}
     </div>
   )
 }
 
-function PresetPopover({ preset, scalars }: { preset: StylePreset; scalars: AestheticScalar[] }) {
+function PresetPopover({
+  preset,
+  scalars,
+  onRename,
+}: {
+  preset: StylePreset
+  scalars: AestheticScalar[]
+  onRename?: () => void
+}) {
   const scalarMap = new Map(scalars.map((scalar) => [scalar.id, scalar]))
   const settings = preset.scalarSettings
     .map((setting) => {
@@ -5828,6 +6005,14 @@ function PresetPopover({ preset, scalars }: { preset: StylePreset; scalars: Aest
         <strong>{preset.title}</strong>
         <small>{preset.detail}</small>
       </div>
+      {onRename ? (
+        <div className="preset-popover-actions">
+          <button type="button" onClick={onRename}>
+            <Pencil size={13} />
+            Rename
+          </button>
+        </div>
+      ) : null}
       <div className="preset-popover-section">
         <span>Parameters</span>
         <div className="preset-setting-list">
