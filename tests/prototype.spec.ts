@@ -105,7 +105,7 @@ test('new remix generation reserves a shimmering target frame before resolving',
   await expect(page.getByLabel('Image generation prompt')).toContainText('gpt-image-2')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Image Prompt')
   await expect(page.getByLabel('Image generation prompt')).toContainText(
-    'Create a vertical premium social ad matching the selected source aspect ratio (853:1844)',
+    'Create a vertical premium social ad matching the selected source aspect ratio (1024:1536)',
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText(
     'imageInputs[0]: source; id updated; title Remix 1',
@@ -840,10 +840,23 @@ test('canvas background click clears selection and enables trackpad panning', as
 test('selected canvas image shows its scalar recipe star plot above chat', async ({ page }) => {
   await page.goto('/')
 
+  const originalImageSrc = await page
+    .locator('.artboard-row .creative-stack')
+    .filter({ hasText: 'Original Image' })
+    .locator('.creative-card img')
+    .getAttribute('src')
+  const remixImageSrc = await page
+    .locator('.artboard-row .creative-stack')
+    .filter({ hasText: 'Remix 1' })
+    .locator('.creative-card img')
+    .getAttribute('src')
+  expect(remixImageSrc).toContain('byredo-remix-1-seed-portrait.png')
+  expect(remixImageSrc).not.toBe(originalImageSrc)
+
   const starPlot = page.getByLabel('Selected image scalar recipe')
   await expect(starPlot).toBeVisible()
   await expect(starPlot).toHaveAttribute('data-selected-variant-title', 'Remix 1')
-  await expect(starPlot).toHaveAttribute('data-scalar-values', /staging:78/)
+  await expect(starPlot).toHaveAttribute('data-scalar-values', /staging:84/)
   await expect(starPlot).toContainText('Staging')
   await expect(starPlot).toContainText('Emotional')
   await expect(starPlot).toContainText('Valence')
@@ -982,7 +995,7 @@ test('dragging one artboard onto another creates a blended variant', async ({ pa
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText('Blend scalar midpoint')
   await expect(page.getByLabel('Image generation prompt')).toContainText(
-    'Staging midpoint: Original Image 78/100 + Remix 1 78/100 -> 78/100',
+    'Staging midpoint: Original Image 78/100 + Remix 1 84/100 -> 81/100',
   )
   await expect(page.getByLabel('Image generation prompt')).toContainText(
     'Aesthetic direction from sliders',
@@ -1003,26 +1016,20 @@ test('blended variants average their recorded scalar recipes into verbal prompts
   await page.getByRole('button', { name: 'Remix Image' }).click()
   await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
 
-  const originalStack = page.locator('.artboard-row .creative-stack').filter({ hasText: 'Original Image' }).first()
   const remixStack = page.locator('.artboard-row .creative-stack').filter({ hasText: 'Remix 2' }).first()
   await expect(remixStack).toBeVisible()
   await expect(remixStack).not.toHaveClass(/generating/)
 
-  const originalBox = await originalStack.locator('.creative-card').boundingBox()
-  const remixBox = await remixStack.locator('.creative-card').boundingBox()
-  expect(originalBox).not.toBeNull()
-  expect(remixBox).not.toBeNull()
-
-  await page.mouse.move((originalBox?.x ?? 0) + 20, (originalBox?.y ?? 0) + 20)
-  await page.mouse.down()
-  await page.mouse.move((remixBox?.x ?? 0) + 48, (remixBox?.y ?? 0) + 48, { steps: 8 })
-  await expect(remixStack).toHaveClass(/drop-target/)
-  await page.mouse.up()
+  await page.getByRole('button', { name: 'Original Image', exact: true }).dispatchEvent('click')
+  await remixStack
+    .getByRole('button', { name: 'Remix 2', exact: true })
+    .dispatchEvent('click', { shiftKey: true })
+  await page.getByRole('button', { name: 'Blend selected' }).click()
 
   const promptObserver = page.getByLabel('Image generation prompt')
   await expect(promptObserver).toContainText('Blend scalar midpoint')
   await expect(promptObserver).toContainText(
-    'Abstraction midpoint: Original Image 23/100 + Remix 2 100/100 -> 62/100',
+    /Abstraction midpoint: (Original Image 23\/100 \+ Remix 2 100\/100|Remix 2 100\/100 \+ Original Image 23\/100) -> 62\/100/,
   )
   await expect(promptObserver).toContainText(
     'keep abstraction balanced, with enough stylization to feel designed',

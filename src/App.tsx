@@ -229,13 +229,13 @@ const initialTrace: ChangeTrace = {
   id: 'seed',
   control: 'Creative prompt',
   what: 'Remix 1 is projected at ES 83%.',
-  why: 'The visible face and warmer direct-response copy increase emotional engagement.',
+  why: 'The warmer golden-hour treatment, clearer product presence, and more tactile campaign read lift the seeded remix above the original.',
   before: 'ES 74%',
   after: 'ES 83%',
   scoreBefore: 74,
   scoreAfter: 83,
   segment: 'Emotional engagement',
-  ingredients: ['Face visibility', 'CTA clarity', 'Warmer tone'],
+  ingredients: ['Golden hour', 'Product clarity', 'Tactile texture'],
 }
 
 const initialAgentTasks: AgentTask[] = [
@@ -364,7 +364,7 @@ function seededPromptRecipeForVariant(variant: ImageVariant): PromptRecipe {
       copy: copywritingForVariant(variant).join(' | '),
       typography: typographyDnaLines(variant).join(' '),
     },
-    sliderInterpretation: cloneScalarRecipe(initialScalars).map((scalar) => ({
+    sliderInterpretation: cloneScalarRecipe(variant.scalarRecipe ?? initialScalars).map((scalar) => ({
       id: scalar.id,
       label: scalar.label,
       value: scalar.value,
@@ -2272,14 +2272,21 @@ function App() {
               promptRecipe: variant.promptRecipe ?? seededPromptRecipeForVariant(variant),
             }
           : variant.id === 'updated'
-          ? {
-              ...variant,
-              score: workingScore,
-              delta: Math.max(0, workingScore - 76),
-              filter: imageFilterForScalars(scalars),
-              scalarRecipe: cloneScalarRecipe(scalars),
-              promptRecipe: variant.promptRecipe ?? seededPromptRecipeForVariant(variant),
-            }
+          ? (() => {
+              const hasSeededRecipe = Boolean(variant.scalarRecipe?.length)
+              const remixRecipe = hasSeededRecipe
+                ? cloneScalarRecipe(variant.scalarRecipe ?? initialScalars)
+                : cloneScalarRecipe(scalars)
+
+              return {
+                ...variant,
+                score: hasSeededRecipe ? variant.score : workingScore,
+                delta: hasSeededRecipe ? variant.delta : Math.max(0, workingScore - 76),
+                filter: hasSeededRecipe ? variant.filter : imageFilterForScalars(scalars),
+                scalarRecipe: remixRecipe,
+                promptRecipe: variant.promptRecipe ?? seededPromptRecipeForVariant(variant),
+              }
+            })()
           : {
               ...variant,
               scalarRecipe: variant.scalarRecipe ? cloneScalarRecipe(variant.scalarRecipe) : undefined,
