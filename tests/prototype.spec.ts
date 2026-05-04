@@ -290,7 +290,7 @@ test('remix from a canvas source sends source-lock and max abstraction context',
 test('asset and version selectors update the active editor context', async ({ page }) => {
   await page.goto('/')
 
-  await page.getByRole('button', { name: /BYREDO - Bal d'Afrique/ }).click()
+  await page.getByRole('button', { name: 'Open project selector' }).click()
   await page
     .getByLabel('Creative assets')
     .getByRole('button', { name: /Meta - Variant B/ })
@@ -304,6 +304,25 @@ test('asset and version selectors update the active editor context', async ({ pa
     .getByRole('button', { name: 'v 1.0.0' })
     .click()
   await expect(page.getByRole('button', { name: /v 1.0.0/ }).first()).toBeVisible()
+})
+
+test('project title renames inline and updates active asset context', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByRole('button', { name: /Edit project name BYREDO - Bal d'Afrique/ }).click()
+  const projectName = page.getByRole('textbox', { name: 'Project name' })
+  await expect(projectName).toBeFocused()
+  await projectName.fill('BYREDO Summer Study')
+  await projectName.press('Enter')
+
+  await expect(page.getByRole('button', { name: /Edit project name BYREDO Summer Study/ })).toBeVisible()
+  await expect(page.getByLabel('Completed action summary')).toContainText('Project renamed')
+
+  await page.getByRole('button', { name: 'Open project selector' }).click()
+  await expect(page.getByLabel('Creative assets')).toContainText('BYREDO Summer Study')
+
+  await page.reload()
+  await expect(page.getByRole('button', { name: /Edit project name BYREDO Summer Study/ })).toBeVisible()
 })
 
 test('aesthetic search filters the full star plot slider set', async ({ page }) => {

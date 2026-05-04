@@ -657,6 +657,7 @@ function scalarSettingsFromScalars(scalars: AestheticScalar[]) {
 
 const savedStylePresetsStorageKey = 'clv-segmented:saved-style-presets:v1'
 const stylePresetRenamesStorageKey = 'clv-segmented:style-preset-renames:v1'
+const assetRenamesStorageKey = 'clv-segmented:asset-renames:v1'
 
 function isSavedStylePreset(value: unknown): value is StylePreset {
   if (!value || typeof value !== 'object') return false
@@ -715,6 +716,32 @@ function loadStylePresetRenames() {
 function persistStylePresetRenames(renames: Record<string, string>) {
   try {
     window.localStorage.setItem(stylePresetRenamesStorageKey, JSON.stringify(renames))
+  } catch {
+    // Local persistence is best effort for the prototype surface.
+  }
+}
+
+function loadAssetRenames() {
+  try {
+    const raw = window.localStorage.getItem(assetRenamesStorageKey)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter((entry): entry is [string, string] => typeof entry[0] === 'string' && typeof entry[1] === 'string')
+        .map(([id, title]) => [id, title.trim().replace(/\s+/g, ' ')])
+        .filter(([, title]) => title.length > 0),
+    )
+  } catch {
+    return {}
+  }
+}
+
+function persistAssetRenames(renames: Record<string, string>) {
+  try {
+    window.localStorage.setItem(assetRenamesStorageKey, JSON.stringify(renames))
   } catch {
     // Local persistence is best effort for the prototype surface.
   }
@@ -2386,6 +2413,7 @@ function App() {
   const [stylePresetRenames, setStylePresetRenames] = useState<Record<string, string>>(
     loadStylePresetRenames,
   )
+  const [assetRenames, setAssetRenames] = useState<Record<string, string>>(loadAssetRenames)
   const [variants, setVariants] = useState<ImageVariant[]>(() =>
     initialVariants.map((variant) => ({
       ...variant,
@@ -2427,7 +2455,15 @@ function App() {
     [],
   )
 
-  const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0]
+  const renamedAssets = useMemo(
+    () =>
+      assets.map((asset) => {
+        const renamedTitle = assetRenames[asset.id]
+        return renamedTitle ? { ...asset, name: renamedTitle } : asset
+      }),
+    [assetRenames],
+  )
+  const selectedAsset = renamedAssets.find((asset) => asset.id === selectedAssetId) ?? renamedAssets[0]
   const activeCanvasAsset = { ...selectedAsset, version: selectedVersion }
   const versionOptions = Array.from(
     new Set([selectedAsset.version, 'v 1.0.1', 'v 1.0.0', 'v 0.9.8']),
@@ -2559,12 +2595,30 @@ function App() {
   }
 
   function selectAsset(assetId: string) {
-    const nextAsset = assets.find((asset) => asset.id === assetId) ?? assets[0]
+    const nextAsset = renamedAssets.find((asset) => asset.id === assetId) ?? renamedAssets[0]
     setSelectedAssetId(nextAsset.id)
     setSelectedVersion(nextAsset.version)
     setSelectedVariantId('updated')
     chooseSegment('')
     flashToast(`${nextAsset.name} selected`)
+  }
+
+  function renameAsset(assetId: string, title: string) {
+    const nextTitle = title.trim().replace(/\s+/g, ' ')
+    if (!nextTitle) return
+
+    setAssetRenames((current) => {
+      const next = { ...current, [assetId]: nextTitle }
+      persistAssetRenames(next)
+      return next
+    })
+
+    recordPrototypeAction(
+      'Project renamed',
+      `${nextTitle} saved as the project name.`,
+      'The canvas, prompt context, asset selector, and saved style context now use the renamed project label.',
+    )
+    flashToast('Project renamed')
   }
 
   function flashToast(message: string, duration = 1600) {
@@ -5243,8 +5297,10 @@ function App() {
             style={editorLayoutStyle}
           >
             <LeftInspector
+              assets={renamedAssets}
               selectedAssetId={selectedAssetId}
               onSelectAsset={selectAsset}
+              onRenameAsset={renameAsset}
               scalars={draftScalars}
               committedScalars={scalars}
               selectedStylePresetId={selectedStylePresetId}
@@ -5570,8 +5626,10 @@ function SidebarResizeHandle({
 }
 
 function LeftInspector({
+  assets: creativeAssets,
   selectedAssetId,
   onSelectAsset,
+  onRenameAsset,
   scalars,
   committedScalars,
   selectedStylePresetId,
@@ -5584,8 +5642,10 @@ function LeftInspector({
   onApplySuggestion,
   onDismissSuggestion,
 }: {
+  assets: CreativeAsset[]
   selectedAssetId: string
   onSelectAsset: (id: string) => void
+  onRenameAsset: (id: string, title: string) => void
   scalars: AestheticScalar[]
   committedScalars: AestheticScalar[]
   selectedStylePresetId: string
@@ -5599,6 +5659,8 @@ function LeftInspector({
   onDismissSuggestion: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [renamingAsset, setRenamingAsset] = useState(false)
+  const [assetRenameDraft, setAssetRenameDraft] = useState('')
   const [openPresetMenuId, setOpenPresetMenuId] = useState('')
   const [renamingPresetId, setRenamingPresetId] = useState('')
   const [renameDraft, setRenameDraft] = useState('')
@@ -5608,7 +5670,8 @@ function LeftInspector({
   const [suggestionVisible, setSuggestionVisible] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const presetPanelRef = useRef<HTMLDivElement>(null)
-  const selectedAsset = assets.find((asset) => asset.id === selectedAssetId) ?? assets[0]
+  const assetRenameInputRef = useRef<HTMLInputElement>(null)
+  const selectedAsset = creativeAssets.find((asset) => asset.id === selectedAssetId) ?? creativeAssets[0]
   const presetOptions = useMemo(() => {
     const options = [currentStylePreset(scalars), ...savedStylePresets, ...stylePresets]
 
@@ -5638,21 +5701,84 @@ function LeftInspector({
     return () => document.removeEventListener('pointerdown', closePresetMenu)
   }, [openPresetMenuId])
 
+  useEffect(() => {
+    if (!renamingAsset) return
+
+    const input = assetRenameInputRef.current
+    input?.focus()
+    input?.select()
+  }, [renamingAsset])
+
+  function beginAssetRename() {
+    setMenuOpen(false)
+    setAssetRenameDraft(selectedAsset.name)
+    setRenamingAsset(true)
+  }
+
+  function commitAssetRename() {
+    const nextTitle = assetRenameDraft.trim().replace(/\s+/g, ' ')
+    setRenamingAsset(false)
+    setAssetRenameDraft('')
+
+    if (!nextTitle || nextTitle === selectedAsset.name) return
+    onRenameAsset(selectedAsset.id, nextTitle)
+  }
+
+  function cancelAssetRename() {
+    setRenamingAsset(false)
+    setAssetRenameDraft('')
+  }
+
   return (
     <aside className="left-panel">
       <div className="asset-picker">
-        <button
-          className={`asset-select ${menuOpen ? 'open' : ''}`}
-          type="button"
-          onClick={() => setMenuOpen((open) => !open)}
-          aria-expanded={menuOpen}
-        >
-          <span>{selectedAsset.name}</span>
-          <ChevronDown size={18} />
-        </button>
+        <div className={`asset-select ${menuOpen ? 'open' : ''} ${renamingAsset ? 'is-renaming' : ''}`}>
+          {renamingAsset ? (
+            <form
+              className="asset-title-edit"
+              onSubmit={(event) => {
+                event.preventDefault()
+                commitAssetRename()
+              }}
+            >
+              <input
+                ref={assetRenameInputRef}
+                aria-label="Project name"
+                value={assetRenameDraft}
+                onChange={(event) => setAssetRenameDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault()
+                    cancelAssetRename()
+                  }
+                }}
+              />
+            </form>
+          ) : (
+            <>
+              <button
+                className="asset-title-button"
+                type="button"
+                onClick={beginAssetRename}
+                aria-label={`Edit project name ${selectedAsset.name}`}
+              >
+                <span>{selectedAsset.name}</span>
+              </button>
+              <button
+                className="asset-menu-trigger"
+                type="button"
+                onClick={() => setMenuOpen((open) => !open)}
+                aria-expanded={menuOpen}
+                aria-label="Open project selector"
+              >
+                <ChevronDown size={18} />
+              </button>
+            </>
+          )}
+        </div>
         {menuOpen ? (
           <div className="asset-menu" aria-label="Creative assets">
-            {assets.map((asset) => (
+            {creativeAssets.map((asset) => (
               <button
                 key={asset.id}
                 type="button"
