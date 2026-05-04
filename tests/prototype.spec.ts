@@ -832,17 +832,14 @@ test('thumbnail strip navigates to and centers the matching remix', async ({ pag
   await page.getByRole('button', { name: 'Navigate to Remix 2' }).click()
   await expect(remixStack).toHaveClass(/selected/)
 
-  await expect
-    .poll(async () => {
-      const currentCanvasBox = await canvas.boundingBox()
-      const currentCardBox = await remixCard.boundingBox()
-      if (!currentCanvasBox || !currentCardBox) return Number.POSITIVE_INFINITY
-
-      const canvasCenter = currentCanvasBox.x + currentCanvasBox.width / 2
-      const cardCenter = currentCardBox.x + currentCardBox.width / 2
-      return Math.abs(cardCenter - canvasCenter)
-    })
-    .toBeLessThan(46)
+  await page.waitForTimeout(360)
+  const navigatedCanvasBox = await canvas.boundingBox()
+  const navigatedCardBox = await remixCard.boundingBox()
+  expect(navigatedCanvasBox).not.toBeNull()
+  expect(navigatedCardBox).not.toBeNull()
+  const navigatedCanvasCenter = (navigatedCanvasBox?.x ?? 0) + (navigatedCanvasBox?.width ?? 0) / 2
+  const navigatedCardCenter = (navigatedCardBox?.x ?? 0) + (navigatedCardBox?.width ?? 0) / 2
+  expect(Math.abs(navigatedCardCenter - navigatedCanvasCenter)).toBeLessThan(46)
 
   const finalCanvasBox = await canvas.boundingBox()
   const finalTitleBox = await remixTitle.boundingBox()

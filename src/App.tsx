@@ -205,6 +205,8 @@ type CanvasPanState = {
   originY: number
 }
 
+type CanvasPanProfile = 'default' | 'quick'
+
 type SidebarSide = 'left' | 'right'
 
 type SidebarResizeState = {
@@ -2232,20 +2234,25 @@ function useCanvasPan() {
   )
 
   const animatePanTo = useCallback(
-    (target: DragOffset) => {
+    (target: DragOffset, profile: CanvasPanProfile = 'default') => {
       cancelPanAnimation()
       const start = panRef.current
       const dx = target.x - start.x
       const dy = target.y - start.y
       const distance = Math.hypot(dx, dy)
+      const quick = profile === 'quick'
 
       if (distance < 1 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
         setPan(target)
         return
       }
 
-      const duration = Math.min(760, Math.max(460, 360 + distance * 0.45))
-      const curve = Math.min(14, Math.max(5, distance * 0.025))
+      const duration = quick
+        ? Math.min(280, Math.max(150, 96 + distance * 0.12))
+        : Math.min(760, Math.max(460, 360 + distance * 0.45))
+      const curve = quick
+        ? Math.min(10, Math.max(4, distance * 0.018))
+        : Math.min(14, Math.max(5, distance * 0.025))
       const startedAt = performance.now()
 
       function tick(now: number) {
@@ -6212,12 +6219,12 @@ function CanvasWorkspace({
       columns: gridColumns,
       hasVariantStrip: generatedVariants.length > 0,
     })
-    canvasPan.animatePanTo(targetPan)
+    canvasPan.animatePanTo(targetPan, 'quick')
   }
 
   function navigateToVariant(variantId: string) {
-    selectCanvasVariant(variantId)
     focusVariantOnCanvas(variantId)
+    selectCanvasVariant(variantId)
   }
 
   function openNodeMenu(variantId: string, event: MouseEvent<HTMLElement>) {

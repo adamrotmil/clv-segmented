@@ -1098,7 +1098,7 @@ button {
   height: 100%;
   transform: translate3d(var(--pan-x, 0px), var(--pan-y, 0px), 0);
   transform-origin: top center;
-  transition: transform 120ms ease;
+  transition: none;
   will-change: transform;
   --artboard-stack-height: 668px;
 }
