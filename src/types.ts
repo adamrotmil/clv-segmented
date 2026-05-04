@@ -300,6 +300,12 @@ export type PromptRecipe = {
   debug?: Record<string, unknown>
 }
 
+export type GenerationTraceEvent =
+  | { type: 'payload'; label: 'image_request' | 'sam_request' | 'prompt_composer_request' | (string & {}); text: string; at: string }
+  | { type: 'phase'; text: string; at: string }
+  | { type: 'result'; durationMs: number; providerMode: string; imageTokens?: number; textTokens?: number; totalTokens?: number; sourceFidelity?: SourceFidelityAuthorityStatus; at: string }
+  | { type: 'error'; text: string; at: string }
+
 export type PromptComposerRequest = {
   requestId: string
   intent: CreativeGenerationIntent
@@ -393,6 +399,7 @@ export type CreativeGenerationResult = {
   promptSummary: string
   promptRecipe?: PromptRecipe
   sourceFidelity: SourceFidelityReport
+  traceEvents?: GenerationTraceEvent[]
 }
 
 export type SegmentImageRequest = {

@@ -50,6 +50,7 @@ import type {
   ChatMessage,
   CreativeAsset,
   CreativeGenerationRequest,
+  GenerationTraceEvent,
   ImagePromptPacket,
   ImageInputReference,
   ImageVariant,
@@ -65,7 +66,6 @@ import { requestAssistantChat } from './chat'
 import { requestCreativeGeneration } from './generation'
 import {
   buildSegmentImageRequest,
-  defaultSemanticHints,
   projectSegmentsForRequest,
   requestImageSegmentation,
 } from './segmentation'
@@ -132,23 +132,8 @@ type GenerationPromptRun = {
   sourceFidelity?: SourceFidelityReport
   segmentationResult?: SegmentImageResult
   segmentationError?: string
-}
-
-type ObservabilityStreamRow = {
-  id: string
-  lane: 'vision' | 'prompt' | 'image' | 'sam' | 'chat' | 'context'
-  role: string
-  status: 'streaming' | 'queued' | 'completed' | 'failed'
-  tokens: string[]
-}
-
-type ObservabilityRawPayload = {
-  id: string
-  label: string
-  detailsLabel: string
-  details: string
-  kind?: 'prompt' | 'image' | 'sam'
-  summary?: string
+  traceEvents?: GenerationTraceEvent[]
+  completedAt?: string
 }
 
 type SavedIdea = {
@@ -2697,6 +2682,7 @@ function App() {
       generation.promptRecipe,
       generation.providerMode,
       generation.sourceFidelity,
+      generation.traceEvents,
     )
     void segmentVariantImage({
       variantId: nextId,
@@ -3504,6 +3490,7 @@ function App() {
     promptRecipe?: PromptRecipe,
     providerMode?: string,
     sourceFidelity?: SourceFidelityReport,
+    traceEvents?: GenerationTraceEvent[],
   ) {
     updateGenerationRequestRun(requestId, {
       status: 'completed',
@@ -3511,6 +3498,8 @@ function App() {
       promptRecipe,
       providerMode,
       sourceFidelity,
+      traceEvents,
+      completedAt: new Date().toISOString(),
       segmentationStatus: 'segmenting',
     })
   }
@@ -3922,6 +3911,7 @@ function App() {
       generation.promptRecipe,
       generation.providerMode,
       generation.sourceFidelity,
+      generation.traceEvents,
     )
     void segmentVariantImage({
       variantId: nextId,
@@ -4060,6 +4050,7 @@ function App() {
       generation.promptRecipe,
       generation.providerMode,
       generation.sourceFidelity,
+      generation.traceEvents,
     )
     void segmentVariantImage({
       variantId: nextId,
@@ -4203,6 +4194,7 @@ function App() {
       generation.promptRecipe,
       generation.providerMode,
       generation.sourceFidelity,
+      generation.traceEvents,
     )
     void segmentVariantImage({
       variantId: nextId,
@@ -4413,6 +4405,7 @@ function App() {
       generation.promptRecipe,
       generation.providerMode,
       generation.sourceFidelity,
+      generation.traceEvents,
     )
     void segmentVariantImage({
       variantId: nextId,
@@ -4556,6 +4549,7 @@ function App() {
       generation.promptRecipe,
       generation.providerMode,
       generation.sourceFidelity,
+      generation.traceEvents,
     )
     void segmentVariantImage({
       variantId: nextId,
@@ -4564,7 +4558,7 @@ function App() {
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
-    flashToast('Images blended', 1800)
+    flashToast('Images blended', 6000)
   }
 
   function undoLastChange() {
@@ -4636,6 +4630,7 @@ function App() {
     if (!streaming) return
 
     window.clearInterval(chatStreamTimer.current)
+    setChatDraft(null)
     setMessages((current) =>
       current.map((message) =>
         message.id === streaming.id
@@ -4665,7 +4660,7 @@ function App() {
     ])
 
     function appendNextToken() {
-      index += 1
+      index += 3
       const partial = tokens.slice(0, index).join('')
       setMessages((current) =>
         current.map((message) =>
@@ -4679,11 +4674,12 @@ function App() {
         window.clearInterval(chatStreamTimer.current)
         chatStreamTimer.current = undefined
         chatStreamMessage.current = null
+        setChatDraft(null)
       }
     }
 
     appendNextToken()
-    chatStreamTimer.current = window.setInterval(appendNextToken, 76)
+    chatStreamTimer.current = window.setInterval(appendNextToken, 52)
   }
 
   function queueAssistantReply(content: string, focus = 'Composing response', activity = 'Worked for 1s >') {
@@ -4886,13 +4882,17 @@ function App() {
       })
     }, 420)
 
-    const reply = await requestAssistantChat(request)
+    const [reply] = await Promise.all([
+      requestAssistantChat(request),
+      new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 700)
+      }),
+    ])
     if (chatRequestCounter.current !== requestNumber) return
 
     applyAssistantCanvasActions(reply.actions)
     window.clearTimeout(chatThinkTimer.current)
     window.clearTimeout(chatResolveTimer.current)
-    setChatDraft(null)
     streamAssistantReply(reply.content, reply.activity ?? 'Worked with model >')
   }
 
@@ -7591,29 +7591,18 @@ function GenerationPromptTrace({
   return (
     <div className="prompt-observer" aria-label="Image generation prompt" data-generation-mode={mode}>
       {generationRuns.map((run) => (
-        <article className="prompt-packet" key={run.request.id}>
+        <article className="prompt-packet payload-transcript-packet" key={run.request.id}>
           <div
-            className="observability-stream"
+            className="observability-stream payload-transcript"
             aria-label="Generation observability stream"
             aria-live="polite"
           >
-            {observabilityStreamRowsForRequest(run).map((row) => (
-              <ObservabilityStreamRowItem key={`${run.request.id}-${row.id}`} row={row} />
-            ))}
-          </div>
-          <div className="stream-raw-payloads" aria-label={`Raw tool payloads for ${run.request.outputTitle}`}>
-            {observabilityRawPayloadsForRequest(run).map((payload) => (
-              <details
-                className={`stream-raw-payload ${payload.kind ? `payload-${payload.kind}` : ''}`}
-                key={`${run.request.id}-${payload.id}`}
-                aria-label={payload.detailsLabel}
-              >
-                <summary>
-                  <span>{payload.label}</span>
-                  {payload.summary ? <em>{payload.summary}</em> : null}
-                </summary>
-                <pre>{payload.details}</pre>
-              </details>
+            {generationTraceEventsForRun(run).map((event, index) => (
+              <GenerationTraceEventText
+                key={`${run.request.id}-${event.type}-${index}`}
+                event={event}
+                eventIndex={index}
+              />
             ))}
           </div>
         </article>
@@ -7622,73 +7611,12 @@ function GenerationPromptTrace({
   )
 }
 
-function streamTokens(text: string, limit = 180) {
-  const tokens =
-    text
-      .replace(/\s+/g, ' ')
-      .trim()
-      .match(/"[^"]+"|[\w:/.'’+-]+|[%→&=]|[^\s]/g) ?? []
-
-  return tokens.slice(0, limit)
-}
-
-function chunkTokens(tokens: string[], chunkSize: number) {
-  const chunks: string[][] = []
-  for (let index = 0; index < tokens.length; index += chunkSize) {
-    chunks.push(tokens.slice(index, index + chunkSize))
-  }
-  return chunks
-}
-
-function appendStreamRows(
-  rows: ObservabilityStreamRow[],
-  {
-    id,
-    lane,
-    role,
-    status,
-    text,
-    maxTokens = 160,
-    chunkSize = 16,
-  }: {
-    id: string
-    lane: ObservabilityStreamRow['lane']
-    role: string
-    status: ObservabilityStreamRow['status']
-    text: string
-    maxTokens?: number
-    chunkSize?: number
-  },
-) {
-  chunkTokens(streamTokens(text, maxTokens), chunkSize).forEach((tokens, index) => {
-    rows.push({
-      id: `${id}-${index}`,
-      lane,
-      role,
-      status,
-      tokens,
-    })
-  })
-}
-
 function observabilityPayloadDataForRequest(run: GenerationPromptRun): {
-  laneStatus: ObservabilityStreamRow['status']
-  samLaneStatus: ObservabilityStreamRow['status']
   selectedSegments: SegmentAnnotation[]
   projectedFallbackPreview: SegmentAnnotation[]
-  imagePayload: Record<string, unknown>
   samPayload: Record<string, unknown>
 } {
   const { request } = run
-  const laneStatus = run.status === 'running' ? 'streaming' : 'completed'
-  const samLaneStatus =
-    run.segmentationStatus === 'queued'
-      ? 'queued'
-      : run.segmentationStatus === 'segmenting'
-        ? 'streaming'
-        : run.segmentationStatus === 'failed'
-          ? 'failed'
-          : 'completed'
   const selectedSegments = request.selectedSegment
     ? [
         request.selectedSegment,
@@ -7713,351 +7641,270 @@ function observabilityPayloadDataForRequest(run: GenerationPromptRun): {
     status: run.segmentationStatus,
     imageUrl: run.imageUrl ?? null,
     segmentRequest,
-    selectedSegment: request.selectedSegment,
-    sourceSegments: request.sourceVariant.segments ?? [],
-    focusSegments: selectedSegments.slice(0, 4),
+    selectedSegment: segmentPayloadItem(request.selectedSegment),
+    sourceSegments: segmentPayloadSegments(request.sourceVariant.segments ?? []),
+    focusSegments: segmentPayloadSegments(selectedSegments.slice(0, 4)),
     semanticHints: segmentRequest.semanticHints,
     masksReturned: run.segmentationResult?.segments.length ?? 0,
-    finalSegments: run.segmentationResult?.segments ?? [],
-    projectedFallbackPreview,
-    rawResult: run.segmentationResult?.rawPayload,
+    finalSegments: segmentPayloadSegments(run.segmentationResult?.segments ?? []),
+    projectedFallbackPreview: segmentPayloadSegments(projectedFallbackPreview),
+    rawResult: run.segmentationResult?.rawPayload ? '<redacted raw segmentation payload>' : undefined,
     error: run.segmentationError,
   }
-  const imagePayload = {
-    model: request.model,
-    providerMode: run.providerMode ?? 'pending-source-preserving-edit',
-    sourceFidelity: run.sourceFidelity ?? null,
-    requestId: request.id,
-    intent: request.intent,
-    outputTitle: request.outputTitle,
-    imageInputs: request.imageInputs,
-    finalPrompt: run.promptRecipe?.finalPrompt ?? request.imagePrompt.promptDraft,
-    promptComposerModel: run.promptRecipe?.model ?? request.promptComposer.composerModel,
-    promptDraft: request.imagePrompt.promptDraft,
-    requestScaffold: request.imagePrompt.requestScaffold,
-    negativePrompt: run.promptRecipe?.negativePrompt ?? request.imagePrompt.negativePrompt,
-    context: request.imagePrompt.context,
-    promptHints: request.imagePrompt.promptHints,
-    promptComposer: request.promptComposer,
-  }
-
-  return { laneStatus, samLaneStatus, selectedSegments, projectedFallbackPreview, imagePayload, samPayload }
+  return { selectedSegments, projectedFallbackPreview, samPayload }
 }
 
-function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
-  const { request } = run
-  const { laneStatus, samLaneStatus, selectedSegments, projectedFallbackPreview } =
-    observabilityPayloadDataForRequest(run)
-  const rows: ObservabilityStreamRow[] = []
-  const promptRecipe = run.promptRecipe
-  const finalPrompt = promptRecipe?.finalPrompt ?? request.imagePrompt.promptDraft
-  const finalNegativePrompt = promptRecipe?.negativePrompt ?? request.imagePrompt.negativePrompt
-  const composerStatus = promptRecipe ? 'completed' : laneStatus
-  const imageInputSummary =
-    request.imageInputs.map((input) => `${input.role}:${input.title}`).join(', ') || 'none'
-  const recentChat =
-    request.chatContext
-      .slice(-3)
-      .map((message) => `${message.role}: ${message.content}`)
-      .join(' | ') || 'none'
-  const sourceCopy = request.imageInputs
-    .flatMap((input) => input.copywriting ?? [])
-    .filter(Boolean)
-    .join(' | ')
-  const scalarSummary =
-    request.scalarChanges
-      .map((change) => `${change.label}: ${change.before}/100 -> ${change.after}/100 toward ${change.marker ?? change.highLabel}`)
-      .join(' · ') || 'none'
-  const scalarBundleSummary =
-    request.promptComposer.scalarBundle.changes.join(' · ') ||
-    'No staged scalar deltas; full scalar recipe included.'
-  const scalarTranslation = request.promptComposer.scalarPromptTranslation
-  const sourceFidelity = run.sourceFidelity
-  const sourceEvidence = sourceFidelity?.evidence
-  const sourceFidelityStatus =
-    sourceFidelity?.mode === 'fallback-generation'
-      ? 'fallback generation entered; source-fidelity risk increased'
-      : sourceFidelity
-        ? `${sourceFidelity.mode} status=${sourceFidelity.status} confidence=${sourceFidelity.confidence}`
-        : 'source-preserving edit gate pending'
-  const sourceFidelityChecks =
-    sourceFidelity?.checks
-      .map((check) => `${check.label}=${check.status}`)
-      .join(' · ') ??
-    'Generation succeeded=pending · Source-preserving edit=pending · Product/copy/type locks=pending'
-
-  appendStreamRows(rows, {
-    id: 'target',
-    lane: 'prompt',
-    role: 'context',
-    status: laneStatus,
-    text: `Generation target: ${request.outputTitle} intent=${request.intent} model=${request.model} active canvas node: ${request.sourceVariant.title}`,
-  })
-  appendStreamRows(rows, {
-    id: 'fidelity-route',
-    lane: 'context',
-    role: run.providerMode ?? 'source-fidelity',
-    status: sourceFidelity?.mode === 'fallback-generation' ? 'failed' : sourceFidelity ? 'completed' : laneStatus,
-    text: `Fallback variants must be marked and reviewed before acceptance. Source-fidelity route: ${sourceFidelityStatus}. endpoint=${sourceEvidence?.endpoint ?? 'pending'} imageInputCount=${sourceEvidence?.imageInputCount ?? 'pending'} imageTokens=${sourceEvidence?.imageTokens ?? 'pending'}. Primary gate=image edit with imageInputs[0].`,
-    maxTokens: 105,
-  })
-  appendStreamRows(rows, {
-    id: 'fidelity-critic',
-    lane: 'vision',
-    role: sourceFidelity?.critic?.status ?? 'critic queued',
-    status:
-      sourceFidelity?.critic?.status === 'failed'
-        ? 'failed'
-        : sourceFidelity?.critic?.status === 'needs-review'
-          ? 'queued'
-          : sourceFidelity
-            ? 'completed'
-            : laneStatus,
-    text: `Post-generation critic gates: ${sourceFidelityChecks}. ${sourceFidelity?.critic?.summary ?? request.promptComposer.sourceFidelity.criticChecks.join(' | ')}`,
-    maxTokens: 130,
-  })
-  appendStreamRows(rows, {
-    id: 'vision',
-    lane: 'vision',
-    role: promptRecipe?.model ?? request.promptComposer.composerModel,
-    status: composerStatus,
-    text: promptRecipe
-      ? `visualRead ${promptRecipe.visualRead}`
-      : `vision composer pending sourceImages=${request.imageInputs.map((input) => input.title).join(', ')} selectedSegments=${selectedSegments.slice(0, 3).map((segment) => segment.label).join(', ')}`,
-    maxTokens: 130,
-  })
-  appendStreamRows(rows, {
-    id: 'composer',
-    lane: 'prompt',
-    role: 'composer',
-    status: composerStatus,
-    text: promptRecipe
-      ? `compose-image-prompt completed finalPrompt model=${promptRecipe.model} scalarNotes=${promptRecipe.sliderInterpretation?.length ?? 0} preservationLocks=${Object.keys(promptRecipe.preservationLocks ?? {}).join(', ') || 'none'}`
-      : `compose-image-prompt request ready composerModel=${request.promptComposer.composerModel} promptDraft and requestScaffold will be authored into finalPrompt server-side`,
-    maxTokens: 150,
-  })
-  promptRecipe?.observability?.slice(0, 5).forEach((event, index) => {
-    appendStreamRows(rows, {
-      id: `composer-event-${index}`,
-      lane: event.lane,
-      role: 'composer',
-      status: 'completed',
-      text: event.text,
-      maxTokens: 110,
-    })
-  })
-  appendStreamRows(rows, {
-    id: 'inputs',
-    lane: 'image',
-    role: request.model,
-    status: laneStatus,
-    text: `Image inputs imageInputs=${imageInputSummary} sourceIds=${request.sourceIds.join(', ')} worker_evidence_roles=${sourceEvidence?.imageInputRoles?.join(', ') ?? 'pending'} input_fidelity=high edit_route=primary fallback_allowed_only_if_reported`,
-  })
-  appendStreamRows(rows, {
-    id: 'context',
-    lane: 'context',
-    role: 'packet',
-    status: laneStatus,
-    text: `Context packet: ${request.imagePrompt.context
-      .map((item) => item.label)
-      .join(' · ')} · active canvas node: ${request.sourceVariant.title}`,
-    maxTokens: 90,
-  })
-  appendStreamRows(rows, {
-    id: 'scalars',
-    lane: 'context',
-    role: 'aesthetics',
-    status: laneStatus,
-    text: `Combined staged slider bundle: ${request.promptComposer.scalarBundle.instruction} changes=${scalarBundleSummary} rawDeltas=${scalarSummary} Aesthetic controls=${request.scalars
-      .map((scalar) => `${scalar.label}: ${scalar.value}/100`)
-      .join(' · ')}`,
-    maxTokens: 190,
-  })
-  appendStreamRows(rows, {
-    id: 'scalar-grounding',
-    lane: 'context',
-    role: 'scalar ontology',
-    status: laneStatus,
-    text: `${scalarTranslation.summary} ${scalarTranslation.compactObservability.join(' | ')}`,
-    maxTokens: 140,
-  })
-  appendStreamRows(rows, {
-    id: 'scalar-language',
-    lane: 'prompt',
-    role: 'scalar language',
-    status: laneStatus,
-    text: `Changed scalar language: ${scalarTranslation.changedScalarInstructions.join(' | ')} Full scalar recipe language starts with: ${scalarTranslation.fullRecipeInstructions
-      .slice(0, 6)
-      .join(' | ')}`,
-    maxTokens: 700,
-    chunkSize: 700,
-  })
-  appendStreamRows(rows, {
-    id: 'chat',
-    lane: 'chat',
-    role: 'recent',
-    status: laneStatus,
-    text: `Recent chat: ${recentChat}`,
-    maxTokens: 130,
-  })
-  appendStreamRows(rows, {
-    id: 'copy',
-    lane: 'prompt',
-    role: 'copy lock',
-    status: laneStatus,
-    text: `Copywriting policy: preserve exact source copy; Source preservation: Do not rewrite, paraphrase, translate, crop, distort, or replace readable ad copy. sourceCopy=${sourceCopy}`,
-    maxTokens: 150,
-  })
-  appendStreamRows(rows, {
-    id: 'sam-focus',
-    lane: 'sam',
-    role: run.segmentationResult?.toolName ?? 'queued',
-    status: samLaneStatus,
-    text: `segmentation status=${run.segmentationStatus} image=${run.imageUrl ? 'generated-image-ready' : 'waiting-for-generated-image'} hints=${defaultSemanticHints.length} returned=${run.segmentationResult?.segments.length ?? 0} source=${request.sourceVariant.title} focus=${selectedSegments
-      .slice(0, 3)
-      .map((segment) => segment.label)
-      .join(', ') || 'none'}`,
-    maxTokens: 80,
-  })
-  appendStreamRows(rows, {
-    id: 'sam-fallback',
-    lane: 'sam',
-    role: segmentResultRole(run.segmentationResult),
-    status: samLaneStatus,
-    text:
-      run.segmentationResult && segmentResultRole(run.segmentationResult) !== 'projected fallback'
-        ? `finalSegments=${run.segmentationResult.segments.length} provider=${run.segmentationResult.provider} details in SAM accordion`
-        : `projectedFallbackPreview=${projectedFallbackPreview.length} details in SAM accordion`,
-    maxTokens: 60,
-  })
-  appendStreamRows(rows, {
-    id: 'image',
-    lane: 'image',
-    role: request.model,
-    status: laneStatus,
-    text: `POST /v1/images/edits model=${request.model} intent=${request.intent} output=${request.outputTitle} evidence_endpoint=${sourceEvidence?.endpoint ?? 'pending'} evidence_image_tokens=${sourceEvidence?.imageTokens ?? 'pending'} finalPrompt=${finalPrompt} negativePrompt=${finalNegativePrompt}`,
-    maxTokens: 320,
-    chunkSize: 320,
-  })
-  appendStreamRows(rows, {
-    id: 'prompt',
-    lane: 'prompt',
-    role: promptRecipe ? 'final' : 'draft',
-    status: laneStatus,
-    text: promptRecipe ? `composer-authored final prompt ${finalPrompt}` : `promptDraft ${request.imagePrompt.promptDraft}`,
-    maxTokens: 520,
-    chunkSize: 520,
-  })
-
-  return rows
-}
-
-function observabilityRawPayloadsForRequest(run: GenerationPromptRun): ObservabilityRawPayload[] {
-  const { request } = run
-  const { imagePayload, samPayload } = observabilityPayloadDataForRequest(run)
-  const samSegmentCount = run.segmentationResult?.segments.length ?? 0
-  const samPreviewCount = Array.isArray(samPayload.projectedFallbackPreview)
-    ? samPayload.projectedFallbackPreview.length
-    : 0
-  const promptPayload = {
-    requestId: request.id,
-    promptDraft: request.imagePrompt.promptDraft,
-    requestScaffold: request.imagePrompt.requestScaffold,
-    legacyCombinedPrompt: request.imagePrompt.prompt,
-    context: request.imagePrompt.context,
-    promptHints: request.imagePrompt.promptHints,
-    recentChat: request.chatContext.slice(-8),
-    scalarChanges: request.scalarChanges,
-  }
-  const payloads: ObservabilityRawPayload[] = [
-    {
-      id: 'composer-request',
-      label: 'Raw composer request',
-      detailsLabel: 'Raw composer request',
-      kind: 'prompt',
-      summary: request.promptComposer.composerModel,
-      details: JSON.stringify(request.promptComposer, null, 2),
-    },
-  ]
-
-  if (run.promptRecipe) {
-    payloads.push({
-      id: 'composer-output',
-      label: 'Raw composer output',
-      detailsLabel: 'Raw composer output',
-      kind: 'prompt',
-      summary: run.promptRecipe.model,
-      details: JSON.stringify(run.promptRecipe, null, 2),
-    })
-  }
-
-  return [
-    ...payloads,
-    {
-      id: 'prompt',
-      label: 'Raw prompt context',
-      detailsLabel: 'Raw prompt context',
-      kind: 'prompt',
-      summary: `${request.imagePrompt.context.length} context items`,
-      details: JSON.stringify(promptPayload, null, 2),
-    },
-    {
-      id: 'source-fidelity',
-      label: 'Raw source fidelity',
-      detailsLabel: 'Raw source fidelity',
-      kind: 'image',
-      summary: run.sourceFidelity
-        ? `${run.sourceFidelity.confidence} · ${run.sourceFidelity.providerMode}`
-        : 'pending edit gate',
-      details: JSON.stringify(
-        {
-          providerMode: run.providerMode ?? 'pending-source-preserving-edit',
-          sourceFidelity: run.sourceFidelity,
-          policy: request.promptComposer.sourceFidelity,
-        },
-        null,
-        2,
-      ),
-    },
-    {
-      id: 'image',
-      label: 'Raw image payload',
-      detailsLabel: 'Raw image payload',
-      kind: 'image',
-      summary: request.model,
-      details: JSON.stringify(imagePayload, null, 2),
-    },
-    {
-      id: 'sam',
-      label: 'Raw SAM payload',
-      detailsLabel: 'Raw SAM payload',
-      kind: 'sam',
-      summary:
-        run.segmentationResult && segmentResultRole(run.segmentationResult) !== 'projected fallback'
-          ? `${samSegmentCount} segments · ${run.segmentationResult.provider}`
-          : `${samPreviewCount} projected segments · ${run.segmentationStatus}`,
-      details: JSON.stringify(samPayload, null, 2),
-    },
-  ]
-}
-
-function ObservabilityStreamRowItem({ row }: { row: ObservabilityStreamRow }) {
-  return (
-    <div
-      className={`stream-row ${row.status} lane-${row.lane}`}
-      aria-label={`${row.lane} token stream`}
-    >
-      <span className="stream-row-lane">{row.lane}</span>
-      <span className="stream-row-role">{row.role}</span>
-      <div className="stream-row-tokens">
-        {row.tokens.map((token, index) => (
-          <span key={`${row.id}-${index}-${token}`} style={{ '--token-index': index } as CSSProperties}>
-            {token}{' '}
-          </span>
-        ))}
-      </div>
-    </div>
+function generationTraceEventsForRun(run: GenerationPromptRun): GenerationTraceEvent[] {
+  const requestAt = run.request.createdAt
+  const workerEvents = run.traceEvents ?? []
+  const hasWorkerImagePayload = workerEvents.some(
+    (event) => event.type === 'payload' && event.label === 'image_request',
   )
+  const events: GenerationTraceEvent[] = hasWorkerImagePayload
+    ? [...workerEvents]
+    : [
+        {
+          type: 'payload',
+          label: 'image_request',
+          text: formatTracePayload(redactedImageRequestPayloadForRun(run)),
+          at: requestAt,
+        },
+        ...workerEvents,
+      ]
+
+  if (run.segmentationStatus !== 'queued') {
+    const hasWorkerSamPayload = events.some(
+      (event) => event.type === 'payload' && event.label === 'sam_request',
+    )
+    if (!hasWorkerSamPayload) {
+      events.push({
+        type: 'payload',
+        label: 'sam_request',
+        text: formatTracePayload(redactedSamRequestPayloadForRun(run)),
+        at: run.completedAt ?? new Date().toISOString(),
+      })
+    }
+  }
+
+  if (run.status === 'completed' && !events.some((event) => event.type === 'result')) {
+    const evidence = run.sourceFidelity?.evidence
+    events.push({
+      type: 'result',
+      durationMs:
+        new Date(run.completedAt ?? new Date().toISOString()).getTime() -
+        new Date(requestAt).getTime(),
+      providerMode: run.providerMode ?? 'completed',
+      imageTokens: evidence?.imageTokens,
+      textTokens: evidence?.textTokens,
+      totalTokens: evidence?.totalTokens,
+      sourceFidelity: run.sourceFidelity?.status,
+      at: run.completedAt ?? new Date().toISOString(),
+    })
+  }
+
+  if (run.segmentationStatus === 'failed' && run.segmentationError) {
+    events.push({
+      type: 'error',
+      text: `segmentation_error ${run.segmentationError}`,
+      at: run.completedAt ?? new Date().toISOString(),
+    })
+  }
+
+  return events
+}
+
+function redactedImageRequestPayloadForRun(run: GenerationPromptRun) {
+  const { request } = run
+  const mediaSize = generationMediaSizeForRequest(request) ?? { width: 1024, height: 1024 }
+  const evidence = run.sourceFidelity?.evidence
+  const scalarTranslation = request.promptComposer.scalarPromptTranslation
+
+  const endpoint =
+    typeof evidence?.endpoint === 'string' && evidence.endpoint.startsWith('/v1/images/')
+      ? evidence.endpoint
+      : '/v1/images/edits'
+
+  return {
+    endpoint,
+    model: request.model,
+    intent: request.intent,
+    output: request.outputTitle,
+    quality: 'high',
+    size: `${mediaSize.width}x${mediaSize.height}`,
+    providerMode: run.providerMode ?? 'pending-source-preserving-edit',
+    imageInputs: request.imageInputs.map((input, index) => redactedImageInputPayload(input, index)),
+    prompt: run.promptRecipe?.finalPrompt ?? request.imagePrompt.promptDraft,
+    negativePrompt: run.promptRecipe?.negativePrompt ?? request.imagePrompt.negativePrompt,
+    preservationLocks: {
+      product: true,
+      copy: true,
+      typography: true,
+    },
+    scalarTranslation: {
+      summary: scalarTranslation.summary,
+      changedScalarInstructions: scalarTranslation.changedScalarInstructions,
+      fullRecipeInstructions: scalarTranslation.fullRecipeInstructions,
+      referencedOntologyIds: scalarTranslation.referencedOntologyIds,
+      referencedVisualCalibrationIds: scalarTranslation.referencedVisualCalibrationIds,
+    },
+    scalarChanges: request.scalarChanges,
+    selectedSegments: observabilityPayloadDataForRequest(run).selectedSegments.map(segmentPayloadItem),
+    chatContext: request.chatContext.slice(-8).map(({ role, content }) => ({ role, content })),
+    promptContext: {
+      promptDraft: request.imagePrompt.promptDraft,
+      requestScaffold: request.imagePrompt.requestScaffold,
+      context: request.imagePrompt.context,
+      promptHints: request.imagePrompt.promptHints,
+      composerRequest: request.promptComposer,
+    },
+    tokenEvidence: {
+      imageTokens: evidence?.imageTokens ?? null,
+      textTokens: evidence?.textTokens ?? null,
+      totalTokens: evidence?.totalTokens ?? null,
+      imageInputCount: evidence?.imageInputCount ?? request.imageInputs.length,
+      imageInputRoles:
+        evidence?.imageInputRoles ??
+        request.imageInputs.map(
+          (input, index) => `${index}:${input.role}:${input.referenceType ?? 'creative'}`,
+        ),
+    },
+  }
+}
+
+function redactedSamRequestPayloadForRun(run: GenerationPromptRun) {
+  return observabilityPayloadDataForRequest(run).samPayload
+}
+
+function redactedImageInputPayload(input: ImageInputReference, index: number) {
+  return {
+    role: imageInputTraceRole(input, index),
+    title: input.title,
+    mimeType: input.mediaType ?? mediaTypeForImage(input.url),
+    bytes: imageInputByteCount(input.url) ?? 'redacted-or-remote',
+    dimensions: input.mediaSize ? `${input.mediaSize.width}x${input.mediaSize.height}` : 'unknown',
+    fileName: imageInputFileName(input.url, input.title),
+    referenceType: input.referenceType ?? 'creative',
+    url: redactedImageUrl(input.url),
+    copywriting: input.copywriting ?? [],
+  }
+}
+
+function imageInputTraceRole(input: ImageInputReference, index: number) {
+  if (input.referenceType === 'typography') return 'type-reference'
+  if (input.role === 'source' || index === 0) return 'source'
+  return 'reference'
+}
+
+function imageInputByteCount(url: string) {
+  const [, base64] = url.match(/^data:[^;]+;base64,(.+)$/) ?? []
+  if (!base64) return undefined
+  return Math.round((base64.length * 3) / 4)
+}
+
+function imageInputFileName(url: string, fallback: string) {
+  if (url.startsWith('data:')) return fallback
+
+  try {
+    const parsedUrl = new URL(url, window.location.origin)
+    return decodeURIComponent(parsedUrl.pathname.split('/').filter(Boolean).pop() ?? fallback)
+  } catch {
+    return fallback
+  }
+}
+
+function redactedImageUrl(url: string) {
+  if (url.startsWith('data:')) {
+    const mimeType = url.match(/^data:([^;]+)/)?.[1] ?? 'image/*'
+    return `data:${mimeType};base64,<redacted>`
+  }
+
+  return imageInputFileName(url, url)
+}
+
+function segmentPayloadSegments(items: SegmentAnnotation[]) {
+  return items.map(segmentPayloadItem)
+}
+
+function segmentPayloadItem(segment: SegmentAnnotation) {
+  return {
+    id: segment.id,
+    label: segment.label,
+    delta: segment.delta,
+    bounds: {
+      x: segment.x,
+      y: segment.y,
+      width: segment.width,
+      height: segment.height,
+    },
+  }
+}
+
+function formatTracePayload(payload: unknown) {
+  return JSON.stringify(payload, null, 2)
+}
+
+function GenerationTraceEventText({
+  event,
+  eventIndex,
+}: {
+  event: GenerationTraceEvent
+  eventIndex: number
+}) {
+  const parts = transcriptPieces(generationTraceEventText(event))
+  let visibleIndex = 0
+
+  return (
+    <pre className={`generation-transcript-event event-${event.type}`}>
+      {parts.map((part, index) => {
+        const isSpace = /^\s+$/.test(part)
+        const tokenIndex = isSpace ? visibleIndex : visibleIndex++
+
+        return (
+          <span
+            className={isSpace ? 'transcript-space' : 'transcript-token'}
+            key={`${event.type}-${eventIndex}-${index}-${part}`}
+            style={{ '--token-index': Math.min(tokenIndex + eventIndex * 18, 260) } as CSSProperties}
+          >
+            {part}
+          </span>
+        )
+      })}
+    </pre>
+  )
+}
+
+function transcriptPieces(text: string) {
+  return text.match(/\s+|[^\s]+/g) ?? []
+}
+
+function generationTraceEventText(event: GenerationTraceEvent) {
+  if (event.type === 'payload') {
+    return `${event.label}\n${event.text}`
+  }
+
+  if (event.type === 'result') {
+    return [
+      `Generated for ${formatGenerationDuration(event.durationMs)}`,
+      `providerMode=${event.providerMode}`,
+      typeof event.imageTokens === 'number' ? `imageTokens=${event.imageTokens}` : '',
+      typeof event.textTokens === 'number' ? `textTokens=${event.textTokens}` : '',
+      typeof event.totalTokens === 'number' ? `totalTokens=${event.totalTokens}` : '',
+      event.sourceFidelity ? `sourceFidelity=${event.sourceFidelity}` : '',
+    ]
+      .filter(Boolean)
+      .join(' · ')
+  }
+
+  return event.text
+}
+
+function formatGenerationDuration(durationMs: number) {
+  const safeMs = Math.max(0, durationMs)
+  const totalSeconds = Math.max(1, Math.round(safeMs / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+
+  return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`
 }
 
 function ScoreControlsPanel({

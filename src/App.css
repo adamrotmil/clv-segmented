@@ -3105,6 +3105,54 @@ button {
   padding-top: 1px;
 }
 
+.payload-transcript {
+  display: block;
+  padding: 1px 0 2px;
+  color: #2f3036;
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    "SF Mono",
+    Menlo,
+    Consolas,
+    monospace;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 14px;
+  letter-spacing: 0;
+}
+
+.generation-transcript-event {
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.generation-transcript-event + .generation-transcript-event {
+  margin-top: 9px;
+}
+
+.generation-transcript-event.event-result,
+.generation-transcript-event.event-phase {
+  color: #686970;
+}
+
+.generation-transcript-event.event-error {
+  color: #8a1f24;
+}
+
+.transcript-token {
+  opacity: 0;
+  animation: transcript-token-in 140ms ease-out forwards;
+  animation-delay: calc(var(--token-index) * 10ms);
+}
+
+.transcript-space {
+  white-space: pre-wrap;
+}
+
 .stream-row {
   display: grid;
   grid-template-columns: 37px 74px minmax(0, 1fr);
@@ -4070,6 +4118,18 @@ button {
   }
 }
 
+@keyframes transcript-token-in {
+  from {
+    opacity: 0;
+    transform: translateY(1px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes pulse {
   0%,
   100% {
@@ -4100,6 +4160,11 @@ button {
   }
 
   .chat-message.assistant.is-streaming .message-content::after {
+    animation: none;
+  }
+
+  .transcript-token {
+    opacity: 1;
     animation: none;
   }
 }

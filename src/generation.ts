@@ -1,6 +1,7 @@
 import type {
   CreativeGenerationRequest,
   CreativeGenerationResult,
+  GenerationTraceEvent,
   ImageProviderMode,
   PromptRecipe,
   SourceFidelityAuthorityStatus,
@@ -19,6 +20,8 @@ type EndpointGenerationResult = Partial<
   observability?: PromptRecipe['observability']
   providerMode?: string
   sourceFidelity?: Partial<SourceFidelityReport>
+  traceEvents?: GenerationTraceEvent[]
+  generationTraceEvents?: GenerationTraceEvent[]
 }
 
 const generationEndpoint = import.meta.env.VITE_IMAGE_GENERATION_ENDPOINT?.trim()
@@ -482,6 +485,7 @@ function normalizeGenerationResult(
     promptSummary: fidelityResult.promptSummary ?? promptRecipe.finalPrompt ?? promptSummaryFor(request),
     promptRecipe,
     sourceFidelity,
+    traceEvents: fidelityResult.traceEvents ?? fidelityResult.generationTraceEvents,
   }
 }
 
