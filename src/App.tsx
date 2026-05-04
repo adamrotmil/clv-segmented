@@ -7166,11 +7166,13 @@ function AssistantScalarStarPlot({
   if (!scalars.length) return null
 
   const width = 400
-  const height = 306
+  const height = 326
   const centerX = 200
-  const centerY = 153
-  const radius = 100
-  const labelRadius = 132
+  const centerY = 163
+  const radius = 124
+  const labelRadius = 126
+  const labelFontSize = 12.5
+  const labelLineHeight = 15
   const rings = [0.2, 0.4, 0.6, 0.8]
   const recipeValues = scalars
     .map((scalar) => `${scalar.id}:${Math.round(scalar.value)}`)
@@ -7191,6 +7193,31 @@ function AssistantScalarStarPlot({
     if (scalar.id === 'presence') return ['Human', 'Presence']
     if (scalar.id === 'valence') return ['Emotional', 'Valence']
     return [scalar.label]
+  }
+
+  function labelField({
+    lines,
+    x,
+    y,
+    anchor,
+  }: {
+    lines: string[]
+    x: number
+    y: number
+    anchor: 'start' | 'middle' | 'end'
+  }) {
+    const longestLine = Math.max(...lines.map((line) => line.length))
+    const width = Math.max(28, longestLine * labelFontSize * 0.54 + 10)
+    const height = lines.length * labelLineHeight + 5
+    const left = anchor === 'middle' ? x - width / 2 : anchor === 'end' ? x - width + 3 : x - 3
+    const top = y - labelFontSize - 4
+
+    return {
+      x: Number(left.toFixed(2)),
+      y: Number(top.toFixed(2)),
+      width: Number(width.toFixed(2)),
+      height: Number(height.toFixed(2)),
+    }
   }
 
   const polygonPoints = scalars
@@ -7235,7 +7262,11 @@ function AssistantScalarStarPlot({
         <polygon className="assistant-star-polygon" points={polygonPoints} />
         <g className="assistant-star-value-labels" aria-hidden="true">
           {[1, 0.8, 0.6, 0.4, 0.2, 0].map((value) => (
-            <text key={value} x={centerX + 7} y={centerY - radius * value + 4}>
+            <text
+              key={value}
+              x={centerX + 7}
+              y={centerY - radius * value + (value === 1 ? 12 : 4)}
+            >
               {value === 1 || value === 0 ? value.toFixed(1).replace('.0', value === 0 ? '' : '.0') : value}
             </text>
           ))}
@@ -7246,18 +7277,31 @@ function AssistantScalarStarPlot({
             const anchor =
               Math.abs(point.x - centerX) < 10 ? 'middle' : point.x > centerX ? 'start' : 'end'
             const lines = labelLines(scalar)
-            const verticalOffset = point.y < centerY - 110 ? 3 : point.y > centerY + 110 ? 6 : 0
+            const verticalOffset = point.y < centerY - 110 ? 2 : point.y > centerY + 110 ? 7 : 0
             const x = Number(point.x.toFixed(2))
-            const y = Number((point.y + verticalOffset - (lines.length - 1) * 8).toFixed(2))
+            const y = Number(
+              (point.y + verticalOffset - ((lines.length - 1) * labelLineHeight) / 2).toFixed(2),
+            )
+            const field = labelField({ lines, x, y, anchor })
 
             return (
-              <text key={scalar.id} x={x} y={y} textAnchor={anchor}>
-                {lines.map((line, lineIndex) => (
-                  <tspan key={line} x={x} dy={lineIndex === 0 ? 0 : 18}>
-                    {line}
-                  </tspan>
-                ))}
-              </text>
+              <g key={scalar.id}>
+                <rect
+                  className="assistant-star-label-field"
+                  x={field.x}
+                  y={field.y}
+                  width={field.width}
+                  height={field.height}
+                  rx="5"
+                />
+                <text x={x} y={y} textAnchor={anchor}>
+                  {lines.map((line, lineIndex) => (
+                    <tspan key={line} x={x} dy={lineIndex === 0 ? 0 : labelLineHeight}>
+                      {line}
+                    </tspan>
+                  ))}
+                </text>
+              </g>
             )
           })}
         </g>

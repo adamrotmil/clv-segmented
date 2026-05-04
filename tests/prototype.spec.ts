@@ -956,6 +956,26 @@ test('selected canvas image shows its scalar recipe star plot above chat', async
   await expect(starPlot).toContainText('Emotional')
   await expect(starPlot).toContainText('Valence')
 
+  const plotTreatment = await starPlot.evaluate((element) => {
+    const outerRing = element.querySelector('.assistant-star-outer-ring')
+    const polygon = element.querySelector('.assistant-star-polygon')
+    const label = element.querySelector('.assistant-star-axis-labels text')
+    const labelFields = element.querySelectorAll('.assistant-star-label-field')
+
+    return {
+      labelFields: labelFields.length,
+      outerRadius: outerRing?.getAttribute('r'),
+      outerStrokeWidth: outerRing ? getComputedStyle(outerRing).strokeWidth : '',
+      polygonStrokeWidth: polygon ? getComputedStyle(polygon).strokeWidth : '',
+      labelFontSize: label ? getComputedStyle(label).fontSize : '',
+    }
+  })
+  expect(plotTreatment.labelFields).toBe(16)
+  expect(plotTreatment.outerRadius).toBe('124')
+  expect(Number.parseFloat(plotTreatment.outerStrokeWidth)).toBeLessThanOrEqual(1.1)
+  expect(Number.parseFloat(plotTreatment.polygonStrokeWidth)).toBeLessThanOrEqual(1.25)
+  expect(plotTreatment.labelFontSize).toBe('12.5px')
+
   const plotBox = await starPlot.boundingBox()
   const chatLogBox = await page.locator('.chat-log').boundingBox()
   expect(plotBox).not.toBeNull()
