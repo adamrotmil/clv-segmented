@@ -75,7 +75,7 @@ type PendingPhase = 'idle' | 'analyzing' | 'applying' | 'remixing' | 'failed'
 type AgentStatus = 'queued' | 'running' | 'done' | 'paused' | 'failed'
 type ScoreTab = 'scenes' | 'score' | 'insights'
 
-const DEFAULT_CANVAS_ZOOM = 75
+const DEFAULT_CANVAS_ZOOM = 100
 
 type ChangeTrace = {
   id: string

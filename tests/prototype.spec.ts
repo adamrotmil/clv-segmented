@@ -888,7 +888,7 @@ test('trackpad zoom gesture scales the canvas instead of the browser viewport', 
   const firstStack = page.locator('.creative-stack').first()
   const firstBefore = await firstStack.boundingBox()
   expect(firstBefore).not.toBeNull()
-  await expect(zoomControl).toContainText('75%')
+  await expect(zoomControl).toContainText('100%')
 
   const gestureResult = await page
     .getByRole('button', { name: 'Original Image', exact: true })
@@ -912,7 +912,7 @@ test('trackpad zoom gesture scales the canvas instead of the browser viewport', 
   expect(gestureResult.dispatchResult).toBe(false)
   expect(gestureResult.viewportScale).toBe(1)
   await expect(canvas).toBeFocused()
-  await expect(zoomControl).toContainText('81%')
+  await expect(zoomControl).toContainText('106%')
 
   await page.waitForTimeout(160)
   const firstAfter = await firstStack.boundingBox()
