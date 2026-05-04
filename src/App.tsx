@@ -50,6 +50,7 @@ import type {
   AssistantCanvasAction,
   ChatMessage,
   CreativeAsset,
+  CreativeGenerationResult,
   CreativeGenerationRequest,
   GenerationTraceEvent,
   GenerationOutputFrame,
@@ -181,6 +182,71 @@ type ChatDraft = {
 type AssistantCanvasActionEnvelope = {
   id: string
   action: AssistantCanvasAction
+}
+
+function fallbackReasonFor(report: SourceFidelityReport) {
+  const reason = report.evidence?.fallbackReason ?? report.warnings[0] ?? report.notes[0] ?? report.summary
+  const providerMode = report.providerMode.toLowerCase()
+
+  if (/safety/.test(providerMode)) {
+    return reason
+      ? `${reason} In plain language: the source-preserving edit path was blocked, so the worker used a lower-confidence generation path instead.`
+      : 'The source-preserving edit path was blocked by safety or provider constraints, so the worker used a lower-confidence generation path instead.'
+  }
+  if (/endpoint-failed|without returning|no usable/i.test(reason) || /endpoint-failed/.test(providerMode)) {
+    return reason || 'The generation endpoint did not return a usable image, so the app kept a fallback preview visible.'
+  }
+  if (/unchanged-output|identical/.test(providerMode) || /identical/i.test(reason)) {
+    return reason || 'The endpoint returned an image identical to the source, so the app marked it as an unaccepted fallback preview.'
+  }
+  if ((report.evidence?.imageInputCount ?? 1) < 1) {
+    return 'The worker did not report source image inputs on the generation call, so the result cannot be treated as a source-preserving edit.'
+  }
+
+  return reason || 'The worker could not verify a source-preserving edit route for this remix.'
+}
+
+function fallbackResolutionFor(report: SourceFidelityReport) {
+  const providerMode = report.providerMode.toLowerCase()
+  const reason = `${report.evidence?.fallbackReason ?? ''} ${report.warnings.join(' ')}`.toLowerCase()
+
+  if (/safety/.test(providerMode) || /safety|policy|blocked|rejected/.test(reason)) {
+    return 'Retry with a milder edit: reduce the most aggressive slider changes, keep identity/product/type regions locked, and avoid changing sensitive body or face details. A safer source image can also move this back onto the edit path.'
+  }
+  if (/endpoint-failed/.test(providerMode) || /endpoint|without returning|usable image/.test(reason)) {
+    return 'Check the worker response and retry. The worker should return an image plus sourceFidelity evidence; if the model call failed, surface that error instead of silently showing the source image.'
+  }
+  if (/unchanged-output|identical/.test(providerMode) || /identical/.test(reason)) {
+    return 'Retry with a clearer visible art-direction change and make sure the worker is not substituting the original source image as the output preview.'
+  }
+  if ((report.evidence?.imageInputCount ?? 1) < 1) {
+    return 'Make the worker call the source-preserving edit route with the selected source image attached as image input 0, then include product/type crops or reference images when available.'
+  }
+
+  return 'Retry as a source-preserving edit first, with stricter product/copy/type locks and a post-generation critic before accepting the result.'
+}
+
+function fallbackAssistantContentFor(
+  generation: CreativeGenerationResult,
+  request: CreativeGenerationRequest,
+) {
+  const report = generation.sourceFidelity
+  const lockWarnings = [
+    report.productLock !== 'passed' ? 'product' : '',
+    report.copyLock !== 'passed' ? 'copy' : '',
+    report.typographyLock !== 'passed' ? 'typography' : '',
+    report.identityLock !== 'passed' ? 'source identity' : '',
+  ].filter(Boolean)
+
+  return [
+    `Fallback generated for ${generation.title}.`,
+    `Why: ${fallbackReasonFor(report)}`,
+    `What that means: this is visible on the canvas, but I would not treat it as a fully source-faithful remix yet${
+      lockWarnings.length ? `; ${lockWarnings.join(', ')} still need review` : ''
+    }.`,
+    `How to resolve: ${fallbackResolutionFor(report)}`,
+    `I kept the technical trace attached to ${request.outputTitle}, so if you ask for details I can unpack the provider mode, image inputs, token evidence, and lock checks.`,
+  ].join('\n\n')
 }
 
 type DragOffset = {
@@ -2963,6 +3029,7 @@ function App() {
       generation.sourceFidelity,
       generation.traceEvents,
     )
+    explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -3807,6 +3874,19 @@ function App() {
     return generation.provider === 'endpoint' ? 'Endpoint image received' : 'Mock image response ready'
   }
 
+  function explainFallbackGenerationIfNeeded(
+    request: CreativeGenerationRequest,
+    generation: CreativeGenerationResult,
+  ) {
+    if (generation.sourceFidelity.mode !== 'fallback-generation') return
+
+    queueAssistantReply(
+      fallbackAssistantContentFor(generation, request),
+      'Explaining fallback path',
+      'Worked for 2s >',
+    )
+  }
+
   function queueGeneratingVariant(request: CreativeGenerationRequest, predictedScore: number) {
     trackGenerationRequest(request)
     const sourceVariant =
@@ -4203,6 +4283,7 @@ function App() {
       generation.sourceFidelity,
       generation.traceEvents,
     )
+    explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -4342,6 +4423,7 @@ function App() {
       generation.sourceFidelity,
       generation.traceEvents,
     )
+    explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -4486,6 +4568,7 @@ function App() {
       generation.sourceFidelity,
       generation.traceEvents,
     )
+    explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -4697,6 +4780,7 @@ function App() {
       generation.sourceFidelity,
       generation.traceEvents,
     )
+    explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -4841,6 +4925,7 @@ function App() {
       generation.sourceFidelity,
       generation.traceEvents,
     )
+    explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
       imageUrl: generation.image,
@@ -5006,6 +5091,7 @@ function App() {
       mediaSize: variant.mediaSize,
       sourceIds: variant.sourceIds,
       ingredients: variant.ingredients,
+      sourceFidelity: variant.sourceFidelity,
       visualSummary: variant.visualContext?.summary,
       segments: segmentsForVariant(variant),
       position: canvasPositions[variant.id],

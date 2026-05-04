@@ -183,6 +183,7 @@ export type CanvasVariantSnapshot = {
   mediaSize?: ImageVariant['mediaSize']
   sourceIds?: string[]
   ingredients?: string[]
+  sourceFidelity?: SourceFidelityReport
   visualSummary?: string
   segments: SegmentAnnotation[]
   position?: {

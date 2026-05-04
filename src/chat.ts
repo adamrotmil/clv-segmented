@@ -148,6 +148,97 @@ function segmentSignal(variant: CanvasVariantSnapshot) {
   return signals.length ? signals.join(', ') : 'no dominant SAM delta'
 }
 
+function fallbackVariantsFromRequest(request: AssistantChatRequest) {
+  const prompted = variantsFromPrompt(request)
+  const selected = selectedCanvasVariants(request)
+  const variants = prompted.length ? prompted : selected.length ? selected : request.canvas?.variants ?? []
+
+  return uniqueVariants(variants).filter(
+    (variant) => variant.sourceFidelity?.mode === 'fallback-generation',
+  )
+}
+
+function fallbackReasonForVariant(variant: CanvasVariantSnapshot) {
+  const fidelity = variant.sourceFidelity
+  if (!fidelity) return 'I do not have a source-fidelity report for that canvas node.'
+
+  const providerMode = fidelity.providerMode.toLowerCase()
+  const reason =
+    fidelity.evidence?.fallbackReason ??
+    fidelity.warnings[0] ??
+    fidelity.notes[0] ??
+    fidelity.summary
+
+  if (/safety/.test(providerMode)) {
+    return `${reason} In plain language, the edit route was blocked, so the worker used a lower-confidence fallback generation path.`
+  }
+  if (/endpoint-failed/.test(providerMode)) {
+    return `${reason} The endpoint did not return a usable generated image, so the app kept a fallback preview visible.`
+  }
+  if (/unchanged-output|identical/.test(providerMode) || /identical/i.test(reason)) {
+    return `${reason} The output matched the source too closely to count as a generated remix.`
+  }
+  if ((fidelity.evidence?.imageInputCount ?? 1) < 1) {
+    return 'The generation result did not report source image inputs, so it cannot be accepted as a source-preserving edit.'
+  }
+
+  return reason
+}
+
+function fallbackResolutionForVariant(variant: CanvasVariantSnapshot) {
+  const fidelity = variant.sourceFidelity
+  if (!fidelity) return 'Retry after generating a fresh source-fidelity report.'
+
+  const providerMode = fidelity.providerMode.toLowerCase()
+  const reason = `${fidelity.evidence?.fallbackReason ?? ''} ${fidelity.warnings.join(' ')}`.toLowerCase()
+
+  if (/safety/.test(providerMode) || /safety|policy|blocked|rejected/.test(reason)) {
+    return 'Use a safer or less aggressive prompt: reduce extreme slider deltas, preserve face/body/product/type regions, and retry the source-preserving edit route.'
+  }
+  if (/endpoint-failed/.test(providerMode) || /endpoint|usable image|without returning/.test(reason)) {
+    return 'Check the worker/model response and retry. The worker should return an image plus sourceFidelity evidence instead of substituting a preview.'
+  }
+  if (/unchanged-output|identical/.test(providerMode) || /identical/.test(reason)) {
+    return 'Retry with a clearer visible art-direction delta and verify the worker is not returning the original source image as the output.'
+  }
+  if ((fidelity.evidence?.imageInputCount ?? 1) < 1) {
+    return 'Make sure the worker calls the image edit path with the selected source image attached, ideally followed by product and typography references.'
+  }
+
+  return 'Retry as a source-preserving edit with stricter product/copy/type locks and run a critic before accepting the remix.'
+}
+
+function fallbackStatusResponse(request: AssistantChatRequest): AssistantChatResponse | null {
+  const prompt = latestUserPrompt(request).toLowerCase()
+  if (
+    !prompt.includes('fallback') &&
+    !(prompt.includes('why') && (prompt.includes('failed') || prompt.includes('generated')))
+  ) {
+    return null
+  }
+
+  const [variant] = fallbackVariantsFromRequest(request)
+  if (!variant?.sourceFidelity) return null
+  const fidelity = variant.sourceFidelity
+  const evidence = fidelity.evidence
+  const technicalLine = [
+    `providerMode=${fidelity.providerMode}`,
+    typeof evidence?.imageInputCount === 'number' ? `imageInputs=${evidence.imageInputCount}` : '',
+    evidence?.endpoint ? `endpoint=${evidence.endpoint}` : '',
+  ].filter(Boolean).join(' · ')
+
+  return {
+    content: [
+      `${variant.title} was marked as fallback because ${fallbackReasonForVariant(variant)}`,
+      `To resolve it: ${fallbackResolutionForVariant(variant)}`,
+      `Technical signal: ${technicalLine || fidelity.summary}.`,
+    ].join('\n\n'),
+    activity: 'Checked fallback trace >',
+    focus: 'Reading source-fidelity report',
+    provider: 'mock',
+  }
+}
+
 function compareResponse(request: AssistantChatRequest): AssistantChatResponse | null {
   const variants = comparisonCandidates(request)
   if (variants.length < 2) return null
@@ -351,6 +442,8 @@ function fallbackChatResponse(request: AssistantChatRequest): AssistantChatRespo
   const scalarSummary = scalarContext(request)
   const selectedSegment = request.selectedSegment.label
   const selectedVariant = request.selectedVariant.title
+  const fallbackResponse = fallbackStatusResponse(request)
+  if (fallbackResponse) return fallbackResponse
 
   if (prompt.includes('what should i do next') || prompt.includes('next')) {
     return {
