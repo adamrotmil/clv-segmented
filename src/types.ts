@@ -316,6 +316,16 @@ export type PromptComposerRequest = {
     changes: string[]
     fullRecipe: string[]
   }
+  scalarPromptTranslation: {
+    summary: string
+    changedScalarInstructions: string[]
+    fullRecipeInstructions: string[]
+    compactObservability: string[]
+    referencedOntologyIds: string[]
+    referencedVisualCalibrationIds: string[]
+  }
+  scalarOntologyRefs: string[]
+  scalarVisualCalibrationRefs: string[]
   selectedSegments: SegmentAnnotation[]
   chatContext: ChatMessage[]
   promptDraft: string

@@ -1591,6 +1591,7 @@ button {
   background: #fff;
   box-shadow: 0 7px 22px rgba(0, 0, 0, 0.12);
   cursor: default;
+  pointer-events: none;
 }
 
 .flyout-head {
@@ -1616,6 +1617,7 @@ button {
 }
 
 .flyout-head button {
+  pointer-events: auto;
   height: 23px;
   padding: 0 8px;
   border: 1px solid rgba(19, 19, 22, 0.12);
@@ -1647,6 +1649,7 @@ button {
 
 .suggestion-row button,
 .apply-segment {
+  pointer-events: auto;
   border: 0;
   border-radius: 4px;
   background: #111217;
@@ -2607,9 +2610,83 @@ button {
   line-height: 19px;
 }
 
+.chat-action-summary .trace-detail-line {
+  margin-top: 6px;
+  color: #777980;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.scalar-delta-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.scalar-delta-list span {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #f4f4fb;
+  color: #16085b;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 14px;
+}
+
+.scalar-delta-list span.negative {
+  background: #f7f7f8;
+  color: #686a72;
+}
+
 .chat-action-summary .trace-metrics {
   margin-top: 12px;
   font-size: 12px;
+}
+
+.segment-score-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.segment-score-list small {
+  color: #85868d;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 14px;
+}
+
+.segment-score-list div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  color: #7a7c84;
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.segment-score-list span {
+  overflow: hidden;
+  color: #363840;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.segment-score-list em,
+.segment-score-list b {
+  font-style: normal;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.segment-score-list b {
+  color: #17663c;
+}
+
+.segment-score-list b.negative {
+  color: #9a3b3b;
 }
 
 .chat-action-summary .trace-actions {

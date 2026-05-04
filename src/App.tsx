@@ -69,6 +69,11 @@ import {
   projectSegmentsForRequest,
   requestImageSegmentation,
 } from './segmentation'
+import {
+  scalarInstructionForValue,
+  translateScalarRecipe,
+  type ScalarPromptTranslation,
+} from './scalars/translateScalars'
 
 type EditorMode = 'edit' | 'score' | 'hybrid'
 type PendingPhase = 'idle' | 'analyzing' | 'applying' | 'remixing' | 'failed'
@@ -76,6 +81,22 @@ type AgentStatus = 'queued' | 'running' | 'done' | 'paused' | 'failed'
 type ScoreTab = 'scenes' | 'score' | 'insights'
 
 const DEFAULT_CANVAS_ZOOM = 100
+
+type ScalarTraceDelta = {
+  id: string
+  label: string
+  before: number
+  after: number
+  delta: number
+}
+
+type SegmentScoreTraceDelta = {
+  id: string
+  label: string
+  before: number
+  after: number
+  delta: number
+}
 
 type ChangeTrace = {
   id: string
@@ -88,6 +109,8 @@ type ChangeTrace = {
   scoreAfter: number
   segment: string
   ingredients: string[]
+  scalarDeltas?: ScalarTraceDelta[]
+  segmentScoreDeltas?: SegmentScoreTraceDelta[]
 }
 
 type HistoryEntry = ChangeTrace & {
@@ -322,6 +345,140 @@ function scalarValuesEqual(left: AestheticScalar[], right: AestheticScalar[]) {
 
 function cloneScalarRecipe(scalars: AestheticScalar[]) {
   return scalars.map((scalar) => ({ ...scalar }))
+}
+
+function generatedDraftRecipe(
+  currentDraft: AestheticScalar[],
+  draftAtRequest: AestheticScalar[],
+  generatedRecipe: AestheticScalar[],
+) {
+  return scalarValuesEqual(currentDraft, draftAtRequest)
+    ? cloneScalarRecipe(generatedRecipe)
+    : currentDraft
+}
+
+function scalarTraceDeltasBetween(
+  beforeScalars: AestheticScalar[],
+  afterScalars: AestheticScalar[],
+): ScalarTraceDelta[] {
+  return afterScalars
+    .map((scalar) => {
+      const before = scalarValue(beforeScalars, scalar.id)
+      const after = scalar.value
+      const delta = Math.round(after - before)
+      if (delta === 0) return undefined
+
+      return {
+        id: scalar.id,
+        label: scalar.label,
+        before,
+        after,
+        delta,
+      }
+    })
+    .filter(Boolean) as ScalarTraceDelta[]
+}
+
+function scalarTraceDeltasFromChanges(
+  changes: CreativeGenerationRequest['scalarChanges'],
+): ScalarTraceDelta[] {
+  return changes.map((change) => ({
+    id: change.id,
+    label: change.label,
+    before: change.before,
+    after: change.after,
+    delta: Math.round(change.after - change.before),
+  }))
+}
+
+function scalarDeltaLabel(delta: ScalarTraceDelta) {
+  const sign = delta.delta > 0 ? '+' : ''
+  return `${delta.label} ${sign}${delta.delta}%`
+}
+
+function segmentScalarAffinity(segment: SegmentAnnotation, scalarDeltas: ScalarTraceDelta[]) {
+  const label = segment.label.toLowerCase()
+  const affinityGroups = [
+    {
+      pattern: /emotion|face|presence|human/i,
+      ids: ['staging', 'presence', 'gaze', 'valence', 'arousal'],
+    },
+    {
+      pattern: /resonance|creative|copy|headline|text/i,
+      ids: ['abstraction', 'novelty', 'stopping-power', 'complexity', 'balance', 'groundedness'],
+    },
+    {
+      pattern: /product|placement|package|bottle/i,
+      ids: ['materiality', 'hardness', 'key', 'chromatics', 'depth'],
+    },
+    {
+      pattern: /cta|button|shop/i,
+      ids: ['stopping-power', 'complexity', 'balance', 'groundedness', 'abstraction'],
+    },
+  ]
+  const group = affinityGroups.find((item) => item.pattern.test(label))
+  if (!group) return 0
+
+  return scalarDeltas.reduce(
+    (total, delta) =>
+      total + (group.ids.includes(delta.id) ? Math.min(1.7, Math.abs(delta.delta) / 38) : 0),
+    0,
+  )
+}
+
+function segmentScoreTraceDeltas({
+  beforeSegments,
+  afterSegments = [],
+  scoreBefore,
+  scoreAfter,
+  scalarDeltas = [],
+  focusedSegmentId,
+}: {
+  beforeSegments: SegmentAnnotation[]
+  afterSegments?: SegmentAnnotation[]
+  scoreBefore: number
+  scoreAfter: number
+  scalarDeltas?: ScalarTraceDelta[]
+  focusedSegmentId?: string
+}): SegmentScoreTraceDelta[] {
+  if (!beforeSegments.length) return []
+
+  const scoreDelta = scoreAfter - scoreBefore
+  const weights = beforeSegments.map((segment) => {
+    const baseSignal = Math.max(1, Math.max(0, segment.delta))
+    const focusLift = focusedSegmentId && segment.id === focusedSegmentId ? 1.25 : 0
+    return baseSignal + focusLift + segmentScalarAffinity(segment, scalarDeltas)
+  })
+  const totalWeight = weights.reduce((total, weight) => total + weight, 0) || 1
+
+  return beforeSegments.slice(0, 4).map((segment, index) => {
+    const afterSegment = afterSegments.find((item) => item.id === segment.id)
+    const before = Math.max(0, segment.delta)
+    const after =
+      afterSegment && afterSegment.delta !== segment.delta
+        ? Math.max(0, afterSegment.delta)
+        : Math.max(
+            0,
+            Number((before + (scoreDelta * weights[index]) / totalWeight).toFixed(1)),
+          )
+    return {
+      id: segment.id,
+      label: segment.label,
+      before,
+      after,
+      delta: Number((after - before).toFixed(1)),
+    }
+  })
+}
+
+function formattedSegmentValue(value: number) {
+  return Number.isInteger(value) ? `${value}` : value.toFixed(1)
+}
+
+function formattedSegmentDelta(value: number) {
+  if (value === 0) return '0'
+  const formatted = Number.isInteger(value) ? `${Math.abs(value)}` : Math.abs(value).toFixed(1)
+  return `${value > 0 ? '+' : '-'}${formatted}`
 }
 
 function midpointScalarRecipe(recipes: AestheticScalar[][], fallbackScalars: AestheticScalar[]) {
@@ -1110,178 +1267,11 @@ function copywritingPolicyForRequest({
   ].join('\n')
 }
 
-function scalarMovementPhrase(change?: CreativeGenerationRequest['scalarChanges'][number]) {
-  if (!change) return ''
-
-  const delta = Math.round(change.after - change.before)
-  const magnitude =
-    Math.abs(delta) >= 45
-      ? 'dramatic'
-      : Math.abs(delta) >= 25
-        ? 'strong'
-        : Math.abs(delta) >= 10
-          ? 'clear'
-          : 'subtle'
-  const direction = delta >= 0 ? `increase toward ${change.highLabel}` : `decrease toward ${change.lowLabel}`
-
-  return ` This is a ${magnitude} ${direction} from the previous state.`
-}
-
-function scalarValueBand(value: number) {
-  if (value >= 94) return 'maximum'
-  if (value >= 82) return 'very high'
-  if (value >= 68) return 'high'
-  if (value >= 56) return 'slightly high'
-  if (value > 44) return 'balanced'
-  if (value > 32) return 'slightly low'
-  if (value > 18) return 'low'
-  if (value > 6) return 'very low'
-  return 'minimum'
-}
-
 function scalarPromptDirective(
   scalar: AestheticScalar,
   change?: CreativeGenerationRequest['scalarChanges'][number],
 ) {
-  const value = Math.round(scalar.value)
-  const movement = scalarMovementPhrase(change)
-  const band = scalarValueBand(value)
-
-  switch (scalar.id) {
-    case 'abstraction':
-      if (value >= 82) {
-        return `${scalar.label}: apply a highly abstract editorial treatment to lighting, color blocking, shadow geometry, texture, and background planes while preserving the subject's recognizable identity, exact product package, typography/copy placement, and overall campaign structure. Do not replace the source with a new ad concept.${movement}`
-      }
-      if (value <= 35) {
-        return `${scalar.label}: keep the image literal, concrete, and directly photographic; avoid surreal or symbolic reinterpretation.${movement}`
-      }
-      return `${scalar.label}: keep abstraction balanced, with enough stylization to feel designed but enough literal photography to keep the ad immediately readable.${movement}`
-    case 'staging':
-      if (value >= 70) {
-        return `${scalar.label}: make the staging feel candid, relaxed, and naturally observed, as if captured in an editorial lifestyle moment rather than posed too deliberately.${movement}`
-      }
-      if (value <= 30) {
-        return `${scalar.label}: make the staging feel deliberately constructed, controlled, and campaign-directed, with clearer pose and prop placement.${movement}`
-      }
-      return `${scalar.label}: balance constructed ad craft with a believable candid posture.${movement}`
-    case 'novelty':
-      if (value >= 82) {
-        return `${scalar.label}: make the image very surreal and high-novelty, but keep the product, copy, and typography legible enough for a shoppable ad.${movement}`
-      }
-      if (value >= 53) {
-        return `${scalar.label}: the image should be just slightly surreal but not very surreal; add a small amount of freshness without making the concept feel strange.${movement}`
-      }
-      if (value <= 30) {
-        return `${scalar.label}: keep novelty low and familiar, with a safe, conventional social-ad read.${movement}`
-      }
-      return `${scalar.label}: keep novelty balanced, with enough freshness to avoid feeling generic.${movement}`
-    case 'materiality':
-      if (value >= 65) {
-        return `${scalar.label}: emphasize tactile material cues: fabric ribs, denim weave, satin product finish, marble veining, skin highlights, and real surface texture.${movement}`
-      }
-      if (value <= 35) {
-        return `${scalar.label}: make surfaces feel cleaner, more digital, and less tactile, while avoiding plastic or artificial-looking skin and product rendering.${movement}`
-      }
-      return `${scalar.label}: keep materiality natural and moderately tactile.${movement}`
-    case 'hardness':
-      if (value >= 65) {
-        return `${scalar.label}: use harder, more specular light edges and crisp highlights, especially on skin, marble, denim, and the product container.${movement}`
-      }
-      if (value <= 35) {
-        return `${scalar.label}: use softer diffusion, gentler highlights, and less crisp specularity.${movement}`
-      }
-      return `${scalar.label}: keep light hardness balanced between soft editorial warmth and crisp commercial highlights.${movement}`
-    case 'key':
-      if (value >= 70) {
-        return `${scalar.label}: keep the image high-key and bright enough for social readability without washing out the warm golden-hour contrast.${movement}`
-      }
-      if (value <= 35) {
-        return `${scalar.label}: keep the key lower and moodier, with deeper shadows and a more intimate warm interior feel.${movement}`
-      }
-      return `${scalar.label}: keep overall exposure balanced, neither too dark nor washed out.${movement}`
-    case 'chromatics':
-      if (value <= 35) {
-        return `${scalar.label}: chromatics should be less vivid and a bit more muted; preserve warm amber skin and wall tones but avoid oversaturation.${movement}`
-      }
-      if (value >= 70) {
-        return `${scalar.label}: chromatics should be vivid and saturated, with richer warm tones and stronger color separation while preserving natural skin.${movement}`
-      }
-      return `${scalar.label}: chromatics should feel natural and moderately warm, not overly saturated.${movement}`
-    case 'complexity':
-      if (value >= 70) {
-        return `${scalar.label}: allow more visual density and layered detail, while keeping the headline, product, and face easy to read.${movement}`
-      }
-      if (value <= 40) {
-        return `${scalar.label}: keep complexity restrained and minimalist, with a clean hierarchy and no extra props or distracting elements.${movement}`
-      }
-      return `${scalar.label}: keep complexity moderate and controlled.${movement}`
-    case 'balance':
-      if (value >= 65) {
-        return `${scalar.label}: introduce dynamic tension in the crop, pose, shadow, and text placement without making the layout feel unstable.${movement}`
-      }
-      if (value <= 35) {
-        return `${scalar.label}: keep balance more static, centered, and calm, with fewer asymmetrical tensions.${movement}`
-      }
-      return `${scalar.label}: balance calm composition with a little visual tension.${movement}`
-    case 'depth':
-      if (value >= 65) {
-        return `${scalar.label}: create deeper spatial layering with foreground body crop, midground product, and background wall/shadow separation.${movement}`
-      }
-      if (value <= 35) {
-        return `${scalar.label}: keep depth relatively planar and graphic so the ad text and main subject read immediately.${movement}`
-      }
-      return `${scalar.label}: use moderate depth with natural background separation.${movement}`
-    case 'groundedness':
-      if (value >= 70) {
-        return `${scalar.label}: keep the image strongly grounded in a believable room, real materials, and plausible lighting.${movement}`
-      }
-      if (value <= 35) {
-        return `${scalar.label}: allow the setting to feel less literal and more conceptual, but do not lose product or copy fidelity.${movement}`
-      }
-      return `${scalar.label}: keep the setting mostly grounded with subtle conceptual polish.${movement}`
-    case 'presence':
-      if (value >= 70) {
-        return `${scalar.label}: emphasize human presence, face visibility, warmth, posture, and emotional accessibility.${movement}`
-      }
-      if (value <= 20) {
-        return `${scalar.label}: make human presence minimal or partially withheld, but keep the selected source subject count and ad layout intact.${movement}`
-      }
-      return `${scalar.label}: keep human presence present but not overpowering.${movement}`
-    case 'gaze':
-      if (value >= 65) {
-        return `${scalar.label}: make gaze more direct or viewer-aware, increasing immediate connection without feeling forced.${movement}`
-      }
-      if (value <= 40) {
-        return `${scalar.label}: keep gaze more averted and editorial, suggesting confidence without direct address.${movement}`
-      }
-      return `${scalar.label}: keep gaze balanced between editorial avertedness and social connection.${movement}`
-    case 'valence':
-      if (value >= 70) {
-        return `${scalar.label}: keep emotional valence positive, confident, warm, and aspirational.${movement}`
-      }
-      if (value <= 35) {
-        return `${scalar.label}: allow a more restrained or serious emotional tone without making the ad feel cold or negative.${movement}`
-      }
-      return `${scalar.label}: keep emotional valence neutral-to-positive.${movement}`
-    case 'arousal':
-      if (value >= 70) {
-        return `${scalar.label}: increase energetic charge, visual urgency, and social-feed momentum without making the image chaotic.${movement}`
-      }
-      if (value <= 35) {
-        return `${scalar.label}: keep arousal calm, intimate, and low-pressure.${movement}`
-      }
-      return `${scalar.label}: keep arousal moderate, polished, and quietly engaging.${movement}`
-    case 'stopping-power':
-      if (value >= 70) {
-        return `${scalar.label}: raise thumb-stop intensity through contrast, face/product clarity, and visual immediacy without changing source identity.${movement}`
-      }
-      if (value <= 35) {
-        return `${scalar.label}: keep stopping power quiet and understated, prioritizing premium editorial restraint over loud attention hooks.${movement}`
-      }
-      return `${scalar.label}: keep stopping power moderate, with a clear but not shouty ad read.${movement}`
-    default:
-      return `${scalar.label}: ${band} value between ${scalar.lowLabel} and ${scalar.highLabel}; ${scalarPositionLine(scalar)}.${movement}`
-  }
+  return scalarInstructionForValue(scalar, change)
 }
 
 function sourceFidelityPolicyForRequest({
@@ -1362,18 +1352,6 @@ function exactCopyBlockForPrompt(sourceVariant: ImageVariant) {
   return copyLines.map((line) => `- ${line}`).join('\n')
 }
 
-function aestheticDirectionBlock(
-  nextScalars: AestheticScalar[],
-  scalarChanges: CreativeGenerationRequest['scalarChanges'],
-) {
-  const changesById = new Map(scalarChanges.map((change) => [change.id, change]))
-  const changedScalars = nextScalars.filter((scalar) => changesById.has(scalar.id))
-  const unchangedScalars = nextScalars.filter((scalar) => !changesById.has(scalar.id))
-  const orderedScalars = [...changedScalars, ...unchangedScalars]
-
-  return orderedScalars.map((scalar) => scalarPromptDirective(scalar, changesById.get(scalar.id)))
-}
-
 function imageModelPromptForRequest({
   asset,
   outputTitle,
@@ -1381,8 +1359,8 @@ function imageModelPromptForRequest({
   sourceVariant,
   imageInputs,
   focusedSegments,
-  nextScalars,
   scalarChanges,
+  scalarTranslation,
   sceneDescription,
   trace,
   chatText,
@@ -1394,14 +1372,15 @@ function imageModelPromptForRequest({
   sourceVariant: ImageVariant
   imageInputs: ImageInputReference[]
   focusedSegments: SegmentAnnotation[]
-  nextScalars: AestheticScalar[]
   scalarChanges: CreativeGenerationRequest['scalarChanges']
+  scalarTranslation: ScalarPromptTranslation
   sceneDescription: SceneDescription
   trace: ChangeTrace
   chatText: string
   promptHints: string[]
 }) {
-  const aestheticDirectives = aestheticDirectionBlock(nextScalars, scalarChanges)
+  const aestheticDirectives = scalarTranslation.fullRecipeInstructions
+  const changedScalarInstructions = scalarTranslation.changedScalarInstructions
   const scalarBundle = scalarBundleLines(scalarChanges)
   const scalarBundlePolicy = scalarBundleInstruction(scalarChanges)
   const sourceDna = sourceDnaLines(sourceVariant)
@@ -1418,7 +1397,9 @@ function imageModelPromptForRequest({
     `Product: preserve ${productLines.join(' ')}. The product should remain premium, tactile, visible, correctly scaled, and recognizably the exact same advertised product from imageInputs[0].`,
     `Photography: ${sceneDescription.camera} ${sceneDescription.lighting} ${sceneDescription.color} Keep negative space and body position suitable for the existing text overlay.`,
     `Combined staged slider bundle:\n${scalarBundle.map((line) => `- ${line}`).join('\n')}\n${scalarBundlePolicy}`,
-    `Aesthetic direction from sliders:\n${aestheticDirectives.map((line) => `- ${line}`).join('\n')}\nBlend these slider instructions into one coherent photographic treatment; do not execute them as separate visual ideas.`,
+    `Scalar ontology / visual calibration:\n${scalarTranslation.compactObservability.map((line) => `- ${line}`).join('\n')}`,
+    `Changed scalar instructions:\n${changedScalarInstructions.map((line) => `- ${line}`).join('\n')}`,
+    `Aesthetic direction from sliders (full scalar recipe):\n${aestheticDirectives.map((line) => `- ${line}`).join('\n')}\nBlend these slider instructions into one coherent photographic treatment; do not execute them as separate visual ideas.`,
     `Typography overlay must remain clean native ad typography. Preserve source typography DNA: ${typographyLines.join(' ')}. Text must stay crisp, accurately spelled, naturally integrated into the ad layout, and exactly match the source copy.`,
     `Text exactly:\n${exactCopyBlockForPrompt(sourceVariant)}`,
     `Selected SAM focus: ${selectedSegmentLabels || 'none'}. Use these regions to prioritize local changes without moving unrelated regions unnecessarily.`,
@@ -1912,8 +1893,21 @@ function arrangedPositionsForGroups(
   const seen = new Set<string>()
   const nextPositions: Record<string, DragOffset> = {}
   let row = 0
+  const baselineIds = action.groups
+    .flatMap((group) => group.variantIds)
+    .filter((id) => variants.some((variant) => variant.id === id && variant.kind === 'original'))
+  const remixIds = action.groups
+    .flatMap((group) => group.variantIds)
+    .filter((id) => variants.some((variant) => variant.id === id && variant.kind !== 'original'))
+  const layoutGroups =
+    baselineIds.length && remixIds.length
+      ? [
+          { label: 'Baseline', variantIds: baselineIds, rationale: 'Locked source of truth.' },
+          { label: 'Remix themes', variantIds: remixIds, rationale: 'Grouped remixes for comparison.' },
+        ]
+      : action.groups
 
-  action.groups.forEach((group) => {
+  layoutGroups.forEach((group) => {
     const ids = group.variantIds.filter(
       (id) => variants.some((variant) => variant.id === id) && !seen.has(id),
     )
@@ -2200,6 +2194,7 @@ function App() {
   const chatResolveTimer = useRef<number | undefined>(undefined)
   const chatStreamTimer = useRef<number | undefined>(undefined)
   const chatStreamMessage = useRef<{ id: string; content: string } | null>(null)
+  const toastTimer = useRef<number | undefined>(undefined)
   const assetUploadInputRef = useRef<HTMLInputElement | null>(null)
   const chatRequestCounter = useRef(0)
   const [selectedAssetId, setSelectedAssetId] = useState(assets[0].id)
@@ -2249,6 +2244,7 @@ function App() {
       window.clearTimeout(workTimer.current)
       window.clearTimeout(chatThinkTimer.current)
       window.clearTimeout(chatResolveTimer.current)
+      window.clearTimeout(toastTimer.current)
       window.clearInterval(chatStreamTimer.current)
     },
     [],
@@ -2395,8 +2391,9 @@ function App() {
   }
 
   function flashToast(message: string, duration = 1600) {
+    window.clearTimeout(toastTimer.current)
     setToast(message)
-    window.setTimeout(() => setToast(''), duration)
+    toastTimer.current = window.setTimeout(() => setToast(''), duration)
   }
 
   function recordPrototypeAction(control: string, what: string, why: string, showToast = true) {
@@ -2534,6 +2531,7 @@ function App() {
   function selectStylePreset(preset: StylePreset) {
     const nextScalars = applyStylePresetToScalars(scalars, preset)
     const scoreAfter = projectedScore(nextScalars)
+    const scalarDeltas = scalarTraceDeltasBetween(scalars, nextScalars)
     const trace: ChangeTrace = {
       id: `preset-${preset.id}-${Date.now()}`,
       control: preset.title,
@@ -2545,6 +2543,14 @@ function App() {
       scoreAfter,
       segment: activeSegment.label,
       ingredients: ['Preset settings', preset.context.audience, preset.context.brand],
+      scalarDeltas,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: activeVariantSegments,
+        scoreBefore: workingScore,
+        scoreAfter,
+        scalarDeltas,
+        focusedSegmentId: activeSegment.id,
+      }),
     }
 
     setSelectedStylePresetId(preset.id)
@@ -2604,6 +2610,8 @@ function App() {
     const nextId = `remix-${Date.now()}`
     const outputTitle = nextRemixTitle(variants)
     const predictedScore = Math.min(96, nextScore + scoreLift)
+    const scalarDeltas = scalarTraceDeltasBetween(beforeScalars, nextScalars)
+    const sourceSegments = segmentsForVariant(sourceVariant)
     const generationRequest = buildGenerationRequest({
       id: nextId,
       intent: 'scalar-remix',
@@ -2626,6 +2634,7 @@ function App() {
     )
     startWork('remixing', pendingTrace, false)
 
+    const draftAtRequest = cloneScalarRecipe(draftScalars)
     const generation = await requestCreativeGeneration(generationRequest)
     const remix: ImageVariant = {
       id: nextId,
@@ -2652,10 +2661,18 @@ function App() {
       after: `ES ${generation.score}%`,
       scoreAfter: generation.score,
       ingredients: generation.ingredients,
+      scalarDeltas,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: sourceSegments,
+        scoreBefore: pendingTrace.scoreBefore,
+        scoreAfter: generation.score,
+        scalarDeltas,
+        focusedSegmentId: activeSegment.id,
+      }),
     }
 
     setScalars(nextScalars)
-    setDraftScalars(nextScalars)
+    setDraftScalars((current) => generatedDraftRecipe(current, draftAtRequest, nextScalars))
     resolveGeneratedVariant(remix)
     setSelectedVariantId(nextId)
     setLastChange(trace)
@@ -2688,8 +2705,7 @@ function App() {
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
-    setToast('Remix generated')
-    window.setTimeout(() => setToast(''), 1800)
+    flashToast('Remix generated', 2200)
   }
 
   async function applySuggestion() {
@@ -2719,6 +2735,7 @@ function App() {
       return scalar
     })
     const scoreAfter = projectedScore(nextDraftScalars)
+    const scalarDeltas = scalarTraceDeltasBetween(beforeScalars, nextDraftScalars)
     const trace: ChangeTrace = {
       id: `suggestion-${Date.now()}`,
       control: 'Suggestion remix',
@@ -2734,6 +2751,14 @@ function App() {
         `Abstraction ${abstractionAfter - abstractionBefore}`,
         'Pending remix',
       ],
+      scalarDeltas,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: activeVariantSegments,
+        scoreBefore,
+        scoreAfter,
+        scalarDeltas,
+        focusedSegmentId: activeSegment.id,
+      }),
     }
 
     setDraftScalars(nextDraftScalars)
@@ -2788,6 +2813,7 @@ function App() {
     const nextScalars = target === 'score' ? scalars : nextSource
     const nextScoreScalars = target === 'score' ? nextSource : scoreScalars
     const scoreAfter = projectedScore(nextScalars)
+    const scalarDeltas = scalarTraceDeltasBetween(source, nextSource)
     const trace: ChangeTrace = {
       id: `${id}-${Date.now()}`,
       control: scalar.label,
@@ -2803,6 +2829,14 @@ function App() {
         `${activeSegment.label} ${activeSegment.delta >= 0 ? '+' : ''}${activeSegment.delta}%`,
         `Projected ES ${scoreAfter}%`,
       ],
+      scalarDeltas,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: activeVariantSegments,
+        scoreBefore: beforeScore,
+        scoreAfter,
+        scalarDeltas,
+        focusedSegmentId: activeSegment.id,
+      }),
     }
     const entry: HistoryEntry = {
       ...trace,
@@ -2833,6 +2867,7 @@ function App() {
     window.clearTimeout(workTimer.current)
     const nextDraftScalars = scalarWithValue(draftScalars, id, value)
     const scoreAfter = projectedScore(nextDraftScalars)
+    const scalarDeltas = scalarTraceDeltasBetween(scalars, nextDraftScalars)
     const trace: ChangeTrace = {
       id: `stage-${id}-${Date.now()}`,
       control: draftScalar.label,
@@ -2848,6 +2883,14 @@ function App() {
         'Pending remix',
         `Projected ES ${scoreAfter}%`,
       ],
+      scalarDeltas,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: activeVariantSegments,
+        scoreBefore: workingScore,
+        scoreAfter,
+        scalarDeltas,
+        focusedSegmentId: activeSegment.id,
+      }),
     }
 
     setDraftScalars(nextDraftScalars)
@@ -3052,6 +3095,7 @@ function App() {
     imageInputs,
     nextScalars,
     scalarChanges,
+    scalarTranslation,
     sceneDescription,
     trace,
     promptHints,
@@ -3064,6 +3108,7 @@ function App() {
     imageInputs: ImageInputReference[]
     nextScalars: AestheticScalar[]
     scalarChanges: CreativeGenerationRequest['scalarChanges']
+    scalarTranslation: ScalarPromptTranslation
     sceneDescription: SceneDescription
     trace: ChangeTrace
     promptHints: string[]
@@ -3077,7 +3122,7 @@ function App() {
         .filter(Boolean) as SegmentAnnotation[])
     const scalarAdjustments = scalarChanges.map(scalarAdjustmentLine)
     const scalarSnapshot = scalarRecipeSummary(nextScalars)
-    const scalarDirectives = aestheticDirectionBlock(nextScalars, scalarChanges)
+    const scalarDirectives = scalarTranslation.fullRecipeInstructions
     const chatLines = chatPromptLines(chatContext)
     const chatText = chatLines.join('\n')
     const savedIdeaContext = savedIdeas
@@ -3129,8 +3174,8 @@ function App() {
       sourceVariant,
       imageInputs,
       focusedSegments,
-      nextScalars,
       scalarChanges,
+      scalarTranslation,
       sceneDescription,
       trace,
       chatText,
@@ -3150,6 +3195,10 @@ function App() {
       typographyPolicy,
       `Selected SAM context:\n${selectedSegments.length ? selectedSegments.map((line) => `- ${line}`).join('\n') : `- ${activeSegment.label}: no additional segment selection`}`,
       `Aesthetic controls:\n${scalarSnapshot.map((line) => `- ${line}`).join('\n')}`,
+      `Scalar ontology references:\n${scalarTranslation.referencedOntologyIds.map((id) => `- ${id}`).join('\n')}`,
+      `Scalar visual calibration references:\n${scalarTranslation.referencedVisualCalibrationIds.map((id) => `- ${id}`).join('\n') || '- none'}`,
+      `Changed scalar language:\n${scalarTranslation.changedScalarInstructions.map((line) => `- ${line}`).join('\n')}`,
+      `Full scalar recipe language:\n${scalarTranslation.fullRecipeInstructions.map((line) => `- ${line}`).join('\n')}`,
       `Scalar interpretation:\n${scalarDirectives.map((line) => `- ${line}`).join('\n')}`,
       `Combined staged slider bundle:\n${changedControls.map((line) => `- ${line}`).join('\n')}\n${scalarBundlePolicy}`,
       `Staged control changes:\n${changedControls.map((line) => `- ${line}`).join('\n')}`,
@@ -3203,6 +3252,22 @@ function App() {
         {
           label: 'Source DNA',
           value: sourceDnaLines(sourceVariant).join(' | '),
+        },
+        {
+          label: 'Scalar ontology refs',
+          value: scalarTranslation.referencedOntologyIds.join(', ') || 'none',
+        },
+        {
+          label: 'Visual calibration refs',
+          value: scalarTranslation.referencedVisualCalibrationIds.join(', ') || 'none',
+        },
+        {
+          label: 'Changed scalar language',
+          value: scalarTranslation.changedScalarInstructions.join('\n'),
+        },
+        {
+          label: 'Full scalar recipe language',
+          value: scalarTranslation.fullRecipeInstructions.join('\n'),
         },
         {
           label: 'Scalar bundle',
@@ -3286,6 +3351,11 @@ function App() {
           activeVariantSegments.find((segment) => segment.id === segmentId),
       )
       .filter(Boolean) as SegmentAnnotation[]
+    const scalarTranslation = translateScalarRecipe({
+      currentRecipe: nextScalars,
+      scalarChanges,
+      selectedSegments: focusedSegments,
+    })
     const chatContext = messages.slice(-8)
     const sceneDescription = sceneDescriptionForVariant({
       asset: activeCanvasAsset,
@@ -3304,6 +3374,7 @@ function App() {
       imageInputs,
       nextScalars,
       scalarChanges,
+      scalarTranslation,
       sceneDescription,
       trace,
       promptHints: uniquePromptHints,
@@ -3332,8 +3403,11 @@ function App() {
           promptContextValue('Scalar bundle').split('\n')[0] ||
           scalarBundleInstruction(scalarChanges),
         changes: scalarBundleLines(scalarChanges),
-        fullRecipe: scalarRecipeSummary(nextScalars),
+        fullRecipe: scalarTranslation.fullRecipeInstructions,
       },
+      scalarPromptTranslation: scalarTranslation,
+      scalarOntologyRefs: scalarTranslation.referencedOntologyIds,
+      scalarVisualCalibrationRefs: scalarTranslation.referencedVisualCalibrationIds,
       selectedSegments: focusedSegments,
       chatContext,
       promptDraft: imagePrompt.promptDraft,
@@ -3627,6 +3701,7 @@ function App() {
       (scalar) => scalar.value !== scalarValue(beforeScalars, scalar.id),
     )
     const predictedScore = Math.min(96, nextScore + 1)
+    const stagedScalarDeltas = scalarTraceDeltasBetween(beforeScalars, nextScalars)
     const pendingTrace: ChangeTrace = {
       id: `remix-${Date.now()}-trace`,
       control: 'Remix',
@@ -3642,6 +3717,14 @@ function App() {
         activeSegment.label,
         `Projected ES ${nextScore}%`,
       ],
+      scalarDeltas: stagedScalarDeltas,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: activeVariantSegments,
+        scoreBefore: workingScore,
+        scoreAfter: predictedScore,
+        scalarDeltas: stagedScalarDeltas,
+        focusedSegmentId: activeSegment.id,
+      }),
     }
 
     await generateScalarRemix({
@@ -3677,8 +3760,7 @@ function App() {
       setDraftScalars(scalars)
       setPendingPhase('idle')
       setLastChange(trace)
-      setToast('Changes reset')
-      window.setTimeout(() => setToast(''), 1400)
+      flashToast('Changes reset', 1600)
       return
     }
 
@@ -3715,8 +3797,7 @@ function App() {
       ].slice(0, 6),
     )
     startWork('applying', trace)
-    setToast('Changes reset')
-    window.setTimeout(() => setToast(''), 1400)
+    flashToast('Changes reset', 1600)
   }
 
   async function combineIdeas() {
@@ -3725,6 +3806,7 @@ function App() {
     const sources = [ideaA, ideaB].filter(Boolean) as SavedIdea[]
     const remixScalars = promptScalars
     const remixScore = projectedScore(remixScalars)
+    const scalarDeltas = scalarTraceDeltasBetween(scalars, remixScalars)
     const ingredients =
       sources.length === 2
         ? [...sources[0].ingredients.slice(0, 2), ...sources[1].ingredients.slice(0, 2)]
@@ -3749,6 +3831,14 @@ function App() {
       scoreAfter: predictedScore,
       segment: activeSegment.label,
       ingredients,
+      scalarDeltas,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: activeVariantSegments,
+        scoreBefore: hasPendingScalarChanges ? projectedScore(scalars) : workingScore,
+        scoreAfter: predictedScore,
+        scalarDeltas,
+        focusedSegmentId: activeSegment.id,
+      }),
     }
     const generationRequest = buildGenerationRequest({
       id: nextId,
@@ -3798,6 +3888,13 @@ function App() {
       after: remix.title,
       scoreAfter: remix.score,
       ingredients: generation.ingredients,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: activeVariantSegments,
+        scoreBefore: pendingTrace.scoreBefore,
+        scoreAfter: remix.score,
+        scalarDeltas,
+        focusedSegmentId: activeSegment.id,
+      }),
     }
     resolveGeneratedVariant(remix)
     setScalars(remixScalars)
@@ -3833,8 +3930,7 @@ function App() {
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
-    setToast(sources.length === 2 ? 'Ideas combined' : 'Remix generated')
-    window.setTimeout(() => setToast(''), 1800)
+    flashToast(sources.length === 2 ? 'Ideas combined' : 'Remix generated', 2200)
   }
 
   async function remixFromVariant(variantId: string, focusedSegmentIdsOverride?: string[]) {
@@ -3844,6 +3940,7 @@ function App() {
     const sourceRecipe = scalarRecipeForVariant(sourceVariant)
     const remixScalars = hasPendingScalarChanges ? draftScalars : sourceRecipe
     const scalarChanges = scalarChangesBetween(sourceRecipe, remixScalars)
+    const scalarDeltas = scalarTraceDeltasFromChanges(scalarChanges)
     const remixScore = projectedScore(remixScalars)
     const nextId = `remix-${Date.now()}`
     const outputTitle = nextRemixTitle(variants)
@@ -3868,6 +3965,14 @@ function App() {
         remixSegment.label,
         ...scalarChanges.slice(0, 2).map((scalar) => scalar.label),
       ],
+      scalarDeltas,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: sourceSegments,
+        scoreBefore: sourceVariant.score,
+        scoreAfter: predictedScore,
+        scalarDeltas,
+        focusedSegmentId: remixSegment.id,
+      }),
     }
     const generationRequest = buildGenerationRequest({
       id: nextId,
@@ -3894,6 +3999,7 @@ function App() {
     queueGeneratingVariant(generationRequest, predictedScore)
     setVariantGenerationTask(`${sourceVariant.title} + current context`, 'Generating source remix')
     startWork('remixing', pendingTrace, false)
+    const draftAtRequest = cloneScalarRecipe(draftScalars)
     const generation = await requestCreativeGeneration(generationRequest)
     const remix: ImageVariant = {
       id: nextId,
@@ -3919,10 +4025,17 @@ function App() {
       after: remix.title,
       scoreAfter: remix.score,
       ingredients: generation.ingredients,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: sourceSegments,
+        scoreBefore: sourceVariant.score,
+        scoreAfter: remix.score,
+        scalarDeltas,
+        focusedSegmentId: remixSegment.id,
+      }),
     }
 
     setScalars(remixScalars)
-    setDraftScalars(remixScalars)
+    setDraftScalars((current) => generatedDraftRecipe(current, draftAtRequest, remixScalars))
     resolveGeneratedVariant(remix)
     setSelectedVariantId(nextId)
     setLastChange(trace)
@@ -3955,8 +4068,7 @@ function App() {
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
-    setToast('Source remix generated')
-    window.setTimeout(() => setToast(''), 1800)
+    flashToast('Source remix generated', 2200)
   }
 
   async function remixFromComparison(anchorId: string, targetIds: string[]) {
@@ -3968,6 +4080,7 @@ function App() {
 
     const remixScalars = promptScalars
     const remixScore = projectedScore(remixScalars)
+    const scalarDeltas = scalarTraceDeltasBetween(scalars, remixScalars)
     const nextId = `delta-remix-${Date.now()}`
     const outputTitle = nextRemixTitle(variants)
     const targetScore = Math.max(...targetVariants.map((variant) => variant.score))
@@ -3993,6 +4106,14 @@ function App() {
       scoreAfter: predictedScore,
       segment: activeSegment.label,
       ingredients,
+      scalarDeltas,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: segmentsForVariant(anchorVariant),
+        scoreBefore: anchorVariant.score,
+        scoreAfter: predictedScore,
+        scalarDeltas,
+        focusedSegmentId: activeSegment.id,
+      }),
     }
     const generationRequest = buildGenerationRequest({
       id: nextId,
@@ -4047,6 +4168,13 @@ function App() {
       after: remix.title,
       scoreAfter: remix.score,
       ingredients: generation.ingredients,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: segmentsForVariant(anchorVariant),
+        scoreBefore: anchorVariant.score,
+        scoreAfter: remix.score,
+        scalarDeltas,
+        focusedSegmentId: activeSegment.id,
+      }),
     }
 
     setScalars(remixScalars)
@@ -4083,8 +4211,7 @@ function App() {
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
-    setToast('Delta remix generated')
-    window.setTimeout(() => setToast(''), 1800)
+    flashToast('Delta remix generated', 2200)
   }
 
   function useVariantAsChatContext(variantId: string) {
@@ -4160,6 +4287,8 @@ function App() {
     const scoreAfter = Math.min(96, projectedScore(nextScalars) + Math.ceil(suggestion.impact / 3))
     const nextId = `segment-${segment.id}-${suggestion.id}-${Date.now()}`
     const outputTitle = nextRemixTitle(variants)
+    const scalarDeltas = scalarTraceDeltasBetween(beforeScalars, nextScalars)
+    const sourceSegments = activeVariantSegments.length ? activeVariantSegments : segmentsForVariant(selectedVariant)
     const pendingTrace: ChangeTrace = {
       id: `${nextId}-trace`,
       control: suggestion.label,
@@ -4175,6 +4304,17 @@ function App() {
         segment.label,
         `Local lift +${suggestion.impact}%`,
       ],
+      scalarDeltas,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: sourceSegments,
+        afterSegments: sourceSegments.map((item) =>
+          item.id === segment.id ? { ...item, delta: item.delta + suggestion.impact } : item,
+        ),
+        scoreBefore: beforeScore,
+        scoreAfter,
+        scalarDeltas,
+        focusedSegmentId: segment.id,
+      }),
     }
     const generationRequest = buildGenerationRequest({
       id: nextId,
@@ -4236,6 +4376,16 @@ function App() {
       why: `The generated variant used the ${segment.label.toLowerCase()} mask, the suggestion, current aesthetics, and recent chat direction.`,
       scoreAfter: generation.score,
       ingredients: generation.ingredients,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: sourceSegments,
+        afterSegments: sourceSegments.map((item) =>
+          item.id === segment.id ? { ...item, delta: item.delta + suggestion.impact } : item,
+        ),
+        scoreBefore: beforeScore,
+        scoreAfter: generation.score,
+        scalarDeltas,
+        focusedSegmentId: segment.id,
+      }),
     }
     setScalars(nextScalars)
     setDraftScalars(nextScalars)
@@ -4271,8 +4421,7 @@ function App() {
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
-    setToast('Segment edit applied')
-    window.setTimeout(() => setToast(''), 1600)
+    flashToast('Segment edit applied', 1800)
   }
 
   async function blendCanvasVariants(sourceId: string, targetId: string) {
@@ -4294,6 +4443,7 @@ function App() {
     const nextId = `blend-${Date.now()}`
     const outputTitle = nextRemixTitle(variants)
     const predictedScore = Math.min(96, Math.round((sourceVariant.score + targetVariant.score) / 2) + 4)
+    const scalarDeltas = scalarTraceDeltasBetween(sourceRecipe, blendScalars)
     const pendingTrace: ChangeTrace = {
       id: `${nextId}-trace`,
       control: 'Image blend',
@@ -4310,6 +4460,14 @@ function App() {
         activeSegment.label,
         'Canvas blend',
       ],
+      scalarDeltas,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: segmentsForVariant(sourceVariant),
+        scoreBefore: blendScore,
+        scoreAfter: predictedScore,
+        scalarDeltas,
+        focusedSegmentId: activeSegment.id,
+      }),
     }
     const generationRequest = buildGenerationRequest({
       id: nextId,
@@ -4363,6 +4521,13 @@ function App() {
       after: blendVariant.title,
       scoreAfter: blendVariant.score,
       ingredients: generation.ingredients,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: segmentsForVariant(sourceVariant),
+        scoreBefore: blendScore,
+        scoreAfter: blendVariant.score,
+        scalarDeltas,
+        focusedSegmentId: activeSegment.id,
+      }),
     }
 
     resolveGeneratedVariant(blendVariant)
@@ -4399,8 +4564,7 @@ function App() {
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
-    setToast('Images blended')
-    window.setTimeout(() => setToast(''), 1600)
+    flashToast('Images blended', 1800)
   }
 
   function undoLastChange() {
@@ -4420,6 +4584,18 @@ function App() {
       scoreBefore: entry.scoreAfter,
       scoreAfter: entry.scoreBefore,
       ingredients: ['Undo', entry.control, `Projected ES ${entry.scoreBefore}%`],
+      scalarDeltas: entry.scalarDeltas?.map((delta) => ({
+        ...delta,
+        before: delta.after,
+        after: delta.before,
+        delta: -delta.delta,
+      })),
+      segmentScoreDeltas: entry.segmentScoreDeltas?.map((delta) => ({
+        ...delta,
+        before: delta.after,
+        after: delta.before,
+        delta: -delta.delta,
+      })),
     }
     setLastChange(trace)
     setHistory((current) => current.slice(1))
@@ -4570,8 +4746,7 @@ function App() {
           setSelectedSegmentId(action.segmentIds[0])
         }
 
-        setToast('Comparison focused')
-        window.setTimeout(() => setToast(''), 1400)
+        flashToast('Comparison focused', 1600)
         return
       }
 
@@ -4584,8 +4759,7 @@ function App() {
           setSelectedVariantId(firstSelectedId)
         }
 
-        setToast('Canvas grouped by theme')
-        window.setTimeout(() => setToast(''), 1600)
+        flashToast('Canvas grouped by theme', 1800)
         return
       }
 
@@ -4597,8 +4771,7 @@ function App() {
 
         setSelectedSegmentIds(validSegmentIds)
         setSelectedSegmentId(validSegmentIds[0])
-        setToast('Segment focused')
-        window.setTimeout(() => setToast(''), 1400)
+        flashToast('Segment focused', 1600)
         return
       }
 
@@ -4616,8 +4789,7 @@ function App() {
             ? action.sourceVariantId
             : selectedVariantId
 
-        setToast('Assistant queued remix')
-        window.setTimeout(() => setToast(''), 1400)
+        flashToast('Assistant queued remix', 1600)
         void remixFromVariant(sourceVariantId, validSegmentIds)
         return
       }
@@ -4631,8 +4803,7 @@ function App() {
 
         setCanvasComparisonIds([action.sourceId, action.targetId])
         setSelectedVariantId(action.sourceId)
-        setToast('Assistant queued blend')
-        window.setTimeout(() => setToast(''), 1400)
+        flashToast('Assistant queued blend', 1600)
         void blendCanvasVariants(action.sourceId, action.targetId)
       }
     })
@@ -4993,8 +5164,8 @@ function App() {
             style={editorLayoutStyle}
           >
             <ScoreControlsPanel
-              scalars={scoreScalars}
-              onScalarChange={updateScoreScalar}
+              scalars={draftScalars}
+              onScalarChange={updateScalar}
               variant="hybrid"
               trace={lastChange}
               onAssetClick={() =>
@@ -7046,11 +7217,32 @@ function ActionSummaryMessage({
   canUndo: boolean
   onUndo: () => void
 }) {
+  const scalarDeltas = (trace.scalarDeltas ?? []).filter((delta) => delta.delta !== 0)
+  const visibleScalarDeltas = scalarDeltas.slice(0, 4)
+  const hiddenScalarDeltaCount = Math.max(0, scalarDeltas.length - visibleScalarDeltas.length)
+  const segmentScoreDeltas = (trace.segmentScoreDeltas ?? []).filter(
+    (delta) => Math.abs(delta.delta) > 0.05,
+  )
+
   return (
     <article className="chat-action-summary" aria-label="Completed action summary">
       <div className="trace-copy">
         <small>What changed</small>
-        <strong>{trace.what}</strong>
+        {visibleScalarDeltas.length ? (
+          <>
+            <div className="scalar-delta-list" aria-label="Scalar changes">
+              {visibleScalarDeltas.map((delta) => (
+                <span className={delta.delta < 0 ? 'negative' : ''} key={delta.id}>
+                  {scalarDeltaLabel(delta)}
+                </span>
+              ))}
+              {hiddenScalarDeltaCount ? <span>+{hiddenScalarDeltaCount} more</span> : null}
+            </div>
+            <p className="trace-detail-line">{trace.what}</p>
+          </>
+        ) : (
+          <strong>{trace.what}</strong>
+        )}
       </div>
       <div className="trace-copy">
         <small>Why it changed</small>
@@ -7064,6 +7256,22 @@ function ActionSummaryMessage({
           ES {trace.scoreBefore}% → {trace.scoreAfter}%
         </em>
       </div>
+      {segmentScoreDeltas.length ? (
+        <div className="segment-score-list" aria-label="Segment engagement breakdown">
+          <small>Segment ES movement</small>
+          {segmentScoreDeltas.map((delta) => (
+            <div key={delta.id}>
+              <span>{delta.label}</span>
+              <em>
+                {formattedSegmentValue(delta.before)} → {formattedSegmentValue(delta.after)}
+              </em>
+              <b className={delta.delta < 0 ? 'negative' : ''}>
+                {formattedSegmentDelta(delta.delta)} ES
+              </b>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <div className="ingredient-row" aria-label="Action ingredients">
         {trace.ingredients.slice(0, 3).map((ingredient) => (
           <span key={ingredient}>{ingredient}</span>
@@ -7563,6 +7771,7 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
   const scalarBundleSummary =
     request.promptComposer.scalarBundle.changes.join(' · ') ||
     'No staged scalar deltas; full scalar recipe included.'
+  const scalarTranslation = request.promptComposer.scalarPromptTranslation
   const sourceFidelity = run.sourceFidelity
   const sourceEvidence = sourceFidelity?.evidence
   const sourceFidelityStatus =
@@ -7665,6 +7874,25 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
     maxTokens: 190,
   })
   appendStreamRows(rows, {
+    id: 'scalar-grounding',
+    lane: 'context',
+    role: 'scalar ontology',
+    status: laneStatus,
+    text: `${scalarTranslation.summary} ${scalarTranslation.compactObservability.join(' | ')}`,
+    maxTokens: 140,
+  })
+  appendStreamRows(rows, {
+    id: 'scalar-language',
+    lane: 'prompt',
+    role: 'scalar language',
+    status: laneStatus,
+    text: `Changed scalar language: ${scalarTranslation.changedScalarInstructions.join(' | ')} Full scalar recipe language starts with: ${scalarTranslation.fullRecipeInstructions
+      .slice(0, 6)
+      .join(' | ')}`,
+    maxTokens: 700,
+    chunkSize: 700,
+  })
+  appendStreamRows(rows, {
     id: 'chat',
     lane: 'chat',
     role: 'recent',
@@ -7708,7 +7936,8 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
     role: request.model,
     status: laneStatus,
     text: `POST /v1/images/edits model=${request.model} intent=${request.intent} output=${request.outputTitle} evidence_endpoint=${sourceEvidence?.endpoint ?? 'pending'} evidence_image_tokens=${sourceEvidence?.imageTokens ?? 'pending'} finalPrompt=${finalPrompt} negativePrompt=${finalNegativePrompt}`,
-    maxTokens: 190,
+    maxTokens: 320,
+    chunkSize: 320,
   })
   appendStreamRows(rows, {
     id: 'prompt',
@@ -7716,7 +7945,8 @@ function observabilityStreamRowsForRequest(run: GenerationPromptRun) {
     role: promptRecipe ? 'final' : 'draft',
     status: laneStatus,
     text: promptRecipe ? `composer-authored final prompt ${finalPrompt}` : `promptDraft ${request.imagePrompt.promptDraft}`,
-    maxTokens: 260,
+    maxTokens: 520,
+    chunkSize: 520,
   })
 
   return rows
@@ -8052,6 +8282,10 @@ function ScoreWorkspace({
   const artboardDrag = useArtboardDrag(scoreScale, () => onSelectCreative())
   const canvasPan = useCanvasPan()
   const scoreCanvasRef = useRef<HTMLDivElement | null>(null)
+  const visibleVariant =
+    mode === 'hybrid' && pendingPhase === 'remixing'
+      ? ({ ...variant, status: 'generating' } satisfies ImageVariant)
+      : variant
   useCanvasWheelGestures({
     scrollRef: scoreCanvasRef,
     wheelFocused: canvasPan.wheelFocused,
@@ -8129,15 +8363,15 @@ function ScoreWorkspace({
         <div className="canvas-world score-canvas-world" style={canvasWorldStyle}>
           <div className="single-artboard-row">
             <CreativeArtboard
-              variant={variant}
+              variant={visibleVariant}
               selected
-              position={artboardDrag.positions[variant.id]}
-              dragging={artboardDrag.draggingId === variant.id}
+              position={artboardDrag.positions[visibleVariant.id]}
+              dragging={artboardDrag.draggingId === visibleVariant.id}
               annotationsVisible={annotationsVisible}
               selectedSegmentId={selectedSegmentId}
               onSelect={onSelectCreative}
               onSelectSegment={onSelectSegment}
-              onDragPointerDown={(event) => artboardDrag.beginDrag(variant.id, event)}
+              onDragPointerDown={(event) => artboardDrag.beginDrag(visibleVariant.id, event)}
               onDragPointerMove={artboardDrag.moveDrag}
               onDragPointerEnd={artboardDrag.endDrag}
               focus

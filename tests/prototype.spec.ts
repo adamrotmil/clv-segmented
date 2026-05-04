@@ -47,6 +47,8 @@ test('inline action summary shows slider effect, shimmer, explanation, and undo'
   await expect(page.getByLabel('Completed action summary')).toContainText('What changed')
   await expect(page.getByLabel('Completed action summary')).toContainText('Why it changed')
   await expect(page.getByLabel('Completed action summary')).toContainText('Staging staged')
+  await expect(page.getByLabel('Completed action summary')).toContainText('Staging +14%')
+  await expect(page.getByLabel('Segment engagement breakdown')).toContainText('Emotional engagement')
 
   const stagingWrap = page.getByLabel('Staging').locator('..')
   await expect(stagingWrap).toHaveClass(/is-staged/)
@@ -64,8 +66,9 @@ test('inline action summary shows slider effect, shimmer, explanation, and undo'
   await expect(page.getByLabel('Pending remix actions')).toBeHidden()
   await expect(page.getByLabel('Image generation prompt')).toBeVisible()
   await expect(page.getByText('Remix generated', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Remix 1', exact: true }).click()
   await expect(page.getByLabel('Completed action summary')).toContainText('Remix generated')
+  await expect(page.getByLabel('Completed action summary')).toContainText('Staging +14%')
+  await expect(page.getByLabel('Segment engagement breakdown')).toContainText('Segment ES movement')
 })
 
 test('new remix generation reserves a shimmering target frame before resolving', async ({ page }) => {
@@ -1261,7 +1264,10 @@ test('remix generation request includes recent chat and scalar context', async (
   await expect(page.getByLabel('Image generation prompt')).toContainText('Staging: +8 toward Candid')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Product identity lock')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Aesthetic controls')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Scalar ontology')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Changed scalar language')
   await expect(page.getByLabel('Interaction trace').first()).toContainText('recent chat direction')
+  await expect(page.getByLabel('Interaction trace').first()).toContainText('scalar ontology')
 })
 
 test('remix generation request sends multiple staged slider changes together', async ({ page }) => {
@@ -1283,6 +1289,11 @@ test('remix generation request sends multiple staged slider changes together', a
   await expect(prompt).toContainText('Materiality: +16 toward Tactile')
   await expect(prompt).toContainText('Aesthetic controls')
   await expect(prompt).toContainText('Materiality: 66/100')
+  await expect(prompt).toContainText('Scalar ontology / visual calibration')
+  await expect(prompt).toContainText('Changed scalar instructions')
+  await expect(prompt).toContainText('Full scalar recipe language')
+  await expect(prompt).toContainText('Process Materiality')
+  await expect(page.getByLabel('Interaction trace').first()).toContainText('visual calibration')
 })
 
 test('assistant can queue a remix from chat and pass segment context', async ({ page }) => {

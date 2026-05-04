@@ -71,18 +71,16 @@ function mockPromptRecipeFor(request: CreativeGenerationRequest): PromptRecipe {
       id: scalar.id,
       label: scalar.label,
       value: scalar.value,
-      instruction: [
-        request.promptComposer.scalarBundle.changes.find((line) =>
+      instruction:
+        request.promptComposer.scalarPromptTranslation.fullRecipeInstructions.find((line) =>
           line.toLowerCase().startsWith(`${scalar.label.toLowerCase()}:`),
-        ),
-        request.promptComposer.systemHints.find((hint) =>
-          hint.toLowerCase().includes(scalar.label.toLowerCase()),
-        ),
-      ]
-        .filter(Boolean)
-        .join(' ') || `${scalar.label} interpreted from ${scalar.value}/100 for prompt composition.`,
+        ) ?? `${scalar.label} interpreted from ${scalar.value}/100 for prompt composition.`,
     })),
     observability: [
+      {
+        lane: 'context',
+        text: request.promptComposer.scalarPromptTranslation.compactObservability.join(' | '),
+      },
       {
         lane: 'vision',
         text: `Mock composer read source image ${request.sourceVariant.title}; endpoint composer can replace this with a multimodal visual read.`,
@@ -531,7 +529,7 @@ function wait(ms: number) {
 }
 
 async function simulateGeneration(request: CreativeGenerationRequest) {
-  await wait(680)
+  await wait(1200)
   const intentFilter =
     request.intent === 'segment-edit'
       ? 'brightness(1.02)'
