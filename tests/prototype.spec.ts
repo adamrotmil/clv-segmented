@@ -469,6 +469,39 @@ test('annotation toggle keeps toolbar geometry stable', async ({ page }) => {
   expect(Math.abs((zoomAfter?.x ?? 0) - (zoomBefore?.x ?? 0))).toBeLessThan(0.25)
 })
 
+test('narrow editor toolbar stays inside the canvas column', async ({ page }) => {
+  await page.setViewportSize({ width: 1229, height: 1288 })
+  await page.goto('/')
+
+  await expect(page.locator('.canvas-global-actions')).toBeHidden()
+
+  const overflowingControls = await page.locator('.canvas-toolbar').evaluate((toolbar) => {
+    const canvas = toolbar.closest('.canvas-panel')?.getBoundingClientRect()
+    if (!canvas) return ['missing canvas']
+
+    return Array.from(toolbar.querySelectorAll('button, .zoom-control, .version-select'))
+      .map((element) => {
+        const rect = element.getBoundingClientRect()
+        const styles = getComputedStyle(element)
+        const label =
+          element.getAttribute('aria-label') ??
+          element.textContent?.trim() ??
+          element.className.toString()
+
+        return {
+          label,
+          visible: styles.display !== 'none' && rect.width > 0 && rect.height > 0,
+          right: rect.right,
+          canvasRight: canvas.right,
+        }
+      })
+      .filter((item) => item.visible && item.right > item.canvasRight + 0.5)
+      .map((item) => item.label)
+  })
+
+  expect(overflowingControls).toEqual([])
+})
+
 test('generated remixes appear as full-size canvas nodes and tidy back to grid', async ({ page }) => {
   await page.goto('/')
 

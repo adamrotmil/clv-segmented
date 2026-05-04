@@ -967,6 +967,7 @@ button {
 
 .canvas-panel {
   position: relative;
+  container: canvas-panel / inline-size;
   overflow: hidden;
   background:
     radial-gradient(circle, #f0f0f2 1px, transparent 1px) 0 0 / 24px 24px,
@@ -979,12 +980,15 @@ button {
   top: 16px;
   left: 16px;
   right: 16px;
+  min-width: 0;
   justify-content: space-between;
+  pointer-events: none;
 }
 
 .version-select,
 .tool-button,
 .zoom-control {
+  pointer-events: auto;
   height: 33px;
   border: 1px solid #dedfe5;
   border-radius: 8px;
@@ -1023,6 +1027,7 @@ button {
 
 .version-picker {
   position: relative;
+  pointer-events: auto;
 }
 
 .version-menu {
@@ -1030,6 +1035,7 @@ button {
   left: 0;
   min-width: 148px;
   padding: 4px;
+  pointer-events: auto;
 }
 
 .version-menu button {
@@ -1040,16 +1046,23 @@ button {
 }
 
 .canvas-tools {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 9px;
+  pointer-events: none;
 }
 
 .canvas-global-actions {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 7px;
   margin-left: 2px;
   padding-left: 10px;
   border-left: 1px solid #ececf0;
+  pointer-events: auto;
 }
 
 .zoom-control {
@@ -1070,6 +1083,16 @@ button {
   text-align: center;
   font-size: 14px;
   font-weight: 500;
+}
+
+@container canvas-panel (max-width: 700px) {
+  .canvas-toolbar {
+    align-items: flex-start;
+  }
+
+  .canvas-global-actions {
+    display: none;
+  }
 }
 
 .canvas-scroll {
