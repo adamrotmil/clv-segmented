@@ -404,6 +404,74 @@ function scalarWithValue(scalars: AestheticScalar[], id: string, value: number) 
   return scalars.map((scalar) => (scalar.id === id ? { ...scalar, value } : scalar))
 }
 
+function scalarsWithUpdates(
+  scalars: AestheticScalar[],
+  updates: Array<{ id: string; value: number }>,
+) {
+  return updates.reduce(
+    (nextScalars, update) => scalarWithValue(nextScalars, update.id, update.value),
+    scalars,
+  )
+}
+
+function clampedScalarShift(scalars: AestheticScalar[], id: string, delta: number) {
+  return Math.max(0, Math.min(100, scalarValue(scalars, id) + delta))
+}
+
+function chatScalarUpdatesForPrompt(prompt: string, scalars: AestheticScalar[]) {
+  const selectionOnly =
+    /\b(focus|select|look at|show me)\b/.test(prompt) &&
+    !/\b(make|more|less|increase|decrease|turn|generate|remix|change|edit|adjust|apply)\b/.test(prompt)
+  if (selectionOnly) return []
+
+  const updates = new Map<string, number>()
+  const shift = (id: string, delta: number) => {
+    updates.set(id, clampedScalarShift(scalars, id, delta))
+  }
+  const has = (pattern: RegExp) => pattern.test(prompt)
+  const intensity = has(/\b(very|much|way|super|really|dramatic|extreme|big|more pronounced)\b/)
+    ? 1.5
+    : 1
+  const scaled = (delta: number) => Math.round(delta * intensity)
+
+  const wantsLiteral = has(
+    /\b(more literal|less abstract|less abstraction|reduce abstraction|realistic|photographic|concrete)\b/,
+  )
+  const wantsAbstract = has(
+    /\b(more abstract|more abstraction|abstract it|abstracted|graphic|iconic|logo|poster|basel|translation drawing)\b/,
+  )
+
+  if (wantsAbstract && !wantsLiteral) shift('abstraction', scaled(14))
+  if (wantsLiteral) shift('abstraction', -scaled(14))
+  if (has(/\b(warm|warmer|warmth|sunny|optimistic|joyful|positive)\b/)) {
+    shift('valence', scaled(8))
+    shift('key', scaled(4))
+  }
+  if (has(/\b(soft|softer|diffused|gentle)\b/)) shift('hardness', -scaled(12))
+  if (has(/\b(crisp|sharper|hard light|harder|specular|contrast)\b/)) shift('hardness', scaled(10))
+  if (has(/\b(bright|brighter|high key|airy)\b/)) shift('key', scaled(8))
+  if (has(/\b(dark|darker|moody|low key)\b/)) shift('key', -scaled(10))
+  if (has(/\b(face|faces|person|people|human|portrait|expression)\b/)) {
+    shift('presence', scaled(10))
+    shift('staging', scaled(5))
+  }
+  if (has(/\b(candid|spontaneous|natural moment|caught)\b/)) shift('staging', scaled(9))
+  if (has(/\b(constructed|staged|arranged|knolling|flat lay|flat-lay)\b/)) shift('staging', -scaled(14))
+  if (has(/\b(minimal|minimalist|simpler|less clutter|cleaner)\b/)) shift('complexity', -scaled(10))
+  if (has(/\b(rich|richer|detailed|dense|more detail)\b/)) shift('complexity', scaled(8))
+  if (
+    has(/\b(product|package|bottle|label|sku)\b/) &&
+    has(/\b(hero|clearer|sharper|bigger|larger|dominant|visibility|visible|premium|material)\b/)
+  ) {
+    shift('stopping-power', scaled(7))
+    shift('depth', scaled(4))
+  }
+
+  return Array.from(updates.entries())
+    .map(([id, value]) => ({ id, value }))
+    .filter((update) => scalarValue(scalars, update.id) !== update.value)
+}
+
 function scalarValuesEqual(left: AestheticScalar[], right: AestheticScalar[]) {
   return left.every((scalar) => scalar.value === scalarValue(right, scalar.id))
 }
@@ -3487,6 +3555,67 @@ function App() {
     return trace
   }
 
+  function stageChatScalarChanges(updates: Array<{ id: string; value: number }>) {
+    const nextDraftScalars = scalarsWithUpdates(draftScalars, updates)
+    const scalarDeltas = scalarTraceDeltasBetween(scalars, nextDraftScalars)
+    if (!scalarDeltas.length) return undefined
+
+    window.clearTimeout(workTimer.current)
+    const scoreAfter = projectedScore(nextDraftScalars)
+    const labels = scalarDeltas.map(scalarDeltaLabel)
+    const trace: ChangeTrace = {
+      id: `chat-direction-${Date.now()}`,
+      control: labels.length === 1 ? scalarDeltas[0].label : 'Chat direction',
+      what: `Staged ${labels.join(', ')} from the chat direction.`,
+      why: 'The assistant translated the natural-language request into aesthetic controls. Remix Image will commit the staged prompt change to a generated variant.',
+      before: `ES ${workingScore}%`,
+      after: `ES ${scoreAfter}%`,
+      scoreBefore: workingScore,
+      scoreAfter,
+      segment: activeSegment.label,
+      ingredients: [...labels, 'Chat direction', `Projected ES ${scoreAfter}%`],
+      scalarDeltas,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: activeVariantSegments,
+        scoreBefore: workingScore,
+        scoreAfter,
+        scalarDeltas,
+        focusedSegmentId: activeSegment.id,
+      }),
+    }
+
+    setDraftScalars(nextDraftScalars)
+    setSelectedStylePresetId('current')
+    setWorkError('')
+    setPendingPhase('idle')
+    setLastChange(trace)
+    setAgentTasks((current) =>
+      current.map((task) => {
+        if (task.id === 'prompt') {
+          return {
+            ...task,
+            status: agentPaused ? 'paused' : 'queued',
+            input: trace.what,
+            output: 'Prompt patch staged',
+            test: 'Awaiting Remix Image',
+          }
+        }
+        if (task.id === 'variant') {
+          return {
+            ...task,
+            status: agentPaused ? 'paused' : 'queued',
+            input: 'Pending scalar changes',
+            output: 'Waiting for commit',
+            test: 'Remix action visible',
+          }
+        }
+        return task
+      }),
+    )
+
+    return { trace, nextDraftScalars }
+  }
+
   function startWork(
     phase: Exclude<PendingPhase, 'idle' | 'failed'>,
     trace: ChangeTrace,
@@ -5640,33 +5769,14 @@ function App() {
     }
     let appliedTrace: ChangeTrace | undefined
     let nextDraftScalars = draftScalars
-    if (lower.includes('candid') || lower.includes('face')) {
-      const nextValue = Math.min(100, scalarValue(draftScalars, 'staging') + 8)
-      appliedTrace = stageScalarChange(
-        'staging',
-        nextValue,
-      )
-      nextDraftScalars = draftScalars.map((scalar) =>
-        scalar.id === 'staging' ? { ...scalar, value: nextValue } : scalar,
-      )
-    } else if (lower.includes('literal') || lower.includes('abstraction')) {
-      const nextValue = Math.max(0, scalarValue(draftScalars, 'abstraction') - 8)
-      appliedTrace = stageScalarChange(
-        'abstraction',
-        nextValue,
-      )
-      nextDraftScalars = draftScalars.map((scalar) =>
-        scalar.id === 'abstraction' ? { ...scalar, value: nextValue } : scalar,
-      )
-    } else if (lower.includes('warmer') || lower.includes('warmth')) {
-      const nextValue = Math.min(100, scalarValue(draftScalars, 'materiality') + 8)
-      appliedTrace = stageScalarChange(
-        'materiality',
-        nextValue,
-      )
-      nextDraftScalars = draftScalars.map((scalar) =>
-        scalar.id === 'materiality' ? { ...scalar, value: nextValue } : scalar,
-      )
+    const chatScalarUpdates = chatScalarUpdatesForPrompt(lower, draftScalars)
+    const chatScalarPlan = chatScalarUpdates.length
+      ? stageChatScalarChanges(chatScalarUpdates)
+      : undefined
+
+    if (chatScalarPlan) {
+      appliedTrace = chatScalarPlan.trace
+      nextDraftScalars = chatScalarPlan.nextDraftScalars
     } else {
       startWork('applying', lastChange)
     }

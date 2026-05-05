@@ -16,7 +16,10 @@ function siblingChatEndpoint(endpoint: string | undefined) {
 
   try {
     const url = new URL(endpoint)
-    url.pathname = url.pathname.replace(/\/generate\/?$/, '/chat')
+    const pathname = url.pathname.replace(/\/+$/, '')
+    if (!/\/generate$/i.test(pathname)) return ''
+
+    url.pathname = pathname.replace(/\/generate$/i, '/chat')
     return url.toString()
   } catch {
     return ''
@@ -127,9 +130,10 @@ function topSegments(variants: CanvasVariantSnapshot[], limit = 3) {
 
   variants.forEach((variant) => {
     variant.segments.forEach((segment) => {
-      const current = segmentScores.get(segment.id)
+      const key = segment.label.toLowerCase()
+      const current = segmentScores.get(key)
       const score = (current?.score ?? 0) + Math.abs(segment.delta)
-      segmentScores.set(segment.id, { segment, score })
+      segmentScores.set(key, { segment, score })
     })
   })
 
@@ -140,8 +144,15 @@ function topSegments(variants: CanvasVariantSnapshot[], limit = 3) {
 }
 
 function segmentSignal(variant: CanvasVariantSnapshot) {
+  const seenLabels = new Set<string>()
   const signals = [...variant.segments]
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+    .filter((segment) => {
+      const key = segment.label.toLowerCase()
+      if (seenLabels.has(key)) return false
+      seenLabels.add(key)
+      return true
+    })
     .slice(0, 2)
     .map((segment) => `${segment.label} ${segment.delta >= 0 ? '+' : ''}${segment.delta}`)
 
@@ -358,11 +369,26 @@ function segmentIdsFromPrompt(request: AssistantChatRequest) {
   })
 
   if (matches.length) return matches.map((segment) => segment.id)
-  if (prompt.includes('face') || prompt.includes('person') || prompt.includes('emotion')) return ['emotion']
+  if (prompt.includes('face') || prompt.includes('person') || prompt.includes('emotion')) {
+    const emotionSegments = segments
+      .filter((segment) => /emotion|face|person|human/i.test(`${segment.id} ${segment.label}`))
+      .map((segment) => segment.id)
+    return emotionSegments.length ? emotionSegments : ['emotion']
+  }
   if (prompt.includes('product') || prompt.includes('package')) return ['product']
   if (prompt.includes('cta') || prompt.includes('button')) return ['cta']
   if (prompt.includes('copy') || prompt.includes('headline') || prompt.includes('text')) return ['resonance']
   return request.selectedSegments.map((segment) => segment.id).slice(0, 2)
+}
+
+function segmentNamesForIds(request: AssistantChatRequest, segmentIds: string[]) {
+  const segments = request.selectedVariant.segments?.length
+    ? request.selectedVariant.segments
+    : request.selectedSegments
+
+  return segmentIds
+    .map((id) => segments.find((segment) => segment.id === id)?.label ?? id)
+    .filter((label, index, list) => list.indexOf(label) === index)
 }
 
 function selectSegmentResponse(request: AssistantChatRequest): AssistantChatResponse | null {
@@ -380,7 +406,7 @@ function selectSegmentResponse(request: AssistantChatRequest): AssistantChatResp
   if (!segmentIds.length) return null
 
   return {
-    content: `I focused ${segmentIds.join(', ')} so the canvas and next prompt use that segment context.`,
+    content: `I focused ${segmentNamesForIds(request, segmentIds).join(', ')} so the canvas and next prompt use that segment context.`,
     activity: 'Focused segment >',
     focus: 'Selecting segment context',
     provider: 'mock',
@@ -502,6 +528,18 @@ function fallbackChatResponse(request: AssistantChatRequest): AssistantChatRespo
   }
 
   if (
+    prompt.includes('compare') ||
+    prompt.includes('difference') ||
+    prompt.includes('vs') ||
+    prompt.includes('better') ||
+    prompt.includes('prefer') ||
+    prompt.includes('like')
+  ) {
+    const response = compareResponse(request)
+    if (response) return response
+  }
+
+  if (
     prompt.includes('generate') ||
     prompt.includes('remix') ||
     prompt.includes('make a new image') ||
@@ -516,21 +554,9 @@ function fallbackChatResponse(request: AssistantChatRequest): AssistantChatRespo
     if (response) return response
   }
 
-  if (
-    prompt.includes('compare') ||
-    prompt.includes('difference') ||
-    prompt.includes('vs') ||
-    prompt.includes('better') ||
-    prompt.includes('prefer') ||
-    prompt.includes('like')
-  ) {
-    const response = compareResponse(request)
-    if (response) return response
-  }
-
   if (scalarSummary) {
     return {
-      content: `Staged: ${scalarSummary}. Use Remix Image to generate the committed image as a new canvas variant while preserving the latest chat context.`,
+      content: `I’ll translate that direction into the controls: ${scalarSummary}. The next remix will use those staged changes with the current image, selected segment, and recent chat context preserved.`,
       activity: 'Worked for 1s >',
       focus: 'Reading staged scalars',
       provider: 'mock',
