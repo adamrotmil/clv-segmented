@@ -8,9 +8,12 @@ Set this public build variable for GitHub Pages:
 
 ```bash
 VITE_IMAGE_GENERATION_ENDPOINT=https://your-worker.your-subdomain.workers.dev/generate
+VITE_FAST_IMAGE_GENERATION_MODEL=gpt-image-2
 ```
 
 Do not expose provider keys in the frontend. Keep OpenAI keys in the Worker or backend service.
+
+`VITE_FAST_IMAGE_GENERATION_MODEL` is used by Double Diamond rough exploration and development passes. If it is not set, the frontend falls back to the primary image model at low quality and labels that fallback in the assistant message and request observability. The final Double Diamond convergence pass still uses the primary high-quality image model.
 
 ## Request Shape
 
@@ -68,6 +71,19 @@ The app sends a `CreativeGenerationRequest` payload. The important server-facing
       copy: string
       typography: string
     }
+  }
+  workflow?: {
+    id: string
+    kind: "double-diamond"
+    stage: "diverge" | "develop" | "final"
+    rowLabel: string
+    direction: string
+    candidateIndex: number
+    parentCandidateId?: string
+    selectionProvider?: "heuristic-fallback" | "model-judged"
+    modelRole?: "fast-exploration" | "final-convergence"
+    requestedModel?: string
+    rationale?: string
   }
 }
 ```

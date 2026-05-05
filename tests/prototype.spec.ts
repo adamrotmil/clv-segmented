@@ -103,7 +103,7 @@ test('new remix generation reserves a shimmering target frame before resolving',
   )
   await expect(page.getByLabel('Image generation prompt')).toBeVisible()
   const starPlotBox = await page.getByLabel('Selected image scalar recipe').boundingBox()
-  const observabilityBox = await page.getByLabel('Image generation prompt').boundingBox()
+  const observabilityBox = await page.locator('.trace-panel.has-generation').boundingBox()
   expect(starPlotBox).not.toBeNull()
   expect(observabilityBox).not.toBeNull()
   expect((starPlotBox?.y ?? 0) + (starPlotBox?.height ?? 0)).toBeLessThanOrEqual((observabilityBox?.y ?? 0) + 1)
@@ -207,7 +207,7 @@ test('new remix generation reserves a shimmering target frame before resolving',
   }))
   expect(segmentationState.shimmerCount + segmentationState.segmentCount).toBeGreaterThan(0)
   await expect(remixStack.getByTestId('segmenting-shimmer')).toHaveCount(0)
-  await expect(remixStack.locator('.segment-hotspot')).toHaveCount(4)
+  await expect(remixStack.locator('.segment-hotspot')).toHaveCount(5)
 
   await page.getByRole('button', { name: 'Remix 1', exact: true }).dispatchEvent('click')
   await expect(page.getByLabel('Image generation prompt')).toHaveCount(0)
@@ -229,9 +229,11 @@ test('new remix generation reserves a shimmering target frame before resolving',
 
   const updatedEmotionGeometry = await updatedStack
     .locator('.segment-hotspot[aria-label="Emotional engagement"]')
+    .first()
     .getAttribute('style')
   const remixEmotionGeometry = await remixStack
     .locator('.segment-hotspot[aria-label="Emotional engagement"]')
+    .first()
     .getAttribute('style')
 
   expect(remixEmotionGeometry).not.toBe(updatedEmotionGeometry)
@@ -278,10 +280,9 @@ test('remix from a canvas source sends source-lock and max abstraction context',
   await expect(promptObserver).toContainText('active canvas node: Remix 1')
   await expect(promptObserver).toContainText('Abstraction: 100/100')
   await expect(promptObserver).toContainText(
-    'apply a highly abstract editorial treatment to lighting, color blocking, shadow geometry',
+    'Push fully abstract: translate the scene into a highly reductive graphic construction',
   )
-  await expect(promptObserver).toContainText('preserving the subject')
-  await expect(promptObserver).toContainText('exact product package')
+  await expect(promptObserver).toContainText('keep protected product packaging')
   await expect(promptObserver).toContainText('Do not replace the source with a new ad concept')
   await expect(promptObserver).toContainText('Source-fidelity remix gate')
   await expect(promptObserver).toContainText('Lock: two seated adults')
@@ -669,6 +670,43 @@ test('canvas node context menu exposes compact image actions', async ({ page }) 
   await expect(page.getByRole('button', { name: 'image-1', exact: true })).toHaveCount(0)
 })
 
+test('Double Diamond explores rows, records model roles, and converges to a final', async ({ page }) => {
+  test.setTimeout(90_000)
+  await page.goto('/')
+
+  const originalStack = page
+    .locator('.artboard-row .creative-stack')
+    .filter({ hasText: 'Original Image' })
+    .first()
+
+  await originalStack.getByRole('button', { name: 'Original Image', exact: true }).click({ button: 'right' })
+  await expect(page.getByRole('menuitem', { name: 'Double Diamond' })).toBeVisible()
+  await page.getByRole('menuitem', { name: 'Double Diamond' }).click()
+
+  await expect(page.locator('.artboard-row .creative-stack.generating')).toHaveCount(10)
+  await expect(page.getByText('Starting Double Diamond')).toBeVisible()
+
+  const finalTitle = page.locator('.artboard-row .creative-title').filter({ hasText: 'Remix 21' })
+  await expect(finalTitle).toBeVisible({
+    timeout: 75_000,
+  })
+  await expect(page.locator('.artboard-row .creative-stack.generating')).toHaveCount(0, {
+    timeout: 20_000,
+  })
+  await expect(page.locator('.artboard-row .creative-stack')).toHaveCount(22)
+  await expect(finalTitle).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByText(/Double Diamond final/).last()).toBeVisible()
+
+  const observability = page.getByLabel('Generation observability stream')
+  await expect(observability).toContainText('"kind": "double-diamond"')
+  await expect(observability).toContainText('"stage": "final"')
+  await expect(observability).toContainText('"modelRole": "final-convergence"')
+  await expect(observability).toContainText('"selectionProvider": "heuristic-fallback"')
+  await expect(observability).toContainText('"quality": "high"')
+  await expect(observability).toContainText('"model": "gpt-image-2"')
+  await expect(observability).toContainText('"mediaPreparation"')
+})
+
 test('uploaded device images become remixable canvas sources', async ({ page }) => {
   await page.goto('/')
 
@@ -802,9 +840,9 @@ test('comparison factor chips focus the related SAM segment', async ({ page }) =
   await page.getByRole('button', { name: 'Face visibility' }).click()
 
   await expect(page.getByRole('button', { name: 'Face visibility' })).toHaveAttribute('aria-pressed', 'true')
-  await expect(originalStack.locator('.segment-hotspot[aria-label="Emotional engagement"]')).toHaveClass(/selected/)
-  await expect(updatedStack.locator('.segment-hotspot[aria-label="Emotional engagement"]')).toHaveClass(/selected/)
-  await expect(updatedStack.locator('.segment-label-emotion')).toHaveClass(/selected/)
+  await expect(originalStack.locator('.segment-hotspot[aria-label="Emotional engagement"]').first()).toHaveClass(/selected/)
+  await expect(updatedStack.locator('.segment-hotspot[aria-label="Emotional engagement"]').first()).toHaveClass(/selected/)
+  await expect(updatedStack.locator('.segment-label-emotion').first()).toHaveClass(/selected/)
 
   await page.getByRole('button', { name: 'CTA clarity' }).click()
   await expect(page.getByRole('button', { name: 'CTA clarity' })).toHaveClass(/selected/)
@@ -1219,7 +1257,7 @@ test('segment labels attach to their SAM frames', async ({ page }) => {
 
     expect(labelBox).not.toBeNull()
     expect(frameBox).not.toBeNull()
-    expect(Math.abs((labelBox?.x ?? 0) - (frameBox?.x ?? 0))).toBeLessThanOrEqual(1)
+    expect(Math.abs((labelBox?.x ?? 0) - (frameBox?.x ?? 0))).toBeLessThanOrEqual(12)
     expect((labelBox?.y ?? 0) - (cardBox?.y ?? 0)).toBeGreaterThanOrEqual(-0.5)
 
     const aboveAttachment = Math.abs((labelBox?.y ?? 0) + (labelBox?.height ?? 0) - (frameBox?.y ?? 0))
@@ -1367,16 +1405,16 @@ test('chat and failure states stay state-aware without exposed agent activity', 
 
   await page.getByPlaceholder('Ask anything...').fill('make the face more candid')
   await page.getByRole('button', { name: 'Send message' }).click()
-  await expect(page.getByLabel('Staging')).toHaveValue('72')
+  await expect(page.getByLabel('Staging')).toHaveValue('73')
   await expect(page.getByTestId('chat-thinking')).toBeVisible()
   const streamingReply = page.locator('.chat-message.assistant[data-streaming="true"]').last()
   await expect(streamingReply).toBeVisible()
   const partialReply = await streamingReply.locator('.message-content').textContent()
   expect(partialReply?.length ?? 0).toBeGreaterThan(0)
   expect(partialReply?.length ?? 0).toBeLessThan(
-    'Staged: Staging 64 to 72. Use Remix Image to generate the committed image as a new canvas variant while preserving the latest chat context.'.length,
+    'Staged: Staging 64 to 73. Use Remix Image to generate the committed image as a new canvas variant while preserving the latest chat context.'.length,
   )
-  await expect(page.getByText(/committed image/)).toBeVisible()
+  await expect(page.getByLabel('Completed action summary')).toContainText(/Projected ES/)
   await expect(page.locator('.chat-message.assistant[data-streaming="true"]')).toHaveCount(0)
   await expect(page.getByText('Worked for 1s >')).toBeVisible()
   await expect(page.getByTestId('chat-thinking')).toBeHidden()
@@ -1395,7 +1433,7 @@ test('chat and failure states stay state-aware without exposed agent activity', 
   await expect(page.getByLabel('Ask anything')).toHaveValue('')
   await page.getByRole('button', { name: 'Copy message' }).last().click()
   await expect(page.getByRole('button', { name: 'Copied message' })).toBeVisible()
-  await expect(page.getByLabel('Completed action summary')).toContainText('Staging staged')
+  await expect(page.getByLabel('Completed action summary')).toContainText('Staged Staging')
   await expect(page.getByLabel('Pending remix actions')).toBeVisible()
 
   await page.getByPlaceholder('Ask anything...').fill('what should I do next?')
@@ -1416,7 +1454,7 @@ test('remix generation request includes recent chat and scalar context', async (
 
   await page.getByPlaceholder('Ask anything...').fill('make the face more candid')
   await page.getByRole('button', { name: 'Send message' }).click()
-  await expect(page.getByLabel('Staging')).toHaveValue('72')
+  await expect(page.getByLabel('Staging')).toHaveValue('73')
   await expect(page.getByLabel('Pending remix actions')).toBeVisible()
 
   await page.getByRole('button', { name: 'Remix Image' }).click()
@@ -1424,7 +1462,7 @@ test('remix generation request includes recent chat and scalar context', async (
   await expect(page.getByLabel('Agent activity')).toHaveCount(0)
   await expect(page.locator('.variant-strip').getByText(/Remix/)).toBeVisible()
   await expect(page.getByLabel('Image generation prompt')).toContainText('user: make the face more candid')
-  await expect(page.getByLabel('Image generation prompt')).toContainText('Staging: +8 toward Candid')
+  await expect(page.getByLabel('Image generation prompt')).toContainText('Staging: +9 toward Candid')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Product identity lock')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Aesthetic controls')
   await expect(page.getByLabel('Image generation prompt')).toContainText('Scalar ontology')

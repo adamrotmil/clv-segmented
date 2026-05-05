@@ -57,11 +57,14 @@ Return JSON or plain text. JSON is preferred:
   content: string
   activity?: string
   focus?: string
+  actionSource?: "endpoint" | "local-fallback" | "none"
   actions?: AssistantCanvasAction[]
 }
 ```
 
 `content` is streamed into the UI word by word after the model response lands. `activity` becomes the small status line above the response, for example `Thought for 4s >` or `Worked with model >`.
+
+Endpoint responses must return their own `actions` when they want the canvas to move, select, generate, or blend. The frontend no longer borrows local fallback actions for successful endpoint text-only responses; if the endpoint returns no actions, the app treats `actionSource` as `"none"` and only shows the model-authored message.
 
 Supported actions:
 

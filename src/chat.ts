@@ -577,14 +577,22 @@ function normalizeChatResponse(
 ): AssistantChatResponse {
   const fallback = fallbackChatResponse(request)
   const content = response.content?.trim()
-  const actions = response.actions?.length ? response.actions : fallback.actions
+  const actions = response.actions?.length ? response.actions : undefined
 
   return {
     content: content || fallback.content,
     activity: response.activity?.trim() || 'Worked with model >',
     focus: response.focus?.trim() || 'Composing model response',
     provider: 'endpoint',
+    actionSource: actions ? 'endpoint' : 'none',
     actions,
+  }
+}
+
+function markLocalFallbackActions(response: AssistantChatResponse): AssistantChatResponse {
+  return {
+    ...response,
+    actionSource: response.actions?.length ? 'local-fallback' : 'none',
   }
 }
 
@@ -620,9 +628,9 @@ export async function requestAssistantChat(request: AssistantChatRequest) {
     }
   } catch {
     await wait(420)
-    return fallbackChatResponse(request)
+    return markLocalFallbackActions(fallbackChatResponse(request))
   }
 
   await wait(420)
-  return fallbackChatResponse(request)
+  return markLocalFallbackActions(fallbackChatResponse(request))
 }

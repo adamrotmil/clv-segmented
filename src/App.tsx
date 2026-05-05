@@ -137,7 +137,33 @@ type GenerationPromptRun = {
   segmentationError?: string
   traceEvents?: GenerationTraceEvent[]
   mediaSize?: ImageVariant['mediaSize']
+  mediaPreparation?: MediaPreparationMetadata
   completedAt?: string
+}
+
+type MediaPreparationStatus =
+  | 'source-aspect-already-matched'
+  | 'source-frame-cropped'
+  | 'source-frame-equals-provider-frame'
+  | 'crop-unavailable'
+  | 'crop-failed'
+
+type MediaPreparationMetadata = {
+  status: MediaPreparationStatus
+  requestedModelSize: GenerationOutputFrame['modelSize']
+  rawMediaSize?: ImageVariant['mediaSize']
+  preparedMediaSize?: ImageVariant['mediaSize']
+  rawAspectRatio?: number | null
+  sourceAspectRatio: number
+  cropApplied: boolean
+  cropRect?: PixelCropRect
+  warnings: string[]
+}
+
+type PreparedGeneratedImage = {
+  image: string
+  mediaSize?: ImageVariant['mediaSize']
+  mediaPreparation: MediaPreparationMetadata
 }
 
 type SavedIdea = {
@@ -297,6 +323,7 @@ const sidebarWidthBounds: Record<SidebarSide, { min: number; max: number }> = {
 const imageGenerationModel = 'gpt-image-2'
 const fastImageGenerationModel =
   import.meta.env.VITE_FAST_IMAGE_GENERATION_MODEL?.trim() || imageGenerationModel
+const fastImageGenerationUsesPrimaryModel = fastImageGenerationModel === imageGenerationModel
 const promptComposerModel = 'gpt-5.5'
 
 const scoreScalarPreset: Record<string, Pick<AestheticScalar, 'value' | 'marker'>> = {
@@ -2323,14 +2350,16 @@ async function cropImageToSourceFrame(imageUrl: string, cropRect: PixelCropRect)
 async function prepareGeneratedImageForCanvas(
   generation: CreativeGenerationResult,
   request: CreativeGenerationRequest,
-) {
+): Promise<PreparedGeneratedImage> {
   const fallbackMediaSize = generationMediaSizeForRequest(request)
   let rawMediaSize = generation.mediaSize
+  const warnings: string[] = []
 
   if (!rawMediaSize?.width || !rawMediaSize.height) {
     try {
       rawMediaSize = await readImageSize(generation.image)
     } catch {
+      warnings.push('Could not read generated image dimensions; using the request source-frame size.')
       rawMediaSize = fallbackMediaSize
     }
   }
@@ -2349,24 +2378,65 @@ async function prepareGeneratedImageForCanvas(
       cropRect.y !== 0 ||
       cropRect.width !== rawMediaSize?.width ||
       cropRect.height !== rawMediaSize?.height)
+  const basePreparation = {
+    requestedModelSize: request.outputFrame.modelSize,
+    rawMediaSize,
+    rawAspectRatio,
+    sourceAspectRatio,
+    warnings,
+  } satisfies Omit<
+    MediaPreparationMetadata,
+    'status' | 'preparedMediaSize' | 'cropApplied' | 'cropRect'
+  >
 
   if (shouldCrop && cropRect) {
     try {
+      const preparedMediaSize = { width: cropRect.width, height: cropRect.height }
       return {
         image: await cropImageToSourceFrame(generation.image, cropRect),
-        mediaSize: { width: cropRect.width, height: cropRect.height },
+        mediaSize: preparedMediaSize,
+        mediaPreparation: {
+          ...basePreparation,
+          status: 'source-frame-cropped',
+          preparedMediaSize,
+          cropApplied: true,
+          cropRect,
+          warnings,
+        },
       }
     } catch {
+      warnings.push('Source-frame crop failed; using the raw provider image for this canvas node.')
       return {
         image: generation.image,
         mediaSize: rawMediaSize ?? fallbackMediaSize,
+        mediaPreparation: {
+          ...basePreparation,
+          status: 'crop-failed',
+          preparedMediaSize: rawMediaSize ?? fallbackMediaSize,
+          cropApplied: false,
+          cropRect,
+          warnings,
+        },
       }
     }
   }
 
+  const status: MediaPreparationStatus = alreadySourceAspect
+    ? 'source-aspect-already-matched'
+    : cropRect
+      ? 'source-frame-equals-provider-frame'
+      : 'crop-unavailable'
   return {
     image: generation.image,
     mediaSize: rawMediaSize ?? fallbackMediaSize,
+    mediaPreparation: {
+      ...basePreparation,
+      status,
+      preparedMediaSize: rawMediaSize ?? fallbackMediaSize,
+      cropApplied: false,
+      cropRect: cropRect ?? undefined,
+      warnings,
+    },
   }
 }
 
@@ -3612,6 +3682,7 @@ function App() {
       generation.sourceFidelity,
       generation.traceEvents,
       generatedImage.mediaSize,
+      generatedImage.mediaPreparation,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
@@ -4505,6 +4576,7 @@ function App() {
     sourceFidelity?: SourceFidelityReport,
     traceEvents?: GenerationTraceEvent[],
     mediaSize?: ImageVariant['mediaSize'],
+    mediaPreparation?: MediaPreparationMetadata,
   ) {
     updateGenerationRequestRun(requestId, {
       status: 'completed',
@@ -4514,6 +4586,7 @@ function App() {
       sourceFidelity,
       traceEvents,
       mediaSize,
+      mediaPreparation,
       completedAt: new Date().toISOString(),
       segmentationStatus: 'segmenting',
     })
@@ -4942,6 +5015,7 @@ function App() {
       generation.sourceFidelity,
       generation.traceEvents,
       generatedImage.mediaSize,
+      generatedImage.mediaPreparation,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
@@ -5094,6 +5168,7 @@ function App() {
       generation.sourceFidelity,
       generation.traceEvents,
       generatedImage.mediaSize,
+      generatedImage.mediaPreparation,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
@@ -5241,6 +5316,7 @@ function App() {
       generation.sourceFidelity,
       generation.traceEvents,
       generatedImage.mediaSize,
+      generatedImage.mediaPreparation,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
@@ -5400,6 +5476,9 @@ function App() {
         direction: plan.direction,
         candidateIndex,
         parentCandidateId,
+        selectionProvider: stage === 'diverge' ? undefined : 'heuristic-fallback',
+        modelRole: stage === 'final' ? 'final-convergence' : 'fast-exploration',
+        requestedModel: model,
         rationale: plan.rationale,
       },
     })
@@ -5441,6 +5520,7 @@ function App() {
       generation.sourceFidelity,
       generation.traceEvents,
       generatedImage.mediaSize,
+      generatedImage.mediaPreparation,
     )
     if (explainFallback) {
       explainFallbackGenerationIfNeeded(request, generation)
@@ -5467,6 +5547,9 @@ function App() {
     let titleCursor = firstRemixNumber
     const nextTitle = () => `Remix ${titleCursor++}`
     const startedAt = Date.now()
+    const fastModelNote = fastImageGenerationUsesPrimaryModel
+      ? `No separate fast image model is configured, so rough passes use ${imageGenerationModel} at low quality.`
+      : `Rough passes use ${fastImageGenerationModel}; final convergence uses ${imageGenerationModel}.`
     const initialTrace: ChangeTrace = {
       id: `${workflowId}-trace`,
       control: 'Double Diamond',
@@ -5477,7 +5560,15 @@ function App() {
       scoreBefore: sourceVariant.score,
       scoreAfter: Math.min(96, sourceVariant.score + 6),
       segment: activeSegment.label,
-      ingredients: ['Double Diamond', '10 divergent concepts', '3 selected concepts', '9 developed variants'],
+      ingredients: [
+        'Double Diamond',
+        '10 divergent concepts',
+        '3 selected concepts',
+        '9 developed variants',
+        fastImageGenerationUsesPrimaryModel
+          ? 'Fast model fallback'
+          : `Fast model: ${fastImageGenerationModel}`,
+      ],
       scalarDeltas: [],
       segmentScoreDeltas: [],
     }
@@ -5506,7 +5597,7 @@ function App() {
     setVariantGenerationTask('Double Diamond: 10 rough what-if concepts', 'Generating divergent pass')
     startWork('remixing', initialTrace, false)
     queueAssistantReply(
-      `I’ll run Double Diamond from ${sourceVariant.title}: ten rough divergent what-if remixes, then three selected concepts, nine tighter variants, and one high-quality final.`,
+      `I’ll run Double Diamond from ${sourceVariant.title}: ten rough divergent what-if remixes, then three selected concepts, nine tighter variants, and one high-quality final. ${fastModelNote} Selection is currently the app’s heuristic fallback until the model-judge endpoint lands.`,
       'Starting Double Diamond',
       'Queued Double Diamond >',
     )
@@ -5996,6 +6087,7 @@ function App() {
       generation.sourceFidelity,
       generation.traceEvents,
       generatedImage.mediaSize,
+      generatedImage.mediaPreparation,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
@@ -6143,6 +6235,7 @@ function App() {
       generation.sourceFidelity,
       generation.traceEvents,
       generatedImage.mediaSize,
+      generatedImage.mediaPreparation,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
@@ -8562,6 +8655,9 @@ function CreativeArtboard({
   const isSegmenting = variant.segmentationStatus === 'segmenting'
   const segmentationFailed = variant.segmentationStatus === 'failed'
   const isFallbackGenerated = variant.sourceFidelity?.mode === 'fallback-generation'
+  const usesProjectedSegmentation =
+    variantSegments.length > 0 &&
+    variantSegments.some((segment) => (segment.source ?? 'manual') === 'projected')
   const activeSegment = variantSegments.find((segment) => segment.id === selectedSegmentId) ?? null
   const selectedSegmentSet =
     selectedSegmentIds.length > 0 ? selectedSegmentIds : selectedSegmentId ? [selectedSegmentId] : []
@@ -8639,6 +8735,11 @@ function CreativeArtboard({
         {isFallbackGenerated ? (
           <span className="source-fidelity-chip" aria-label="Fallback generated">
             Fallback generated
+          </span>
+        ) : null}
+        {usesProjectedSegmentation && !isSegmenting && !segmentationFailed ? (
+          <span className="segmentation-source-chip" aria-label="Projected segmentation">
+            Projected segmentation
           </span>
         ) : null}
         {isSegmenting ? (
@@ -9723,6 +9824,7 @@ function redactedImageRequestPayloadForRun(run: GenerationPromptRun) {
     canvasPreview: {
       rawImageSize,
       canvasNodeSize,
+      mediaPreparation: run.mediaPreparation ?? null,
       displayFit: 'contain',
       scaleFactor:
         rawImageSize && canvasNodeSize

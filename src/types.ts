@@ -505,6 +505,9 @@ export type CreativeGenerationRequest = {
     candidateIndex: number
     parentCandidateId?: string
     selected?: boolean
+    selectionProvider?: 'heuristic-fallback' | 'model-judged'
+    modelRole?: 'fast-exploration' | 'final-convergence'
+    requestedModel?: string
     rationale?: string
   }
 }
@@ -599,5 +602,6 @@ export type AssistantChatResponse = {
   activity?: string
   focus?: string
   provider: 'endpoint' | 'mock'
+  actionSource?: 'endpoint' | 'local-fallback' | 'none'
   actions?: AssistantCanvasAction[]
 }

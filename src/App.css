@@ -1502,6 +1502,26 @@ button {
   box-shadow: 0 1px 4px rgba(18, 18, 23, 0.08);
 }
 
+.segmentation-source-chip {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid rgba(35, 60, 116, 0.2);
+  border-radius: 5px;
+  background: rgba(235, 241, 255, 0.94);
+  color: #273c75;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  pointer-events: none;
+  box-shadow: 0 1px 4px rgba(18, 18, 23, 0.08);
+}
+
 .last-applied {
   position: absolute;
   right: 8px;

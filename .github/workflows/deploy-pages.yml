@@ -30,11 +30,15 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
       - name: Build
         env:
           VITE_IMAGE_GENERATION_ENDPOINT: ${{ vars.VITE_IMAGE_GENERATION_ENDPOINT }}
           VITE_IMAGE_SEGMENTATION_ENDPOINT: ${{ vars.VITE_IMAGE_SEGMENTATION_ENDPOINT }}
           VITE_CHAT_ENDPOINT: ${{ vars.VITE_CHAT_ENDPOINT }}
+          VITE_FAST_IMAGE_GENERATION_MODEL: ${{ vars.VITE_FAST_IMAGE_GENERATION_MODEL }}
         run: npm run build
 
       - name: Upload artifact
