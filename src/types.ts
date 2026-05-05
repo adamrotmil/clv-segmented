@@ -464,6 +464,7 @@ export type PromptComposerRequest = {
 export type CreativeGenerationRequest = {
   id: string
   model: string
+  quality?: 'auto' | 'low' | 'medium' | 'high'
   intent: CreativeGenerationIntent
   outputTitle: string
   createdAt: string
@@ -495,6 +496,17 @@ export type CreativeGenerationRequest = {
   sceneDescription: SceneDescription
   imagePrompt: ImagePromptPacket
   promptComposer: PromptComposerRequest
+  workflow?: {
+    id: string
+    kind: 'double-diamond'
+    stage: 'diverge' | 'develop' | 'final'
+    rowLabel: string
+    direction: string
+    candidateIndex: number
+    parentCandidateId?: string
+    selected?: boolean
+    rationale?: string
+  }
 }
 
 export type CreativeGenerationResult = {

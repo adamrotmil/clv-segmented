@@ -295,6 +295,8 @@ const sidebarWidthBounds: Record<SidebarSide, { min: number; max: number }> = {
 }
 
 const imageGenerationModel = 'gpt-image-2'
+const fastImageGenerationModel =
+  import.meta.env.VITE_FAST_IMAGE_GENERATION_MODEL?.trim() || imageGenerationModel
 const promptComposerModel = 'gpt-5.5'
 
 const scoreScalarPreset: Record<string, Pick<AestheticScalar, 'value' | 'marker'>> = {
@@ -470,6 +472,287 @@ function chatScalarUpdatesForPrompt(prompt: string, scalars: AestheticScalar[]) 
   return Array.from(updates.entries())
     .map(([id, value]) => ({ id, value }))
     .filter((update) => scalarValue(scalars, update.id) !== update.value)
+}
+
+type DoubleDiamondPlan = {
+  label: string
+  direction: string
+  rationale: string
+  scalarValues: Partial<Record<string, number>>
+  scoreLift: number
+}
+
+type DoubleDiamondCandidate = {
+  variant: ImageVariant
+  request: CreativeGenerationRequest
+  generation: CreativeGenerationResult
+  plan: DoubleDiamondPlan
+}
+
+function doubleDiamondRecipe(baseScalars: AestheticScalar[], plan: DoubleDiamondPlan) {
+  return scalarsWithUpdates(
+    baseScalars,
+    Object.entries(plan.scalarValues).flatMap(([id, value]) =>
+      typeof value === 'number'
+        ? [
+            {
+              id,
+              value: Math.max(0, Math.min(100, Math.round(value))),
+            },
+          ]
+        : [],
+    ),
+  )
+}
+
+function doubleDiamondDivergentPlans(): DoubleDiamondPlan[] {
+  return [
+    {
+      label: 'What if this became a one-color icon?',
+      direction:
+        'What if the ad collapsed into pure positive and negative form: one ink color, white field, logo-like silhouette, extremely graphic and memorable?',
+      rationale: 'Tests the most abstract brand-memory endpoint.',
+      scalarValues: {
+        abstraction: 100,
+        novelty: 76,
+        complexity: 8,
+        chromatics: 4,
+        depth: 0,
+        balance: 92,
+        'stopping-power': 96,
+      },
+      scoreLift: 4,
+    },
+    {
+      label: 'What if people carried the whole hook?',
+      direction:
+        'What if the remix became a human-first social moment with readable faces, candid warmth, and a clear emotional beat while the product stays shoppable?',
+      rationale: 'Tests whether emotional readability can outperform product-led structure.',
+      scalarValues: {
+        staging: 100,
+        presence: 100,
+        gaze: 28,
+        valence: 96,
+        arousal: 34,
+        novelty: 34,
+        'stopping-power': 78,
+      },
+      scoreLift: 5,
+    },
+    {
+      label: 'What if the product was alone?',
+      direction:
+        'What if the image removed people and became a rigorous product-only composition: one hero package, controlled staging, negative space, precise label visibility?',
+      rationale: 'Tests an object-led commerce endpoint.',
+      scalarValues: {
+        staging: 0,
+        presence: 0,
+        groundedness: 12,
+        complexity: 12,
+        balance: 88,
+        depth: 38,
+        'stopping-power': 86,
+      },
+      scoreLift: 3,
+    },
+    {
+      label: 'What if it became tactile analog print?',
+      direction:
+        'What if the same campaign became a tactile analog print artifact with visible paper tooth, grain, ink density, glass reflections, and stone texture?',
+      rationale: 'Tests process materiality as the lead visual reason to stop.',
+      scalarValues: {
+        materiality: 100,
+        hardness: 54,
+        chromatics: 35,
+        complexity: 72,
+        abstraction: 46,
+        'stopping-power': 74,
+      },
+      scoreLift: 4,
+    },
+    {
+      label: 'What if it became a surreal fragrance dream?',
+      direction:
+        'What if the source became an elevated dream image: strange but premium, unexpected spatial logic, symbolic atmosphere, and unmistakable product identity?',
+      rationale: 'Tests conceptual surprise while protecting the SKU and copy.',
+      scalarValues: {
+        novelty: 100,
+        abstraction: 82,
+        groundedness: 34,
+        depth: 88,
+        chromatics: 72,
+        arousal: 66,
+        'stopping-power': 94,
+      },
+      scoreLift: 5,
+    },
+    {
+      label: 'What if it became stark packshot commerce?',
+      direction:
+        'What if this became a stark premium packshot: controlled white or near-white environment, product label first, minimal distractions, sharp conversion clarity?',
+      rationale: 'Tests the opposite of lifestyle storytelling.',
+      scalarValues: {
+        staging: 0,
+        presence: 0,
+        groundedness: 0,
+        complexity: 4,
+        key: 96,
+        hardness: 44,
+        balance: 96,
+        'stopping-power': 76,
+      },
+      scoreLift: 3,
+    },
+    {
+      label: 'What if it became cinematic travel luxury?',
+      direction:
+        'What if the remix leaned into cinematic travel desire: atmospheric light, dramatic coastal depth, premium lifestyle scale, and a strong social-feed silhouette?',
+      rationale: 'Tests aspirational category convention at high polish.',
+      scalarValues: {
+        depth: 100,
+        groundedness: 100,
+        chromatics: 78,
+        hardness: 76,
+        valence: 92,
+        arousal: 48,
+        'stopping-power': 82,
+      },
+      scoreLift: 4,
+    },
+    {
+      label: 'What if it became constructed flat-lay order?',
+      direction:
+        'What if the image moved toward deliberate constructed staging: stable geometry, almost flat-lay or knolling logic, organized objects, and quiet graphic order?',
+      rationale: 'Tests a very constructed staging endpoint.',
+      scalarValues: {
+        staging: 0,
+        depth: 0,
+        balance: 100,
+        complexity: 24,
+        abstraction: 58,
+        groundedness: 36,
+        'stopping-power': 72,
+      },
+      scoreLift: 3,
+    },
+    {
+      label: 'What if the crop became material and close?',
+      direction:
+        'What if the ad pushed into an extreme tactile close-up: product glass, cap gloss, stone, fabric, skin, and label detail become the visual engine?',
+      rationale: 'Tests detail and surface as the hook.',
+      scalarValues: {
+        depth: 96,
+        materiality: 100,
+        complexity: 68,
+        hardness: 82,
+        abstraction: 30,
+        presence: 42,
+        'stopping-power': 84,
+      },
+      scoreLift: 4,
+    },
+    {
+      label: 'What if it became airy minimalist luxury?',
+      direction:
+        'What if the campaign became mostly white space and air: serene high-key palette, minimal detail, precise typography, small number of essential forms?',
+      rationale: 'Tests restraint and premium negative space.',
+      scalarValues: {
+        key: 100,
+        complexity: 0,
+        chromatics: 16,
+        balance: 86,
+        arousal: 12,
+        abstraction: 34,
+        'stopping-power': 64,
+      },
+      scoreLift: 3,
+    },
+  ]
+}
+
+function doubleDiamondDevelopmentPlans(parent: DoubleDiamondPlan): DoubleDiamondPlan[] {
+  return [
+    {
+      label: `${parent.label} / product clarity`,
+      direction:
+        `Develop this chosen direction more narrowly: keep the core idea "${parent.direction}", but make the product, label, CTA, and typography more pristine and conversion-ready.`,
+      rationale: 'Tightens the concept around shoppable clarity.',
+      scalarValues: {
+        ...parent.scalarValues,
+        complexity: Math.min(100, (parent.scalarValues.complexity ?? 48) + 6),
+        hardness: Math.min(100, (parent.scalarValues.hardness ?? 72) + 8),
+        'stopping-power': Math.min(100, (parent.scalarValues['stopping-power'] ?? 52) + 6),
+      },
+      scoreLift: 3,
+    },
+    {
+      label: `${parent.label} / emotional hook`,
+      direction:
+        `Develop this chosen direction more narrowly: keep the core idea "${parent.direction}", but find the most human, emotionally readable version of it without adding unsupported people.`,
+      rationale: 'Tests whether a warmer human read improves the concept.',
+      scalarValues: {
+        ...parent.scalarValues,
+        presence: Math.min(100, (parent.scalarValues.presence ?? 82) + 18),
+        valence: Math.min(100, (parent.scalarValues.valence ?? 88) + 8),
+        staging: Math.min(100, (parent.scalarValues.staging ?? 64) + 10),
+      },
+      scoreLift: 3,
+    },
+    {
+      label: `${parent.label} / editorial finish`,
+      direction:
+        `Develop this chosen direction more narrowly: keep the core idea "${parent.direction}", but make the art direction more refined, ownable, and premium rather than simply louder.`,
+      rationale: 'Tests the most polished expression of the concept.',
+      scalarValues: {
+        ...parent.scalarValues,
+        materiality: Math.min(100, (parent.scalarValues.materiality ?? 70) + 12),
+        balance: Math.min(100, (parent.scalarValues.balance ?? 55) + 10),
+        chromatics: Math.max(0, Math.min(100, parent.scalarValues.chromatics ?? 58)),
+      },
+      scoreLift: 4,
+    },
+  ]
+}
+
+function doubleDiamondRank(candidate: DoubleDiamondCandidate) {
+  const fidelityBonus =
+    candidate.generation.sourceFidelity.status === 'passed'
+      ? 8
+      : candidate.generation.sourceFidelity.status === 'warning'
+        ? 2
+        : -10
+
+  return candidate.generation.score + fidelityBonus + Math.max(0, candidate.generation.delta) / 3
+}
+
+function bestDoubleDiamondCandidates(candidates: DoubleDiamondCandidate[], count: number) {
+  return [...candidates]
+    .sort((left, right) => doubleDiamondRank(right) - doubleDiamondRank(left))
+    .slice(0, count)
+}
+
+async function runWithConcurrency<T, Result>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<Result>,
+) {
+  const results: Result[] = []
+  let cursor = 0
+
+  async function runNext() {
+    const index = cursor
+    cursor += 1
+    if (index >= items.length) return
+
+    results[index] = await worker(items[index], index)
+    await runNext()
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => runNext()),
+  )
+
+  return results
 }
 
 function scalarValuesEqual(left: AestheticScalar[], right: AestheticScalar[]) {
@@ -1036,13 +1319,15 @@ function remixNumberFromTitle(title: string) {
   return match ? Number(match[1]) : 0
 }
 
-function nextRemixTitle(variants: ImageVariant[]) {
-  const maxRemixNumber = variants.reduce(
+function maxRemixNumber(variants: ImageVariant[]) {
+  return variants.reduce(
     (highest, variant) => Math.max(highest, remixNumberFromTitle(variant.title)),
     0,
   )
+}
 
-  return `Remix ${maxRemixNumber + 1}`
+function nextRemixTitle(variants: ImageVariant[]) {
+  return `Remix ${maxRemixNumber(variants) + 1}`
 }
 
 function variantRoleLabel(variant: ImageVariant) {
@@ -2448,7 +2733,7 @@ function arrangedPositionsForGroups(
   action: Extract<AssistantCanvasAction, { type: 'arrange-canvas' }>,
   columns: number,
 ) {
-  const safeColumns = Math.max(1, Math.min(columns || 1, 3))
+  const safeColumns = Math.max(1, Math.min(columns || 1, 5))
   const seen = new Set<string>()
   const nextPositions: Record<string, DragOffset> = {}
   let row = 0
@@ -4013,6 +4298,9 @@ function App() {
     sourceVariantOverride,
     focusedSegmentIdsOverride,
     chatContextOverride,
+    modelOverride,
+    quality,
+    workflow,
   }: {
     id: string
     intent: CreativeGenerationRequest['intent']
@@ -4028,6 +4316,9 @@ function App() {
     sourceVariantOverride?: ImageVariant
     focusedSegmentIdsOverride?: string[]
     chatContextOverride?: ChatMessage[]
+    modelOverride?: string
+    quality?: CreativeGenerationRequest['quality']
+    workflow?: CreativeGenerationRequest['workflow']
   }): CreativeGenerationRequest {
     const sourceVariant =
       sourceVariantOverride ??
@@ -4090,11 +4381,12 @@ function App() {
       intent,
       nextScalars,
     })
+    const generationModel = modelOverride ?? imageGenerationModel
     const promptComposer = {
       requestId: id,
       intent,
       outputTitle,
-      model: imageGenerationModel,
+      model: generationModel,
       composerModel: promptComposerModel,
       sourceVariantId: sourceVariant.id,
       sourceIds,
@@ -4128,7 +4420,8 @@ function App() {
 
     return {
       id,
-      model: imageGenerationModel,
+      model: generationModel,
+      quality,
       intent,
       outputTitle,
       createdAt: new Date().toISOString(),
@@ -4160,6 +4453,7 @@ function App() {
       sceneDescription,
       imagePrompt,
       promptComposer,
+      workflow,
     }
   }
 
@@ -4957,6 +5251,437 @@ function App() {
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
     flashToast('Delta remix generated', 2200)
+  }
+
+  function arrangeDoubleDiamondRows({
+    workflowId,
+    sourceId,
+    divergeIds,
+    developIds,
+    finalIds = [],
+  }: {
+    workflowId: string
+    sourceId: string
+    divergeIds: string[]
+    developIds: string[]
+    finalIds?: string[]
+  }) {
+    setAssistantCanvasAction({
+      id: `${workflowId}-layout-${Date.now()}`,
+      action: {
+        type: 'arrange-canvas',
+        layout: 'themes',
+        groups: [
+          {
+            label: 'Double Diamond source',
+            variantIds: [sourceId],
+            rationale: 'Starting canvas node for the exploration.',
+          },
+          {
+            label: 'Divergent concepts',
+            variantIds: divergeIds,
+            rationale: 'Ten rough what-if explorations from the fast pass.',
+          },
+          {
+            label: 'Developed variants',
+            variantIds: developIds,
+            rationale: 'Three narrower approaches for each selected concept.',
+          },
+          {
+            label: 'Final convergence',
+            variantIds: finalIds,
+            rationale: 'Best developed direction recreated with high quality.',
+          },
+        ].filter((group) => group.variantIds.length),
+      },
+    })
+  }
+
+  function doubleDiamondGenerationRequest({
+    id,
+    outputTitle,
+    sourceVariant,
+    sourceRecipe,
+    plan,
+    stage,
+    workflowId,
+    candidateIndex,
+    parentCandidateId,
+    model,
+    quality,
+    rowLabel,
+    scoreLift,
+  }: {
+    id: string
+    outputTitle: string
+    sourceVariant: ImageVariant
+    sourceRecipe: AestheticScalar[]
+    plan: DoubleDiamondPlan
+    stage: NonNullable<CreativeGenerationRequest['workflow']>['stage']
+    workflowId: string
+    candidateIndex: number
+    parentCandidateId?: string
+    model: string
+    quality: CreativeGenerationRequest['quality']
+    rowLabel: string
+    scoreLift: number
+  }) {
+    const nextScalars = doubleDiamondRecipe(sourceRecipe, plan)
+    const projectedScoreValue = projectedScore(nextScalars)
+    const scalarDeltas = scalarTraceDeltasBetween(sourceRecipe, nextScalars)
+    const trace: ChangeTrace = {
+      id: `${id}-trace`,
+      control: stage === 'final' ? 'Double Diamond final' : 'Double Diamond',
+      what:
+        stage === 'diverge'
+          ? `Exploring ${plan.label}.`
+          : stage === 'develop'
+            ? `Developing ${plan.label}.`
+            : `Recreating the best Double Diamond direction at high quality.`,
+      why:
+        stage === 'diverge'
+          ? 'The first diamond is deliberately divergent: rough, quick what-if concepts that push the possibility space apart before judging them.'
+          : stage === 'develop'
+            ? 'The second diamond narrows around a selected concept with three controlled variants that explore different approaches without jumping to a new idea.'
+            : 'The final pass converges on the strongest developed candidate and recreates it with production-quality settings.',
+      before: sourceVariant.title,
+      after: outputTitle,
+      scoreBefore: sourceVariant.score,
+      scoreAfter: Math.min(96, projectedScoreValue + scoreLift),
+      segment: activeSegment.label,
+      ingredients: [
+        'Double Diamond',
+        rowLabel,
+        plan.label,
+        stage === 'final' ? 'High quality' : 'Fast draft',
+      ],
+      scalarDeltas,
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: segmentsForVariant(sourceVariant),
+        scoreBefore: sourceVariant.score,
+        scoreAfter: Math.min(96, projectedScoreValue + scoreLift),
+        scalarDeltas,
+        focusedSegmentId: activeSegment.id,
+      }),
+    }
+
+    return buildGenerationRequest({
+      id,
+      intent: 'scalar-remix',
+      outputTitle,
+      sourceIds: [sourceVariant.id],
+      beforeScalars: sourceRecipe,
+      nextScalars,
+      projectedScoreValue,
+      scoreLift,
+      baseFilter: imageFilterForScalars(nextScalars),
+      trace,
+      promptHints: [
+        `Double Diamond ${stage} stage: ${rowLabel}.`,
+        `Concept direction: ${plan.direction}`,
+        `Selection rationale: ${plan.rationale}`,
+        stage === 'diverge'
+          ? 'Use divergent thinking. Make this a genuine what-if exploration, not a minor polish pass. It can be rough and quick, but it must remain usable as an ad concept.'
+          : stage === 'develop'
+            ? 'Stay inside the chosen concept. Explore a different approach to the same idea, with more craft and less divergence than the first pass.'
+            : 'Re-create the best developed candidate with a high-quality production finish. Clean artifacts, sharpen product/copy/type, preserve the winning concept, and avoid introducing a new direction.',
+        ...messages.slice(-4).map((message) => `${message.role}: ${message.content}`),
+      ],
+      sourceVariantOverride: sourceVariant,
+      focusedSegmentIdsOverride: selectedSegmentIds.length ? selectedSegmentIds : [activeSegment.id],
+      chatContextOverride: messages,
+      modelOverride: model,
+      quality,
+      workflow: {
+        id: workflowId,
+        kind: 'double-diamond',
+        stage,
+        rowLabel,
+        direction: plan.direction,
+        candidateIndex,
+        parentCandidateId,
+        rationale: plan.rationale,
+      },
+    })
+  }
+
+  async function resolveDoubleDiamondRequest(
+    request: CreativeGenerationRequest,
+    plan: DoubleDiamondPlan,
+  ): Promise<DoubleDiamondCandidate> {
+    const generation = await requestCreativeGeneration(request)
+    const generatedImage = await prepareGeneratedImageForCanvas(generation, request)
+    const variant: ImageVariant = {
+      id: request.id,
+      title: generation.title,
+      kind: 'generated',
+      image: generatedImage.image,
+      mediaSize: generatedImage.mediaSize,
+      score: generation.score,
+      delta: generation.delta,
+      filter: generation.filter,
+      ingredients: generation.ingredients,
+      sourceIds: generation.sourceIds,
+      scalarRecipe: cloneScalarRecipe(request.scalars),
+      promptRecipe: generation.promptRecipe,
+      sourceFidelity: generation.sourceFidelity,
+      visualContext: visualContextForGeneratedRequest(request),
+      segments: [],
+      status: 'ready',
+      segmentationStatus: 'segmenting',
+    }
+
+    resolveGeneratedVariant(variant)
+    releaseGenerationRequest(
+      request.id,
+      generatedImage.image,
+      generation.promptRecipe,
+      generation.providerMode,
+      generation.sourceFidelity,
+      generation.traceEvents,
+      generatedImage.mediaSize,
+    )
+    explainFallbackGenerationIfNeeded(request, generation)
+    void segmentVariantImage({
+      variantId: request.id,
+      imageUrl: generatedImage.image,
+      mediaSize: generatedImage.mediaSize,
+      generationRequest: request,
+      sourceSegments: segmentsForVariant(request.sourceVariant),
+    })
+
+    return { variant, request, generation, plan }
+  }
+
+  async function runDoubleDiamond(variantId: string) {
+    const sourceVariant = workingVariants.find((variant) => variant.id === variantId)
+    if (!sourceVariant || pendingPhase === 'remixing') return
+
+    const workflowId = `double-diamond-${Date.now()}`
+    const sourceRecipe = scalarRecipeForVariant(sourceVariant)
+    const firstRemixNumber = maxRemixNumber(variants) + 1
+    let titleCursor = firstRemixNumber
+    const nextTitle = () => `Remix ${titleCursor++}`
+    const startedAt = Date.now()
+    const initialTrace: ChangeTrace = {
+      id: `${workflowId}-trace`,
+      control: 'Double Diamond',
+      what: `Started Double Diamond from ${sourceVariant.title}.`,
+      why: 'The workflow opens the possibility space with ten rough divergent concepts, downselects three, develops each with three tighter variants, then recreates the strongest result at high quality.',
+      before: sourceVariant.title,
+      after: 'Exploration running',
+      scoreBefore: sourceVariant.score,
+      scoreAfter: Math.min(96, sourceVariant.score + 6),
+      segment: activeSegment.label,
+      ingredients: ['Double Diamond', '10 divergent concepts', '3 selected concepts', '9 developed variants'],
+      scalarDeltas: [],
+      segmentScoreDeltas: [],
+    }
+    const divergePlans = doubleDiamondDivergentPlans()
+    const divergeRequests = divergePlans.map((plan, index) =>
+      doubleDiamondGenerationRequest({
+        id: `${workflowId}-diverge-${index + 1}`,
+        outputTitle: nextTitle(),
+        sourceVariant,
+        sourceRecipe,
+        plan,
+        stage: 'diverge',
+        workflowId,
+        candidateIndex: index + 1,
+        model: fastImageGenerationModel,
+        quality: 'low',
+        rowLabel: 'Divergent concept',
+        scoreLift: plan.scoreLift,
+      }),
+    )
+    const divergeIds = divergeRequests.map((request) => request.id)
+
+    setLastChange(initialTrace)
+    setWorkError('')
+    setSelectedVariantId(sourceVariant.id)
+    setVariantGenerationTask('Double Diamond: 10 rough what-if concepts', 'Generating divergent pass')
+    startWork('remixing', initialTrace, false)
+    queueAssistantReply(
+      `I’ll run Double Diamond from ${sourceVariant.title}: ten rough divergent what-if remixes, then three selected concepts, nine tighter variants, and one high-quality final.`,
+      'Starting Double Diamond',
+      'Queued Double Diamond >',
+    )
+    divergeRequests.forEach((request) => {
+      queueGeneratingVariant(request, Math.min(96, request.projectedScore + request.scoreLift))
+    })
+    arrangeDoubleDiamondRows({
+      workflowId,
+      sourceId: sourceVariant.id,
+      divergeIds,
+      developIds: [],
+    })
+
+    const divergentCandidates = await runWithConcurrency(
+      divergeRequests,
+      3,
+      async (request, index) => {
+        const candidate = await resolveDoubleDiamondRequest(request, divergePlans[index])
+        arrangeDoubleDiamondRows({
+          workflowId,
+          sourceId: sourceVariant.id,
+          divergeIds,
+          developIds: [],
+        })
+        return candidate
+      },
+    )
+    const selectedConcepts = bestDoubleDiamondCandidates(divergentCandidates, 3)
+    const selectedConceptIds = new Set(selectedConcepts.map((candidate) => candidate.variant.id))
+    setVariants((current) =>
+      current.map((variant) =>
+        selectedConceptIds.has(variant.id)
+          ? {
+              ...variant,
+              ingredients: Array.from(
+                new Set([...(variant.ingredients ?? []), 'Selected concept']),
+              ).slice(0, 4),
+            }
+          : variant,
+      ),
+    )
+    setVariantGenerationTask('Double Diamond: 9 developed variants', 'Developing selected concepts')
+    const developPlans = selectedConcepts.flatMap((candidate) =>
+      doubleDiamondDevelopmentPlans(candidate.plan).map((plan) => ({ parent: candidate, plan })),
+    )
+    const developRequests = developPlans.map(({ parent, plan }, index) =>
+      doubleDiamondGenerationRequest({
+        id: `${workflowId}-develop-${index + 1}`,
+        outputTitle: nextTitle(),
+        sourceVariant: parent.variant,
+        sourceRecipe: scalarRecipeForVariant(parent.variant),
+        plan,
+        stage: 'develop',
+        workflowId,
+        candidateIndex: index + 1,
+        parentCandidateId: parent.variant.id,
+        model: fastImageGenerationModel,
+        quality: 'low',
+        rowLabel: 'Developed variant',
+        scoreLift: plan.scoreLift,
+      }),
+    )
+    const developIds = developRequests.map((request) => request.id)
+    developRequests.forEach((request) => {
+      queueGeneratingVariant(request, Math.min(96, request.projectedScore + request.scoreLift))
+    })
+    arrangeDoubleDiamondRows({
+      workflowId,
+      sourceId: sourceVariant.id,
+      divergeIds,
+      developIds,
+    })
+    const developedCandidates = await runWithConcurrency(
+      developRequests,
+      3,
+      async (request, index) => {
+        const candidate = await resolveDoubleDiamondRequest(request, developPlans[index].plan)
+        arrangeDoubleDiamondRows({
+          workflowId,
+          sourceId: sourceVariant.id,
+          divergeIds,
+          developIds,
+        })
+        return candidate
+      },
+    )
+    const [bestDeveloped] = bestDoubleDiamondCandidates(developedCandidates, 1)
+    if (!bestDeveloped) {
+      throw new Error('Double Diamond could not resolve a developed candidate.')
+    }
+
+    setVariantGenerationTask('Double Diamond: final convergence', 'Recreating best candidate in high quality')
+    const finalPlan: DoubleDiamondPlan = {
+      label: `Final from ${bestDeveloped.variant.title}`,
+      direction:
+        `Re-create the strongest developed candidate (${bestDeveloped.plan.direction}) as a polished production-ready final. Keep the concept, remove roughness, sharpen product/copy/type, and preserve source fidelity.`,
+      rationale: `Selected by score and source-fidelity signal from ${bestDeveloped.variant.title}.`,
+      scalarValues: Object.fromEntries(
+        scalarRecipeForVariant(bestDeveloped.variant).map((scalar) => [scalar.id, scalar.value]),
+      ),
+      scoreLift: 5,
+    }
+    const finalRequest = doubleDiamondGenerationRequest({
+      id: `${workflowId}-final`,
+      outputTitle: nextTitle(),
+      sourceVariant: bestDeveloped.variant,
+      sourceRecipe: scalarRecipeForVariant(bestDeveloped.variant),
+      plan: finalPlan,
+      stage: 'final',
+      workflowId,
+      candidateIndex: 1,
+      parentCandidateId: bestDeveloped.variant.id,
+      model: imageGenerationModel,
+      quality: 'high',
+      rowLabel: 'Final convergence',
+      scoreLift: finalPlan.scoreLift,
+    })
+    queueGeneratingVariant(finalRequest, Math.min(96, finalRequest.projectedScore + finalRequest.scoreLift))
+    arrangeDoubleDiamondRows({
+      workflowId,
+      sourceId: sourceVariant.id,
+      divergeIds,
+      developIds,
+      finalIds: [finalRequest.id],
+    })
+    const finalCandidate = await resolveDoubleDiamondRequest(finalRequest, finalPlan)
+    const finalTrace: ChangeTrace = {
+      id: `${workflowId}-complete`,
+      control: 'Double Diamond final',
+      what: `${finalCandidate.variant.title} selected as the Double Diamond final.`,
+      why: `The workflow explored ${divergentCandidates.length} divergent directions, downselected ${selectedConcepts.length}, developed ${developedCandidates.length} tighter variants, and recreated the strongest candidate at high quality.`,
+      before: sourceVariant.title,
+      after: finalCandidate.variant.title,
+      scoreBefore: sourceVariant.score,
+      scoreAfter: finalCandidate.variant.score,
+      segment: activeSegment.label,
+      ingredients: [
+        'Double Diamond',
+        bestDeveloped.variant.title,
+        finalCandidate.plan.label,
+        'High quality final',
+      ],
+      scalarDeltas: scalarTraceDeltasBetween(sourceRecipe, scalarRecipeForVariant(finalCandidate.variant)),
+      segmentScoreDeltas: segmentScoreTraceDeltas({
+        beforeSegments: segmentsForVariant(sourceVariant),
+        scoreBefore: sourceVariant.score,
+        scoreAfter: finalCandidate.variant.score,
+        scalarDeltas: scalarTraceDeltasBetween(sourceRecipe, scalarRecipeForVariant(finalCandidate.variant)),
+        focusedSegmentId: activeSegment.id,
+      }),
+    }
+
+    setScalars(scalarRecipeForVariant(finalCandidate.variant))
+    setDraftScalars(scalarRecipeForVariant(finalCandidate.variant))
+    setSelectedVariantId(finalCandidate.variant.id)
+    setLastChange(finalTrace)
+    setHistory((current) =>
+      [
+        {
+          ...finalTrace,
+          scalarsBefore: sourceRecipe,
+          scalarsAfter: scalarRecipeForVariant(finalCandidate.variant),
+          scoreScalarsBefore: scoreScalars,
+          scoreScalarsAfter: scoreScalars,
+          variantIdBefore: sourceVariant.id,
+          variantIdAfter: finalCandidate.variant.id,
+        },
+        ...current,
+      ].slice(0, 6),
+    )
+    arrangeDoubleDiamondRows({
+      workflowId,
+      sourceId: sourceVariant.id,
+      divergeIds,
+      developIds,
+      finalIds: [finalCandidate.variant.id],
+    })
+    completeWork(`Double Diamond complete in ${Math.round((Date.now() - startedAt) / 1000)}s`)
+    flashToast('Double Diamond complete', 2600)
   }
 
   function useVariantAsChatContext(variantId: string) {
@@ -5882,6 +6607,7 @@ function App() {
               onResetChanges={resetChanges}
               onRemix={remixImage}
               onRemixFromVariant={remixFromVariant}
+              onDoubleDiamond={runDoubleDiamond}
               onRemixFromComparison={remixFromComparison}
               onBlendVariants={blendCanvasVariants}
               onUseVariantAsChatContext={useVariantAsChatContext}
@@ -6821,6 +7547,7 @@ function CanvasWorkspace({
   onResetChanges,
   onRemix,
   onRemixFromVariant,
+  onDoubleDiamond,
   onRemixFromComparison,
   onBlendVariants,
   onUseVariantAsChatContext,
@@ -6859,6 +7586,7 @@ function CanvasWorkspace({
   onResetChanges: () => void
   onRemix: () => void
   onRemixFromVariant: (variantId: string) => void
+  onDoubleDiamond: (variantId: string) => void
   onRemixFromComparison: (anchorId: string, targetIds: string[]) => void
   onBlendVariants: (sourceId: string, targetId: string) => void
   onUseVariantAsChatContext: (variantId: string) => void
@@ -7374,6 +8102,10 @@ function CanvasWorkspace({
               closeNodeMenu()
               onRemixFromVariant(menuVariant.id)
             }}
+            onDoubleDiamond={() => {
+              closeNodeMenu()
+              onDoubleDiamond(menuVariant.id)
+            }}
             onCompare={() => {
               setVariantDetails(null)
               setComparisonIds([menuVariant.id, compareTargetFor(menuVariant.id)])
@@ -7445,6 +8177,7 @@ function NodeContextMenu({
   variant,
   peerVariant,
   onRemix,
+  onDoubleDiamond,
   onCompare,
   onBlend,
   onUseAsContext,
@@ -7455,6 +8188,7 @@ function NodeContextMenu({
   variant: ImageVariant
   peerVariant: ImageVariant | null
   onRemix: () => void
+  onDoubleDiamond: () => void
   onCompare: () => void
   onBlend: () => void
   onUseAsContext: () => void
@@ -7484,6 +8218,10 @@ function NodeContextMenu({
       <button type="button" role="menuitem" onClick={onRemix}>
         <RefreshCw size={14} />
         Remix from this
+      </button>
+      <button type="button" role="menuitem" onClick={onDoubleDiamond}>
+        <Sparkles size={14} />
+        Double Diamond
       </button>
       <button type="button" role="menuitem" onClick={onCompare}>
         <GitBranch size={14} />
@@ -8860,7 +9598,8 @@ function redactedImageRequestPayloadForRun(run: GenerationPromptRun) {
     model: request.model,
     intent: request.intent,
     output: request.outputTitle,
-    quality: 'high',
+    quality: request.quality ?? 'high',
+    workflow: request.workflow ?? null,
     requestedModelSize: request.outputFrame.modelSize,
     size: evidence?.providerModelSize ?? run.promptRecipe?.providerRequest?.size ?? request.outputFrame.modelSize,
     outputFrame: request.outputFrame,
@@ -8911,6 +9650,7 @@ function redactedImageRequestPayloadForRun(run: GenerationPromptRun) {
       {
         endpoint,
         model: request.model,
+        quality: request.quality ?? 'auto',
         size: request.outputFrame.modelSize,
         providerPromptHash: shortTraceHash(providerPrompt),
       },
