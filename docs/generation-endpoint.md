@@ -8,12 +8,20 @@ Set this public build variable for GitHub Pages:
 
 ```bash
 VITE_IMAGE_GENERATION_ENDPOINT=https://your-worker.your-subdomain.workers.dev/generate
-VITE_FAST_IMAGE_GENERATION_MODEL=gpt-image-2
+VITE_FAST_IMAGE_GENERATION_MODEL=gpt-image-1-mini
 ```
 
 Do not expose provider keys in the frontend. Keep OpenAI keys in the Worker or backend service.
 
-`VITE_FAST_IMAGE_GENERATION_MODEL` is used by Double Diamond rough exploration and development passes. If it is not set, the frontend falls back to the primary image model at low quality and labels that fallback in the assistant message and request observability. The final Double Diamond convergence pass still uses the primary high-quality image model.
+`VITE_FAST_IMAGE_GENERATION_MODEL` is used by Double Diamond rough exploration and development passes. If it is not set, the frontend defaults to `gpt-image-1-mini` so rough passes stay cheaper/faster than the primary production model. The final Double Diamond convergence pass still uses the primary high-quality image model.
+
+The Worker must honor `request.model`, `request.quality`, and `request.workflow`. The intended routing is:
+
+- Double Diamond `diverge` and `develop`: `gpt-image-1-mini`, `quality: "low"`
+- Double Diamond `final`: `gpt-image-2`, `quality: "high"`
+- Normal remixes: `gpt-image-2`, high quality unless the request explicitly says otherwise
+
+Observability should show both the frontend request and actual provider request, including `requestedModel`, `providerModel`, `quality`, `workflow.kind`, `workflow.stage`, and `modelRole`.
 
 ## Request Shape
 
@@ -23,7 +31,8 @@ The app sends a `CreativeGenerationRequest` payload. The important server-facing
 {
   id: string
   intent: "scalar-remix" | "segment-remix" | "chat-remix" | "blend" | "delta-remix"
-  model: "gpt-image-2"
+  model: "gpt-image-2" | "gpt-image-1-mini"
+  quality?: "auto" | "low" | "medium" | "high"
   sourceVariant: ImageVariant
   sourceIds: string[]
   imageInputs: ImageInputReference[]
@@ -53,7 +62,7 @@ The app sends a `CreativeGenerationRequest` payload. The important server-facing
     requestId: string
     intent: CreativeGenerationIntent
     outputTitle: string
-    model: "gpt-image-2"
+    model: "gpt-image-2" | "gpt-image-1-mini"
     composerModel: string
     sourceVariantId: string
     sourceIds: string[]
@@ -96,12 +105,13 @@ Use an orchestrated `POST /generate` endpoint:
 
 1. Build a prompt-composer call from `promptComposer`.
 2. Use a multimodal model to inspect the source image inputs and write a final creative prompt.
-3. Call the image edit route with `gpt-image-2`, the composer-authored final prompt, and actual image bytes for the source/reference images.
-4. Retry the edit route with stricter preservation language if the first edit fails or safety blocks.
-5. Only enter text-to-image fallback when the Worker explicitly reports `providerMode: "safety-retry-generation"`.
-6. Run a post-generation critic for product, copy, typography, identity, and source relation.
-7. Return the image, composer metadata, source-fidelity verdict, and evidence for observability.
-8. Run segmentation from `/segment` after the image returns, or let the frontend call `/segment` as it does today.
+3. Choose the provider model from the request/workflow: fast model for Double Diamond `diverge`/`develop`, primary model for final convergence and normal remixing.
+4. Call the image edit route with the selected provider model, requested quality, the composer-authored final prompt, and actual image bytes for the source/reference images.
+5. Retry the edit route with stricter preservation language if the first edit fails or safety blocks.
+6. Only enter text-to-image fallback when the Worker explicitly reports `providerMode: "safety-retry-generation"`.
+7. Run a post-generation critic for product, copy, typography, identity, and source relation.
+8. Return the image, composer metadata, source-fidelity verdict, and evidence for observability.
+9. Run segmentation from `/segment` after the image returns, or let the frontend call `/segment` as it does today.
 
 Normal remix requests must not silently use text-to-image generation. If the source image is not attached to the image model call, the Worker should return a warning or failure state rather than a normal passed remix.
 

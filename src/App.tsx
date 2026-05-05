@@ -321,8 +321,9 @@ const sidebarWidthBounds: Record<SidebarSide, { min: number; max: number }> = {
 }
 
 const imageGenerationModel = 'gpt-image-2'
+const defaultFastImageGenerationModel = 'gpt-image-1-mini'
 const fastImageGenerationModel =
-  import.meta.env.VITE_FAST_IMAGE_GENERATION_MODEL?.trim() || imageGenerationModel
+  import.meta.env.VITE_FAST_IMAGE_GENERATION_MODEL?.trim() || defaultFastImageGenerationModel
 const fastImageGenerationUsesPrimaryModel = fastImageGenerationModel === imageGenerationModel
 const promptComposerModel = 'gpt-5.5'
 
