@@ -34,6 +34,14 @@ async function uploadPortraitAssetFromDevice(page: Page) {
   await fileChooser.setFiles(portraitUploadAssetFixture)
 }
 
+async function showAnnotations(page: Page) {
+  const showButton = page.getByRole('button', { name: 'Show Annotations' })
+  if (await showButton.isVisible()) {
+    await showButton.click()
+  }
+  await expect(page.getByRole('button', { name: 'Hide Annotations' })).toBeVisible()
+}
+
 test('inline action summary shows slider effect, shimmer, explanation, and undo', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('.assistant-title')).toHaveText('Assistant')
@@ -73,6 +81,7 @@ test('inline action summary shows slider effect, shimmer, explanation, and undo'
 
 test('new remix generation reserves a shimmering target frame before resolving', async ({ page }) => {
   await page.goto('/')
+  await showAnnotations(page)
 
   await page.getByLabel('Staging').fill('92')
   await page.getByRole('button', { name: 'Remix Image' }).click()
@@ -333,6 +342,7 @@ test('project title renames inline and updates active asset context', async ({ p
 
 test('aesthetic search filters the full star plot slider set', async ({ page }) => {
   await page.goto('/')
+  await showAnnotations(page)
 
   const intentList = page.locator('#intent-style-panel')
   await expect(intentList.locator('.scalar')).toHaveCount(16)
@@ -481,7 +491,7 @@ test('editor chrome hover states do not move controls', async ({ page }) => {
   await expectStableHover(page.locator('.asset-select').first())
   await expectStableHover(page.locator('.version-select').first())
   await expectStableHover(page.getByRole('button', { name: 'Tidy up canvas' }))
-  await expectStableHover(page.getByRole('button', { name: 'Hide Annotations' }))
+  await expectStableHover(page.getByRole('button', { name: 'Show Annotations' }))
   await expectStableHover(page.locator('.preset-row.active').first())
 })
 
@@ -489,7 +499,7 @@ test('annotation toggle keeps toolbar geometry stable', async ({ page }) => {
   await page.goto('/')
 
   const tidyButton = page.getByRole('button', { name: 'Tidy up canvas' })
-  const annotationsButton = page.getByRole('button', { name: 'Hide Annotations' })
+  const annotationsButton = page.getByRole('button', { name: 'Show Annotations' })
   const zoomControl = page.locator('.canvas-toolbar .zoom-control')
 
   const tidyBefore = await tidyButton.boundingBox()
@@ -500,13 +510,13 @@ test('annotation toggle keeps toolbar geometry stable', async ({ page }) => {
   expect(zoomBefore).not.toBeNull()
 
   await annotationsButton.click()
-  const showButton = page.getByRole('button', { name: 'Show Annotations' })
-  await expect(showButton).toBeVisible()
+  const hideButton = page.getByRole('button', { name: 'Hide Annotations' })
+  await expect(hideButton).toBeVisible()
 
   const tidyAfter = await tidyButton.boundingBox()
-  const buttonAfter = await showButton.boundingBox()
+  const buttonAfter = await hideButton.boundingBox()
   const zoomAfter = await zoomControl.boundingBox()
-  const showTextFits = await showButton.evaluate((element) => ({
+  const showTextFits = await hideButton.evaluate((element) => ({
     clientWidth: element.clientWidth,
     scrollWidth: element.scrollWidth,
     whiteSpace: getComputedStyle(element).whiteSpace,
@@ -754,6 +764,7 @@ test('remix from an uploaded canvas source carries staged slider deltas', async 
 
 test('uploaded portrait images keep aspect ratio and get upload-specific segments', async ({ page }) => {
   await page.goto('/')
+  await showAnnotations(page)
 
   await uploadPortraitAssetFromDevice(page)
   const uploadedStack = page
@@ -830,6 +841,7 @@ test('shift selecting canvas nodes creates an anchored comparison set', async ({
 
 test('comparison factor chips focus the related SAM segment', async ({ page }) => {
   await page.goto('/')
+  await showAnnotations(page)
 
   const originalStack = page.locator('.creative-stack').nth(0)
   const updatedStack = page.locator('.creative-stack').nth(1)
@@ -1242,6 +1254,7 @@ test('blended variants average their recorded scalar recipes into verbal prompts
 
 test('segment labels attach to their SAM frames', async ({ page }) => {
   await page.goto('/')
+  await showAnnotations(page)
 
   const updatedStack = page.locator('.creative-stack').nth(1)
   const cardBox = await updatedStack.locator('.creative-card').boundingBox()
@@ -1267,6 +1280,7 @@ test('segment labels attach to their SAM frames', async ({ page }) => {
 
 test('SAM segment focus mirrors across compared images and supports shift selection', async ({ page }) => {
   await page.goto('/')
+  await showAnnotations(page)
 
   const originalStack = page.locator('.creative-stack').nth(0)
   const updatedStack = page.locator('.creative-stack').nth(1)
@@ -1292,6 +1306,7 @@ test('SAM segment focus mirrors across compared images and supports shift select
 
 test('accordion controls collapse and restore inspector and score sections', async ({ page }) => {
   await page.goto('/')
+  await showAnnotations(page)
 
   await expect(page.locator('.styles-section .spin-mark')).toHaveCount(0)
   await expect(page.getByLabel('Staging')).toBeVisible()
@@ -1325,6 +1340,7 @@ test('accordion controls collapse and restore inspector and score sections', asy
 
 test('stubbed buttons visibly change local prototype state', async ({ page }) => {
   await page.goto('/')
+  await showAnnotations(page)
 
   await page.getByRole('button', { name: 'Save Changes' }).click()
   await expect(page.getByLabel('Completed action summary')).toContainText('saved to approvals')
@@ -1510,6 +1526,7 @@ test('assistant can queue a remix from chat and pass segment context', async ({ 
 
 test('assistant compares requested canvas versions with SAM context', async ({ page }) => {
   await page.goto('/')
+  await showAnnotations(page)
 
   await page.getByLabel('Staging').fill('92')
   await page.getByRole('button', { name: 'Remix Image' }).click()
@@ -1584,6 +1601,7 @@ test('assistant can group canvas variants into themed snap-grid clusters', async
 
 test('segment score and hybrid paths keep the interaction workbench visible', async ({ page }) => {
   await page.goto('/')
+  await showAnnotations(page)
   await page.getByRole('button', { name: 'Product placement' }).last().click()
 
   await expect(page.getByLabel('Segment suggestions')).toBeVisible()

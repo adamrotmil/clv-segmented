@@ -3122,7 +3122,7 @@ function App() {
   const [selectedVariantId, setSelectedVariantId] = useState('original')
   const [selectedSegmentId, setSelectedSegmentId] = useState('')
   const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([])
-  const [annotationsVisible, setAnnotationsVisible] = useState(true)
+  const [annotationsVisible, setAnnotationsVisible] = useState(false)
   const [zoom, setZoom] = useState(DEFAULT_CANVAS_ZOOM)
   const [scalars, setScalars] = useState(initialScalars)
   const [draftScalars, setDraftScalars] = useState(initialScalars)
