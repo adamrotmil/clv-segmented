@@ -185,6 +185,11 @@ type AssistantCanvasActionEnvelope = {
   action: AssistantCanvasAction
 }
 
+type AssistantRemixContext = {
+  promptHint?: string
+  chatContext?: ChatMessage[]
+}
+
 function fallbackReasonFor(report: SourceFidelityReport) {
   const reason = report.evidence?.fallbackReason ?? report.warnings[0] ?? report.notes[0] ?? report.summary
   const providerMode = report.providerMode.toLowerCase()
@@ -3809,6 +3814,7 @@ function App() {
     promptHints,
     sourceVariantOverride,
     focusedSegmentIdsOverride,
+    chatContextOverride,
   }: {
     id: string
     intent: CreativeGenerationRequest['intent']
@@ -3823,6 +3829,7 @@ function App() {
     promptHints: string[]
     sourceVariantOverride?: ImageVariant
     focusedSegmentIdsOverride?: string[]
+    chatContextOverride?: ChatMessage[]
   }): CreativeGenerationRequest {
     const sourceVariant =
       sourceVariantOverride ??
@@ -3853,7 +3860,7 @@ function App() {
       scalarChanges,
       selectedSegments: focusedSegments,
     })
-    const chatContext = messages.slice(-8)
+    const chatContext = (chatContextOverride ?? messages).slice(-8)
     const sceneDescription = sceneDescriptionForVariant({
       asset: activeCanvasAsset,
       sourceVariant,
@@ -4455,7 +4462,11 @@ function App() {
     flashToast(sources.length === 2 ? 'Ideas combined' : 'Remix generated', 2200)
   }
 
-  async function remixFromVariant(variantId: string, focusedSegmentIdsOverride?: string[]) {
+  async function remixFromVariant(
+    variantId: string,
+    focusedSegmentIdsOverride?: string[],
+    remixContext: AssistantRemixContext = {},
+  ) {
     const sourceVariant = workingVariants.find((variant) => variant.id === variantId)
     if (!sourceVariant) return
 
@@ -4467,6 +4478,8 @@ function App() {
     const nextId = `remix-${Date.now()}`
     const outputTitle = nextRemixTitle(variants)
     const predictedScore = Math.min(96, Math.max(sourceVariant.score + 2, remixScore + 1))
+    const chatContext = remixContext.chatContext?.length ? remixContext.chatContext : messages
+    const directPromptHint = remixContext.promptHint?.trim()
     const sourceSegments = segmentsForVariant(sourceVariant)
     const remixSegment =
       focusedSegmentIdsOverride
@@ -4509,12 +4522,16 @@ function App() {
       trace: pendingTrace,
       promptHints: [
         `Use ${sourceVariant.title} as source`,
+        ...(directPromptHint
+          ? [`User request: ${directPromptHint}. Treat this as the highest creative direction after product/copy safety locks when it conflicts with scalar defaults.`]
+          : []),
         pendingTrace.why,
         scalarBundlePromptHint(scalarChanges),
-        ...messages.slice(-4).map((message) => `${message.role}: ${message.content}`),
+        ...chatContext.slice(-4).map((message) => `${message.role}: ${message.content}`),
       ],
       sourceVariantOverride: sourceVariant,
       focusedSegmentIdsOverride,
+      chatContextOverride: chatContext,
     })
 
     setLastChange(pendingTrace)
@@ -5271,7 +5288,10 @@ function App() {
     }))
   }
 
-  function applyAssistantCanvasActions(actions?: AssistantCanvasAction[]) {
+  function applyAssistantCanvasActions(
+    actions?: AssistantCanvasAction[],
+    chatContextOverride?: ChatMessage[],
+  ) {
     if (!actions?.length) return
 
     actions.forEach((action) => {
@@ -5335,7 +5355,10 @@ function App() {
             : selectedVariantId
 
         flashToast('Assistant queued remix', 1600)
-        void remixFromVariant(sourceVariantId, validSegmentIds)
+        void remixFromVariant(sourceVariantId, validSegmentIds, {
+          promptHint: action.promptHint,
+          chatContext: chatContextOverride,
+        })
         return
       }
 
@@ -5439,7 +5462,7 @@ function App() {
     ])
     if (chatRequestCounter.current !== requestNumber) return
 
-    applyAssistantCanvasActions(reply.actions)
+    applyAssistantCanvasActions(reply.actions, request.chatContext)
     window.clearTimeout(chatThinkTimer.current)
     window.clearTimeout(chatResolveTimer.current)
     streamAssistantReply(reply.content, reply.activity ?? 'Worked with model >')
@@ -8837,6 +8860,186 @@ function formatTracePayload(payload: unknown) {
   return JSON.stringify(redactTracePayload(payload), null, 2)
 }
 
+function parseTracePayloadText(text: string) {
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return null
+  }
+}
+
+function isTraceRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function traceString(record: Record<string, unknown>, key: string) {
+  const value = record[key]
+  return typeof value === 'string' ? value : undefined
+}
+
+function traceNumber(record: Record<string, unknown>, key: string) {
+  const value = record[key]
+  return typeof value === 'number' ? value : undefined
+}
+
+function traceRecord(record: Record<string, unknown>, key: string) {
+  const value = record[key]
+  return isTraceRecord(value) ? value : undefined
+}
+
+function traceArray(record: Record<string, unknown>, key: string) {
+  const value = record[key]
+  return Array.isArray(value) ? value : undefined
+}
+
+function traceArrayLength(record: Record<string, unknown>, key: string) {
+  return traceArray(record, key)?.length
+}
+
+function traceTextPreview(text: string, maxLength = 220) {
+  const compact = text.replace(/\s+/g, ' ').trim()
+  if (compact.length <= maxLength) return compact
+  return `${compact.slice(0, maxLength - 1).trim()}...`
+}
+
+function tracePromptFieldSummary(record: Record<string, unknown>, key: string, label: string) {
+  const text = traceString(record, key)
+  if (!text) return undefined
+  return `${label}: ${text.length.toLocaleString()} chars · ${traceTextPreview(text, 180)}`
+}
+
+function tracePromptHintSummary(record: Record<string, unknown>) {
+  const promptContext = traceRecord(record, 'promptContext')
+  const hints = [
+    ...(promptContext ? traceArray(promptContext, 'promptHints') ?? [] : []),
+    ...(traceArray(record, 'systemHints') ?? []),
+  ].filter((value): value is string => typeof value === 'string')
+  const hint = hints.find((value) => /^User request:/i.test(value)) ?? hints[0]
+  return hint ? `prompt hint: ${traceTextPreview(hint, 220)}` : undefined
+}
+
+function traceLatestChatSummary(record: Record<string, unknown>) {
+  const chatContext = traceArray(record, 'chatContext')
+  if (!chatContext?.length) return undefined
+
+  for (let index = chatContext.length - 1; index >= 0; index -= 1) {
+    const item = chatContext[index]
+    if (!isTraceRecord(item) || traceString(item, 'role') !== 'user') continue
+    const content = traceString(item, 'content')
+    if (content) return `latest user chat: ${traceTextPreview(content, 220)}`
+  }
+
+  return `chat context: ${chatContext.length} messages`
+}
+
+function traceInputTextUserRequestSummary(inputText: string) {
+  const match = inputText.match(/^(?:User request|user):\s*(.+)$/im)
+  return match?.[1] ? `user request included: ${traceTextPreview(match[1], 220)}` : undefined
+}
+
+function traceDimensionsSummary(value: unknown) {
+  if (!isTraceRecord(value)) return undefined
+  const width = traceNumber(value, 'width')
+  const height = traceNumber(value, 'height')
+  return typeof width === 'number' && typeof height === 'number' ? `${width}x${height}` : undefined
+}
+
+function tracePayloadSummary(label: string, payload: unknown, rawText: string) {
+  if (!isTraceRecord(payload)) return [`raw payload: ${rawText.length.toLocaleString()} chars`]
+
+  const lines: string[] = []
+  const basics = [
+    traceString(payload, 'requestId') ? `request ${traceString(payload, 'requestId')}` : '',
+    traceString(payload, 'intent') ?? '',
+    traceString(payload, 'outputTitle') ?? traceString(payload, 'output') ?? '',
+    traceString(payload, 'endpoint') ?? '',
+    traceString(payload, 'model') ?? traceString(payload, 'composerModel') ?? '',
+    traceString(payload, 'providerMode') ?? '',
+    traceString(payload, 'size') ?? traceString(payload, 'requestedModelSize') ?? '',
+  ].filter(Boolean)
+  if (basics.length) lines.push(basics.join(' · '))
+
+  if (label === 'composer_prompt') {
+    const inputText = traceString(payload, 'inputText')
+    if (inputText) {
+      lines.push(`composer input: ${inputText.length.toLocaleString()} chars`)
+      const userRequest = traceInputTextUserRequestSummary(inputText)
+      if (userRequest) lines.push(userRequest)
+    }
+    const inputImages = traceArrayLength(payload, 'inputImages')
+    if (typeof inputImages === 'number') lines.push(`input images: ${inputImages}`)
+  } else if (label === 'composer_output') {
+    const visualRead = traceString(payload, 'visualRead')
+    if (visualRead) lines.push(`visual read: ${traceTextPreview(visualRead, 220)}`)
+    const finalPrompt = tracePromptFieldSummary(payload, 'finalPrompt', 'final image prompt')
+    if (finalPrompt) lines.push(finalPrompt)
+    const negativePrompt = tracePromptFieldSummary(payload, 'negativePrompt', 'negative prompt')
+    if (negativePrompt) lines.push(negativePrompt)
+    const sliderCount = traceArrayLength(payload, 'sliderInterpretation')
+    if (typeof sliderCount === 'number') lines.push(`slider interpretations: ${sliderCount}`)
+  } else if (label === 'image_request') {
+    const providerPrompt = tracePromptFieldSummary(payload, 'providerPrompt', 'provider prompt')
+    if (providerPrompt) lines.push(providerPrompt)
+    const inputs = traceArrayLength(payload, 'imageInputs')
+    if (typeof inputs === 'number') lines.push(`image inputs: ${inputs}`)
+  } else if (label === 'image_result') {
+    const status = traceNumber(payload, 'status')
+    const ok = typeof payload.ok === 'boolean' ? `ok=${payload.ok}` : ''
+    const actualMediaSize = traceDimensionsSummary(payload.actualMediaSize)
+    const usage = traceRecord(payload, 'usage')
+    lines.push(
+      [
+        typeof status === 'number' ? `status ${status}` : '',
+        ok,
+        actualMediaSize ? `actual image ${actualMediaSize}` : '',
+        usage && typeof usage.total_tokens === 'number' ? `tokens ${usage.total_tokens}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    )
+  } else if (label.startsWith('segmentation_')) {
+    const actualMediaSize = traceDimensionsSummary(payload.actualMediaSize)
+    const selectedSegment = traceRecord(payload, 'selectedSegment')
+    lines.push(
+      [
+        traceString(payload, 'provider') ? `provider ${traceString(payload, 'provider')}` : '',
+        traceString(payload, 'toolName') ? `tool ${traceString(payload, 'toolName')}` : '',
+        actualMediaSize ? `image ${actualMediaSize}` : '',
+        selectedSegment ? `selected ${traceString(selectedSegment, 'label') ?? traceString(selectedSegment, 'id')}` : '',
+        typeof traceNumber(payload, 'masksReturned') === 'number'
+          ? `segments ${traceNumber(payload, 'masksReturned')}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    )
+  } else {
+    const promptHint = tracePromptHintSummary(payload)
+    if (promptHint) lines.push(promptHint)
+    const chatSummary = traceLatestChatSummary(payload)
+    if (chatSummary) lines.push(chatSummary)
+    const finalPrompt = tracePromptFieldSummary(payload, 'finalPrompt', 'final image prompt')
+    if (finalPrompt) lines.push(finalPrompt)
+    const providerPrompt = tracePromptFieldSummary(payload, 'providerPrompt', 'provider prompt')
+    if (providerPrompt) lines.push(providerPrompt)
+  }
+
+  const scalarChanges = traceArrayLength(payload, 'scalarChanges')
+  const selectedSegments = traceArrayLength(payload, 'selectedSegments')
+  if (typeof scalarChanges === 'number' || typeof selectedSegments === 'number') {
+    lines.push(
+      [
+        typeof scalarChanges === 'number' ? `${scalarChanges} scalar changes` : '',
+        typeof selectedSegments === 'number' ? `${selectedSegments} selected segments` : '',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    )
+  }
+
+  return lines.filter(Boolean).slice(0, 7)
+}
+
 function GenerationTraceEventText({
   event,
   eventIndex,
@@ -8844,6 +9047,34 @@ function GenerationTraceEventText({
   event: GenerationTraceEvent
   eventIndex: number
 }) {
+  if (event.type === 'payload') {
+    const payload = parseTracePayloadText(event.text)
+    const summary = tracePayloadSummary(event.label, payload, event.text)
+    const meta = generationTraceEventMeta(event)
+
+    return (
+      <div className={`generation-transcript-event event-${event.type}`}>
+        <div className="generation-transcript-heading">
+          <span>{event.label}</span>
+          {meta ? <em>{meta}</em> : null}
+        </div>
+        {summary.length ? (
+          <div className="generation-transcript-summary">
+            {summary.map((line) => (
+              <span key={line}>{line}</span>
+            ))}
+          </div>
+        ) : null}
+        <details className="generation-transcript-details">
+          <summary>
+            Raw redacted JSON <span>{event.text.length.toLocaleString()} chars</span>
+          </summary>
+          <pre>{event.text}</pre>
+        </details>
+      </div>
+    )
+  }
+
   const parts = transcriptPieces(generationTraceEventText(event))
   let visibleIndex = 0
 
@@ -8871,16 +9102,20 @@ function transcriptPieces(text: string) {
   return text.match(/\s+|[^\s]+/g) ?? []
 }
 
+function generationTraceEventMeta(event: GenerationTraceEvent) {
+  return [
+    event.origin ? `origin=${event.origin}` : '',
+    event.status ? `status=${event.status}` : '',
+    event.isSynthetic ? 'synthetic=true' : '',
+    typeof event.durationMs === 'number' ? `duration=${formatGenerationDuration(event.durationMs)}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
 function generationTraceEventText(event: GenerationTraceEvent) {
   if (event.type === 'payload') {
-    const meta = [
-      event.origin ? `origin=${event.origin}` : '',
-      event.status ? `status=${event.status}` : '',
-      event.isSynthetic ? 'synthetic=true' : '',
-      typeof event.durationMs === 'number' ? `duration=${formatGenerationDuration(event.durationMs)}` : '',
-    ]
-      .filter(Boolean)
-      .join(' ')
+    const meta = generationTraceEventMeta(event)
     return `${event.label}${meta ? ` ${meta}` : ''}\n${event.text}`
   }
 
