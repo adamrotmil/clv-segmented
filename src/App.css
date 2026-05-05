@@ -1750,6 +1750,11 @@ button {
   --segment-label-y: 12px;
 }
 
+.segment-label-emotion-2 {
+  --segment-label-x: -10px;
+  --segment-label-y: 12px;
+}
+
 .segment-label-resonance {
   max-width: 128px;
   --segment-label-x: 0px;

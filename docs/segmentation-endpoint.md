@@ -90,8 +90,8 @@ The frontend now sends explicit localization instructions in `context.analysisIn
 
 - inspect the actual returned image pixels, not project old source coordinates
 - return tight boxes around visible content only
-- merge related people/faces/bodies into one `emotion` segment when they form one human moment
-- avoid duplicate semantic ids in the final response
+- return separate tight `emotion` boxes for separate people when one combined box would cover empty space
+- avoid duplicate ids in the final response; use suffixes such as `emotion-2` for repeated semantic classes
 - include creative suggestions when possible
 
 Segment suggestions can include model-authored prompt and scalar guidance:

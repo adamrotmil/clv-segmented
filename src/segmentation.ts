@@ -256,52 +256,19 @@ function normalizeSegment(
   }
 }
 
-function mergeSegmentGroup(segments: SegmentAnnotation[], index: number) {
-  const [first] = segments
-  const minX = Math.min(...segments.map((segment) => segment.x))
-  const minY = Math.min(...segments.map((segment) => segment.y))
-  const maxX = Math.max(...segments.map((segment) => segment.x + segment.width))
-  const maxY = Math.max(...segments.map((segment) => segment.y + segment.height))
-  const confidenceValues = segments
-    .map((segment) => segment.confidence)
-    .filter((value): value is number => typeof value === 'number')
-  const mergedSuggestions = segments.flatMap((segment) => segment.suggestions ?? [])
-  const seenSuggestionIds = new Set<string>()
+function dedupeSegmentIds(segments: SegmentAnnotation[]) {
+  const seen = new Map<string, number>()
 
-  return normalizeSegment(
-    {
-      ...first,
-      x: minX,
-      y: minY,
-      width: maxX - minX,
-      height: maxY - minY,
-      delta: Math.max(...segments.map((segment) => segment.delta ?? 0)),
-      confidence: confidenceValues.length
-        ? confidenceValues.reduce((total, value) => total + value, 0) / confidenceValues.length
-        : first.confidence,
-      suggestions: mergedSuggestions.filter((suggestion) => {
-        if (seenSuggestionIds.has(suggestion.id)) return false
-        seenSuggestionIds.add(suggestion.id)
-        return true
-      }),
-      mask: undefined,
-    },
-    index,
-    first.source ?? 'vision',
-    first.labelSource ?? 'vision',
-  )
-}
+  return segments.map((segment) => {
+    const count = seen.get(segment.id) ?? 0
+    seen.set(segment.id, count + 1)
+    if (!count) return segment
 
-function mergeDuplicateSegments(segments: SegmentAnnotation[]) {
-  const groups = new Map<string, SegmentAnnotation[]>()
-  segments.forEach((segment) => {
-    const key = canonicalSegmentId(segment)
-    groups.set(key, [...(groups.get(key) ?? []), segment])
+    return {
+      ...segment,
+      id: `${segment.id}-${count + 1}`,
+    }
   })
-
-  return Array.from(groups.values()).map((group, index) =>
-    group.length === 1 ? group[0] : mergeSegmentGroup(group, index),
-  )
 }
 
 export function projectSegmentsForRequest(request: CreativeGenerationRequest): SegmentAnnotation[] {
@@ -334,7 +301,7 @@ export function projectSegmentsForRequest(request: CreativeGenerationRequest): S
     )
   })
 
-  return mergeDuplicateSegments(projectedSegments)
+  return dedupeSegmentIds(projectedSegments)
 }
 
 export function projectSegmentsForImage(
@@ -496,7 +463,7 @@ export function projectSegmentsForImage(
     ),
   )
 
-  return mergeDuplicateSegments(projectedSegments)
+  return dedupeSegmentIds(projectedSegments)
 }
 
 export function buildSegmentImageRequest({
@@ -520,7 +487,7 @@ export function buildSegmentImageRequest({
   const contextHints = generationRequest
     ? [
         'Return tight boxes around visible pixels only; do not highlight empty sky or blank background unless the segment is explicitly background.',
-        'Merge related face/body/person regions into one Emotional engagement box when they belong to the same human moment.',
+        'Return separate tight Emotional engagement boxes for separate people when one box would cover empty space; each returned id must be unique.',
         'Creative resonance should tightly cover the brand/copy/wordmark area, not the full sky.',
         'CTA should tightly cover the call-to-action text or button only.',
         'Product placement should tightly cover the advertised product package only.',
@@ -558,6 +525,7 @@ export function buildSegmentImageRequest({
         'Do not place boxes over empty space just because a source box used to be there.',
         'If the layout changed from the source, locate the new visible position instead of projecting old coordinates.',
         'Return creative suggestions per segment as different art-direction moves, including promptHint and scalarAdjustments when possible.',
+        'Use unique ids for separate boxes, for example emotion, emotion-2, product, cta, resonance.',
       ],
       desiredSegments: [
         {
@@ -596,7 +564,7 @@ function normalizeEndpointResult(
 
   return {
     variantId: result.variantId ?? request.variantId,
-    segments: mergeDuplicateSegments(normalizedSegments),
+    segments: dedupeSegmentIds(normalizedSegments),
     provider: 'endpoint',
     toolName: result.toolName ?? 'sam.segment-anything',
     semanticHints: result.semanticHints ?? request.semanticHints,
