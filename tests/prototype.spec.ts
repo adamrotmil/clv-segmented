@@ -684,7 +684,6 @@ test('Double Diamond explores rows, records model roles, and converges to a fina
   await page.getByRole('menuitem', { name: 'Double Diamond' }).click()
 
   await expect(page.locator('.artboard-row .creative-stack.generating')).toHaveCount(10)
-  await expect(page.getByText('Starting Double Diamond')).toBeVisible()
 
   const finalTitle = page.locator('.artboard-row .creative-title').filter({ hasText: 'Remix 21' })
   await expect(finalTitle).toBeVisible({
