@@ -14,6 +14,7 @@ import {
   Check,
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   CornerDownRight,
   Copy,
   GitBranch,
@@ -82,6 +83,7 @@ type EditorMode = 'edit' | 'score' | 'hybrid'
 type PendingPhase = 'idle' | 'analyzing' | 'applying' | 'remixing' | 'failed'
 type AgentStatus = 'queued' | 'running' | 'done' | 'paused' | 'failed'
 type ScoreTab = 'scenes' | 'score' | 'insights'
+type DoubleDiamondMode = 'speed' | 'quality'
 
 const DEFAULT_CANVAS_ZOOM = 100
 
@@ -5386,6 +5388,7 @@ function App() {
     parentCandidateId,
     model,
     quality,
+    mode,
     rowLabel,
     scoreLift,
   }: {
@@ -5400,6 +5403,7 @@ function App() {
     parentCandidateId?: string
     model: string
     quality: CreativeGenerationRequest['quality']
+    mode: DoubleDiamondMode
     rowLabel: string
     scoreLift: number
   }) {
@@ -5478,7 +5482,12 @@ function App() {
         candidateIndex,
         parentCandidateId,
         selectionProvider: stage === 'diverge' ? undefined : 'heuristic-fallback',
-        modelRole: stage === 'final' ? 'final-convergence' : 'fast-exploration',
+        modelRole:
+          stage === 'final'
+            ? 'final-convergence'
+            : mode === 'quality'
+              ? 'quality-exploration'
+              : 'fast-exploration',
         requestedModel: model,
         rationale: plan.rationale,
       },
@@ -5537,41 +5546,51 @@ function App() {
     return { variant, request, generation, plan }
   }
 
-  async function runDoubleDiamond(variantId: string) {
+  async function runDoubleDiamond(variantId: string, mode: DoubleDiamondMode = 'speed') {
     const sourceVariant = workingVariants.find((variant) => variant.id === variantId)
     if (!sourceVariant || (pendingPhase !== 'idle' && pendingPhase !== 'failed')) return
 
     try {
-    const workflowId = `double-diamond-${Date.now()}`
-    const sourceRecipe = scalarRecipeForVariant(sourceVariant)
-    const firstRemixNumber = maxRemixNumber(variants) + 1
-    let titleCursor = firstRemixNumber
-    const nextTitle = () => `Remix ${titleCursor++}`
-    const startedAt = Date.now()
-    const fastModelNote = fastImageGenerationUsesPrimaryModel
-      ? `No separate fast image model is configured, so rough passes use ${imageGenerationModel} at low quality.`
-      : `Rough passes use ${fastImageGenerationModel}; final convergence uses ${imageGenerationModel}.`
-    const initialTrace: ChangeTrace = {
-      id: `${workflowId}-trace`,
-      control: 'Double Diamond',
-      what: `Started Double Diamond from ${sourceVariant.title}.`,
-      why: 'The workflow opens the possibility space with ten rough divergent concepts, downselects three, develops each with three tighter variants, then recreates the strongest result at high quality.',
-      before: sourceVariant.title,
-      after: 'Exploration running',
-      scoreBefore: sourceVariant.score,
-      scoreAfter: Math.min(96, sourceVariant.score + 6),
-      segment: activeSegment.label,
-      ingredients: [
-        'Double Diamond',
-        '10 divergent concepts',
-        '3 selected concepts',
-        '9 developed variants',
-        fastImageGenerationUsesPrimaryModel
-          ? 'Fast model fallback'
-          : `Fast model: ${fastImageGenerationModel}`,
-      ],
-      scalarDeltas: [],
-      segmentScoreDeltas: [],
+      const workflowId = `double-diamond-${Date.now()}`
+      const sourceRecipe = scalarRecipeForVariant(sourceVariant)
+      const firstRemixNumber = maxRemixNumber(variants) + 1
+      let titleCursor = firstRemixNumber
+      const nextTitle = () => `Remix ${titleCursor++}`
+      const startedAt = Date.now()
+      const explorationModel = mode === 'quality' ? imageGenerationModel : fastImageGenerationModel
+      const explorationQuality: CreativeGenerationRequest['quality'] =
+        mode === 'quality' ? 'high' : 'low'
+      const modeLabel = mode === 'quality' ? 'Quality' : 'Speed'
+      const modeNote =
+        mode === 'quality'
+          ? `Quality mode uses ${imageGenerationModel} at high quality for every pass.`
+          : fastImageGenerationUsesPrimaryModel
+            ? `Speed mode has no separate fast image model configured, so rough passes use ${imageGenerationModel} at low quality.`
+            : `Speed mode uses ${fastImageGenerationModel} for rough passes; final convergence uses ${imageGenerationModel}.`
+      const initialTrace: ChangeTrace = {
+        id: `${workflowId}-trace`,
+        control: 'Double Diamond',
+        what: `Started Double Diamond (${modeLabel}) from ${sourceVariant.title}.`,
+        why: 'The workflow opens the possibility space with ten rough divergent concepts, downselects three, develops each with three tighter variants, then recreates the strongest result at high quality.',
+        before: sourceVariant.title,
+        after: 'Exploration running',
+        scoreBefore: sourceVariant.score,
+        scoreAfter: Math.min(96, sourceVariant.score + 6),
+        segment: activeSegment.label,
+        ingredients: [
+          'Double Diamond',
+          `${modeLabel} mode`,
+          '10 divergent concepts',
+          '3 selected concepts',
+          '9 developed variants',
+          mode === 'quality'
+            ? `Quality model: ${imageGenerationModel}`
+            : fastImageGenerationUsesPrimaryModel
+              ? 'Fast model fallback'
+              : `Fast model: ${fastImageGenerationModel}`,
+        ],
+        scalarDeltas: [],
+        segmentScoreDeltas: [],
     }
     const divergePlans = doubleDiamondDivergentPlans()
     const divergeRequests = divergePlans.map((plan, index) =>
@@ -5584,8 +5603,9 @@ function App() {
         stage: 'diverge',
         workflowId,
         candidateIndex: index + 1,
-        model: fastImageGenerationModel,
-        quality: 'low',
+        model: explorationModel,
+        quality: explorationQuality,
+        mode,
         rowLabel: 'Divergent concept',
         scoreLift: plan.scoreLift,
       }),
@@ -5598,7 +5618,7 @@ function App() {
     setVariantGenerationTask('Double Diamond: 10 rough what-if concepts', 'Generating divergent pass')
     startWork('remixing', initialTrace, false)
     queueAssistantReply(
-      `I’ll run Double Diamond from ${sourceVariant.title}: ten rough divergent what-if remixes, then three selected concepts, nine tighter variants, and one high-quality final. ${fastModelNote} Selection is currently the app’s heuristic fallback until the model-judge endpoint lands.`,
+      `I’ll run Double Diamond in ${modeLabel.toLowerCase()} mode from ${sourceVariant.title}: ten rough divergent what-if remixes, then three selected concepts, nine tighter variants, and one high-quality final. ${modeNote} Selection is currently the app’s heuristic fallback until the model-judge endpoint lands.`,
       'Starting Double Diamond',
       'Queued Double Diamond >',
     )
@@ -5655,8 +5675,9 @@ function App() {
         workflowId,
         candidateIndex: index + 1,
         parentCandidateId: parent.variant.id,
-        model: fastImageGenerationModel,
-        quality: 'low',
+        model: explorationModel,
+        quality: explorationQuality,
+        mode,
         rowLabel: 'Developed variant',
         scoreLift: plan.scoreLift,
       }),
@@ -5713,6 +5734,7 @@ function App() {
       parentCandidateId: bestDeveloped.variant.id,
       model: imageGenerationModel,
       quality: 'high',
+      mode,
       rowLabel: 'Final convergence',
       scoreLift: finalPlan.scoreLift,
     })
@@ -7715,7 +7737,7 @@ function CanvasWorkspace({
   onResetChanges: () => void
   onRemix: () => void
   onRemixFromVariant: (variantId: string) => void
-  onDoubleDiamond: (variantId: string) => void
+  onDoubleDiamond: (variantId: string, mode: DoubleDiamondMode) => void
   onRemixFromComparison: (anchorId: string, targetIds: string[]) => void
   onBlendVariants: (sourceId: string, targetId: string) => void
   onUseVariantAsChatContext: (variantId: string) => void
@@ -8231,9 +8253,9 @@ function CanvasWorkspace({
               closeNodeMenu()
               onRemixFromVariant(menuVariant.id)
             }}
-            onDoubleDiamond={() => {
+            onDoubleDiamond={(mode) => {
               closeNodeMenu()
-              onDoubleDiamond(menuVariant.id)
+              onDoubleDiamond(menuVariant.id, mode)
             }}
             onCompare={() => {
               setVariantDetails(null)
@@ -8317,7 +8339,7 @@ function NodeContextMenu({
   variant: ImageVariant
   peerVariant: ImageVariant | null
   onRemix: () => void
-  onDoubleDiamond: () => void
+  onDoubleDiamond: (mode: DoubleDiamondMode) => void
   onCompare: () => void
   onBlend: () => void
   onUseAsContext: () => void
@@ -8330,10 +8352,12 @@ function NodeContextMenu({
   } as CSSProperties
   const canBlend = Boolean(peerVariant && peerVariant.id !== variant.id)
   const canRemove = variant.kind === 'generated'
+  const flyoutSide =
+    typeof window !== 'undefined' && position.x > window.innerWidth - 430 ? 'left' : 'right'
 
   return (
     <div
-      className="node-context-menu"
+      className={`node-context-menu flyout-${flyoutSide}`}
       style={menuStyle}
       role="menu"
       aria-label={`${variant.title} actions`}
@@ -8348,10 +8372,27 @@ function NodeContextMenu({
         <RefreshCw size={14} />
         Remix from this
       </button>
-      <button type="button" role="menuitem" onClick={onDoubleDiamond}>
-        <Sparkles size={14} />
-        Double Diamond
-      </button>
+      <div className="node-menu-flyout-trigger">
+        <button
+          type="button"
+          role="menuitem"
+          aria-haspopup="menu"
+          aria-expanded="false"
+          onClick={(event) => event.preventDefault()}
+        >
+          <Sparkles size={14} />
+          <span>Double Diamond</span>
+          <ChevronRight className="node-menu-chevron" size={14} />
+        </button>
+        <div className="node-menu-flyout" role="menu" aria-label="Double Diamond mode">
+          <button type="button" role="menuitem" onClick={() => onDoubleDiamond('speed')}>
+            Speed
+          </button>
+          <button type="button" role="menuitem" onClick={() => onDoubleDiamond('quality')}>
+            Quality
+          </button>
+        </div>
+      </div>
       <button type="button" role="menuitem" onClick={onCompare}>
         <GitBranch size={14} />
         Compare from here

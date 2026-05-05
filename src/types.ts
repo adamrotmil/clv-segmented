@@ -506,7 +506,7 @@ export type CreativeGenerationRequest = {
     parentCandidateId?: string
     selected?: boolean
     selectionProvider?: 'heuristic-fallback' | 'model-judged'
-    modelRole?: 'fast-exploration' | 'final-convergence'
+    modelRole?: 'fast-exploration' | 'quality-exploration' | 'final-convergence'
     requestedModel?: string
     rationale?: string
   }

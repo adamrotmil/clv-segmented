@@ -13,11 +13,12 @@ VITE_FAST_IMAGE_GENERATION_MODEL=gpt-image-1-mini
 
 Do not expose provider keys in the frontend. Keep OpenAI keys in the Worker or backend service.
 
-`VITE_FAST_IMAGE_GENERATION_MODEL` is used by Double Diamond rough exploration and development passes. If it is not set, the frontend defaults to `gpt-image-1-mini` so rough passes stay cheaper/faster than the primary production model. The final Double Diamond convergence pass still uses the primary high-quality image model.
+`VITE_FAST_IMAGE_GENERATION_MODEL` is used by Double Diamond Speed mode for rough exploration and development passes. If it is not set, the frontend defaults to `gpt-image-1-mini` so Speed mode rough passes stay cheaper/faster than the primary production model. The final Double Diamond convergence pass still uses the primary high-quality image model.
 
 The Worker must honor `request.model`, `request.quality`, and `request.workflow`. The intended routing is:
 
 - Double Diamond `diverge` and `develop`: `gpt-image-1-mini`, `quality: "low"`
+- Double Diamond Quality mode `diverge` and `develop`: `gpt-image-2`, `quality: "high"`
 - Double Diamond `final`: `gpt-image-2`, `quality: "high"`
 - Normal remixes: `gpt-image-2`, high quality unless the request explicitly says otherwise
 
@@ -90,7 +91,7 @@ The app sends a `CreativeGenerationRequest` payload. The important server-facing
     candidateIndex: number
     parentCandidateId?: string
     selectionProvider?: "heuristic-fallback" | "model-judged"
-    modelRole?: "fast-exploration" | "final-convergence"
+    modelRole?: "fast-exploration" | "quality-exploration" | "final-convergence"
     requestedModel?: string
     rationale?: string
   }

@@ -657,6 +657,10 @@ test('canvas node context menu exposes compact image actions', async ({ page }) 
   await page.getByRole('button', { name: 'Remix 1', exact: true }).click({ button: 'right' })
 
   await expect(page.getByRole('menu', { name: 'Remix 1 actions' })).toBeVisible()
+  await page.getByRole('menuitem', { name: 'Double Diamond' }).hover()
+  await expect(page.getByRole('menu', { name: 'Double Diamond mode' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: 'Speed' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: 'Quality' })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: 'Blend with Original Image' })).toBeEnabled()
 
   await page.getByRole('menuitem', { name: 'Compare from here' }).click()
@@ -691,10 +695,11 @@ test('Double Diamond explores rows, records model roles, and converges to a fina
 
   await originalStack.getByRole('button', { name: 'Original Image', exact: true }).click({ button: 'right' })
   await expect(page.getByRole('menuitem', { name: 'Double Diamond' })).toBeVisible()
-  await page.getByRole('menuitem', { name: 'Double Diamond' }).click()
+  await page.getByRole('menuitem', { name: 'Double Diamond' }).hover()
+  await page.getByRole('menuitem', { name: 'Speed' }).click()
 
   await expect(page.locator('.artboard-row .creative-stack.generating')).toHaveCount(10)
-  await expect(page.getByText(/Rough passes use gpt-image-1-mini/).last()).toBeVisible()
+  await expect(page.getByText(/Speed mode uses gpt-image-1-mini/).last()).toBeVisible()
 
   const finalTitle = page.locator('.artboard-row .creative-title').filter({ hasText: 'Remix 21' })
   await expect(finalTitle).toBeVisible({
