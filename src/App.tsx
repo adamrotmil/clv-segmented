@@ -391,6 +391,10 @@ function scalarValue(scalars: AestheticScalar[], id: string) {
   return scalars.find((scalar) => scalar.id === id)?.value ?? 0
 }
 
+function optionalScalarValue(scalars: AestheticScalar[] | undefined, id: string) {
+  return scalars?.find((scalar) => scalar.id === id)?.value
+}
+
 function scalarWithValue(scalars: AestheticScalar[], id: string, value: number) {
   return scalars.map((scalar) => (scalar.id === id ? { ...scalar, value } : scalar))
 }
@@ -1002,6 +1006,40 @@ function mediaSizeForModelSize(size: GenerationOutputFrame['modelSize']): ImageV
   return undefined
 }
 
+type PixelCropRect = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+function sourceFrameCropRect(
+  outputFrame: GenerationOutputFrame,
+  mediaSize?: ImageVariant['mediaSize'],
+): PixelCropRect | null {
+  if (!mediaSize?.width || !mediaSize.height) return null
+  const frame = outputFrame.visibleSourceFramePercent
+  const x = Math.max(0, Math.min(mediaSize.width - 1, Math.round((mediaSize.width * frame.x) / 100)))
+  const y = Math.max(0, Math.min(mediaSize.height - 1, Math.round((mediaSize.height * frame.y) / 100)))
+  const width = Math.max(
+    1,
+    Math.min(mediaSize.width - x, Math.round((mediaSize.width * frame.width) / 100)),
+  )
+  const height = Math.max(
+    1,
+    Math.min(mediaSize.height - y, Math.round((mediaSize.height * frame.height) / 100)),
+  )
+
+  return { x, y, width, height }
+}
+
+function sourceFrameMediaSizeForRequest(request: CreativeGenerationRequest) {
+  const providerMediaSize = mediaSizeForModelSize(request.outputFrame.modelSize)
+  const cropRect = sourceFrameCropRect(request.outputFrame, providerMediaSize)
+  if (cropRect) return { width: cropRect.width, height: cropRect.height }
+  return providerMediaSize ?? request.sourceVariant.mediaSize
+}
+
 function insetFrame(
   frame: GenerationOutputFrame['visibleSourceFramePercent'],
   insetPercent: number,
@@ -1231,7 +1269,7 @@ function scalarPositionLine(scalar: AestheticScalar) {
       : value > 62
         ? `${scalar.highLabel}-leaning`
         : `balanced between ${scalar.lowLabel} and ${scalar.highLabel}`
-  const marker = scalar.marker ? `; marker ${scalar.marker}` : ''
+  const marker = scalar.marker && value > 8 && value < 92 ? `; marker ${scalar.marker}` : ''
 
   return `${scalar.label}: ${value}/100, ${leaning}${marker}`
 }
@@ -1277,24 +1315,35 @@ function chatPromptLines(chatContext: ChatMessage[]) {
     .map((message) => `${message.role}: ${message.content.trim()}`)
 }
 
-function sourceLockLines(variant: ImageVariant) {
+function sourceLockLines(variant: ImageVariant, nextScalars?: AestheticScalar[]) {
+  const humanPresence = optionalScalarValue(nextScalars, 'presence')
+  const omitSourceHumans = typeof humanPresence === 'number' && humanPresence <= 8
+  const sourceHumanPattern = /\b(people|person|human|adult|adults|face|faces|body|bodies|hand|hands|model|models|figure|figures|seated|standing|portrait)\b/i
   const context = variant.visualContext
   if (!context) {
     return [
       `Treat ${variant.title} as the visual source of truth.`,
-      `Keep the same source composition, subject count, product placement, and ad layout unless the selected state explicitly changes them.`,
+      omitSourceHumans
+        ? `Human Presence is at the low endpoint, so source people are not protected as required content; preserve product placement, typography, copy, source aspect, and campaign structure instead.`
+        : `Keep the same source composition, subject count, product placement, and ad layout unless the selected state explicitly changes them.`,
       `Vision typography read: inspect the attached source image first and preserve the exact same font family, glyph geometry, casing, weight, tracking, line-height, and text placement.`,
     ]
   }
+  const lockLines = omitSourceHumans
+    ? context.locks.filter((lock) => !sourceHumanPattern.test(lock))
+    : context.locks
 
   return [
     `Source read: ${context.summary}`,
-    ...context.locks.map((lock) => `Lock: ${lock}`),
+    ...lockLines.map((lock) => `Lock: ${lock}`),
+    omitSourceHumans
+      ? 'Human presence override: Human Presence is at endpoint Nobody, so visible source people/faces/hands may be removed or omitted; keep product, copy, typography, source aspect, and campaign identity protected.'
+      : '',
     ...productDnaLines(variant).map((line) => `Product lock: ${line}`),
     ...typographyDnaLines(variant).map((line) => `Typography lock: ${line}`),
     ...copywritingForVariant(variant).map((line) => `Exact copywriting: ${line}`),
     ...context.textAnchors.map((anchor) => `Text/layout anchor: ${anchor}`),
-  ]
+  ].filter(Boolean)
 }
 
 function sourceAvoidanceLines(variant: ImageVariant) {
@@ -1495,10 +1544,22 @@ function sourceFidelityPolicyForRequest({
   nextScalars: AestheticScalar[]
 }) {
   const abstraction = scalarValue(nextScalars, 'abstraction')
+  const humanPresence = optionalScalarValue(nextScalars, 'presence')
+  const removeHumans = typeof humanPresence === 'number' && humanPresence <= 8
   const abstractionGuard =
-    abstraction >= 82
+    abstraction >= 82 && removeHumans
+      ? 'At high abstraction, abstract treatment, lighting, color blocking, shadow geometry, texture, and background planes; preserve product, copy, typography, campaign structure, and source relationship, while allowing people to be omitted because Human Presence is endpoint Nobody.'
+      : abstraction >= 82
       ? 'At high abstraction, abstract treatment, lighting, color blocking, shadow geometry, texture, and background planes; preserve product, copy, typography, face/identity, and campaign structure.'
       : 'Apply slider changes without relaxing product, copy, typography, identity, or source-layout preservation.'
+  const humanPresenceLock =
+    removeHumans
+      ? 'Human/face content: Human Presence is endpoint Nobody; do not preserve source people as required content, and allow a product-only or environment-only composition with no visible humans.'
+      : typeof humanPresence === 'number' && humanPresence <= 20
+        ? 'Human/face content: minimize people strongly; people may become absent, cropped out, or incidental if product/copy/source structure remain clear.'
+        : typeof humanPresence === 'number' && humanPresence >= 92
+          ? 'Human/face content: Human Presence is endpoint Portrait; make source-supported people/faces dominant and clearly readable without adding unsupported extra people.'
+          : 'Face/identity: preserve moderately unless the user explicitly asks to reduce human presence.'
 
   return {
     primaryRoute:
@@ -1518,7 +1579,7 @@ function sourceFidelityPolicyForRequest({
         ? 'Product: preserve the primary source product unless selected sources clearly show the same product.'
         : 'Product: strongly preserve exact package, material, label, colorway, and scale.',
       'Typography/copy/CTA: preserve or re-render as native overlay; do not ask fallback generation to invent text.',
-      'Face/identity: preserve moderately unless the user explicitly asks to reduce human presence.',
+      humanPresenceLock,
       'Background/lighting/shadow/color: allowed to carry the highest aesthetic change.',
       'Clothing/body/scene geometry: allow partial photographic remix while maintaining source relationship.',
       abstractionGuard,
@@ -1743,6 +1804,13 @@ function sceneDescriptionForVariant({
     .reverse()
     .find((message) => message.role === 'user' && message.content.trim())?.content
   const changedScalarLabels = scalarChanges.map((change) => scalarAdjustmentLine(change)).join('; ')
+  const humanPresence = optionalScalarValue(nextScalars, 'presence')
+  const humanPresenceComposition =
+    typeof humanPresence === 'number' && humanPresence <= 8
+      ? 'Human Presence is endpoint Nobody, so source people/faces/hands are not required and may be fully removed or omitted; keep product, copy, typography, source aspect, and campaign identity clear.'
+      : typeof humanPresence === 'number' && humanPresence >= 92
+        ? 'Human Presence is endpoint Portrait, so source-supported people/faces should become the dominant emotional read without adding unsupported extra people.'
+        : ''
   const lightingScalars = ['hardness', 'key'].map((id) => scalarById.get(id)).filter(Boolean) as AestheticScalar[]
   const colorScalars = ['chromatics', 'materiality', 'valence'].map((id) => scalarById.get(id)).filter(Boolean) as AestheticScalar[]
   const compositionScalars = ['staging', 'complexity', 'balance', 'depth', 'groundedness', 'presence', 'gaze']
@@ -1758,7 +1826,7 @@ function sceneDescriptionForVariant({
       latestUserChat
         ? `Infer the environment from the attached source pixels, then honor recent chat direction: ${latestUserChat}.`
         : `Infer the environment from the attached source pixels and the selected canvas node; no separate setting is supplied.`,
-    composition: `Use the current canvas selection and SAM geometry as composition constraints while preserving the same source product package. Focus segments: ${segmentFocus}. ${focusedSegments.map(segmentPromptLine).join(' | ') || 'No explicit segment geometry selected.'}`,
+    composition: `Use the current canvas selection and SAM geometry as composition constraints while preserving the same source product package. ${humanPresenceComposition} Focus segments: ${segmentFocus}. ${focusedSegments.map(segmentPromptLine).join(' | ') || 'No explicit segment geometry selected.'}`,
     camera:
       compositionScalars.length
         ? `Frame from current source crop while respecting composition scalar state: ${compositionScalars.map(scalarPositionLine).join('; ')}.`
@@ -1793,19 +1861,85 @@ function clampDragOffset(value: number, limit: number) {
 }
 
 function generationMediaSizeForRequest(request: CreativeGenerationRequest) {
-  return mediaSizeForModelSize(request.outputFrame.modelSize) ?? request.sourceVariant.mediaSize
+  return sourceFrameMediaSizeForRequest(request)
 }
 
-async function mediaSizeForGeneratedImage(
+async function cropImageToSourceFrame(imageUrl: string, cropRect: PixelCropRect) {
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const element = new Image()
+    element.onload = () => resolve(element)
+    element.onerror = () => reject(new Error('Image could not be prepared for source-frame crop'))
+    if (!imageUrl.startsWith('data:')) {
+      element.crossOrigin = 'anonymous'
+    }
+    element.src = imageUrl
+  })
+  const canvas = document.createElement('canvas')
+  canvas.width = cropRect.width
+  canvas.height = cropRect.height
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('Image crop canvas could not be initialized')
+  context.drawImage(
+    image,
+    cropRect.x,
+    cropRect.y,
+    cropRect.width,
+    cropRect.height,
+    0,
+    0,
+    cropRect.width,
+    cropRect.height,
+  )
+  return canvas.toDataURL('image/png')
+}
+
+async function prepareGeneratedImageForCanvas(
   generation: CreativeGenerationResult,
   request: CreativeGenerationRequest,
 ) {
-  if (generation.mediaSize?.width && generation.mediaSize.height) return generation.mediaSize
+  const fallbackMediaSize = generationMediaSizeForRequest(request)
+  let rawMediaSize = generation.mediaSize
 
-  try {
-    return await readImageSize(generation.image)
-  } catch {
-    return generationMediaSizeForRequest(request)
+  if (!rawMediaSize?.width || !rawMediaSize.height) {
+    try {
+      rawMediaSize = await readImageSize(generation.image)
+    } catch {
+      rawMediaSize = fallbackMediaSize
+    }
+  }
+
+  const rawAspectRatio =
+    rawMediaSize?.width && rawMediaSize.height ? rawMediaSize.width / rawMediaSize.height : null
+  const sourceAspectRatio = request.outputFrame.sourceAspectRatio
+  const alreadySourceAspect =
+    rawAspectRatio && Number.isFinite(sourceAspectRatio)
+      ? Math.abs(rawAspectRatio - sourceAspectRatio) < 0.01
+      : false
+  const cropRect = alreadySourceAspect ? null : sourceFrameCropRect(request.outputFrame, rawMediaSize)
+  const shouldCrop =
+    cropRect &&
+    (cropRect.x !== 0 ||
+      cropRect.y !== 0 ||
+      cropRect.width !== rawMediaSize?.width ||
+      cropRect.height !== rawMediaSize?.height)
+
+  if (shouldCrop && cropRect) {
+    try {
+      return {
+        image: await cropImageToSourceFrame(generation.image, cropRect),
+        mediaSize: { width: cropRect.width, height: cropRect.height },
+      }
+    } catch {
+      return {
+        image: generation.image,
+        mediaSize: rawMediaSize ?? fallbackMediaSize,
+      }
+    }
+  }
+
+  return {
+    image: generation.image,
+    mediaSize: rawMediaSize ?? fallbackMediaSize,
   }
 }
 
@@ -2987,13 +3121,13 @@ function App() {
 
     const draftAtRequest = cloneScalarRecipe(draftScalars)
     const generation = await requestCreativeGeneration(generationRequest)
-    const generatedMediaSize = await mediaSizeForGeneratedImage(generation, generationRequest)
+    const generatedImage = await prepareGeneratedImageForCanvas(generation, generationRequest)
     const remix: ImageVariant = {
       id: nextId,
       title: generation.title,
       kind: 'generated',
-      image: generation.image,
-      mediaSize: generatedMediaSize,
+      image: generatedImage.image,
+      mediaSize: generatedImage.mediaSize,
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -3045,18 +3179,18 @@ function App() {
     completeWork(generationCompletionMessage(generation))
     releaseGenerationRequest(
       generationRequest.id,
-      generation.image,
+      generatedImage.image,
       generation.promptRecipe,
       generation.providerMode,
       generation.sourceFidelity,
       generation.traceEvents,
-      generatedMediaSize,
+      generatedImage.mediaSize,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
-      imageUrl: generation.image,
-      mediaSize: generatedMediaSize,
+      imageUrl: generatedImage.image,
+      mediaSize: generatedImage.mediaSize,
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
@@ -3548,7 +3682,7 @@ function App() {
       `Asset: ${activeCanvasAsset.name}; channel ${activeCanvasAsset.channel}; version ${activeCanvasAsset.version}`,
       `Canvas context:\n${generationInputs}`,
       `Frame contract / crop safety:\n${outputFrameLines.map((line) => `- ${line}`).join('\n')}`,
-      `Source preservation:\n${sourceLockLines(sourceVariant).map((line) => `- ${line}`).join('\n')}`,
+      `Source preservation:\n${sourceLockLines(sourceVariant, nextScalars).map((line) => `- ${line}`).join('\n')}`,
       `Source-fidelity remix gate:\n- ${sourceFidelityPolicy.primaryRoute}\n- ${sourceFidelityPolicy.fallbackPolicy}\n- Region locks:\n${sourceFidelityPolicy.regionLocks.map((line) => `  - ${line}`).join('\n')}\n- Critic checks:\n${sourceFidelityPolicy.criticChecks.map((line) => `  - ${line}`).join('\n')}`,
       `Source image DNA / vision read:\n${sourceDnaLines(sourceVariant).map((line) => `- ${line}`).join('\n')}`,
       copywritingPolicy,
@@ -4248,13 +4382,13 @@ function App() {
     )
     startWork('remixing', pendingTrace, false)
     const generation = await requestCreativeGeneration(generationRequest)
-    const generatedMediaSize = await mediaSizeForGeneratedImage(generation, generationRequest)
+    const generatedImage = await prepareGeneratedImageForCanvas(generation, generationRequest)
     const remix: ImageVariant = {
       id: nextId,
       title: generation.title,
       kind: 'generated',
-      image: generation.image,
-      mediaSize: generatedMediaSize,
+      image: generatedImage.image,
+      mediaSize: generatedImage.mediaSize,
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -4303,18 +4437,18 @@ function App() {
     completeWork(generationCompletionMessage(generation))
     releaseGenerationRequest(
       generationRequest.id,
-      generation.image,
+      generatedImage.image,
       generation.promptRecipe,
       generation.providerMode,
       generation.sourceFidelity,
       generation.traceEvents,
-      generatedMediaSize,
+      generatedImage.mediaSize,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
-      imageUrl: generation.image,
-      mediaSize: generatedMediaSize,
+      imageUrl: generatedImage.image,
+      mediaSize: generatedImage.mediaSize,
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
@@ -4389,13 +4523,13 @@ function App() {
     startWork('remixing', pendingTrace, false)
     const draftAtRequest = cloneScalarRecipe(draftScalars)
     const generation = await requestCreativeGeneration(generationRequest)
-    const generatedMediaSize = await mediaSizeForGeneratedImage(generation, generationRequest)
+    const generatedImage = await prepareGeneratedImageForCanvas(generation, generationRequest)
     const remix: ImageVariant = {
       id: nextId,
       title: generation.title,
       kind: 'generated',
-      image: generation.image,
-      mediaSize: generatedMediaSize,
+      image: generatedImage.image,
+      mediaSize: generatedImage.mediaSize,
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -4445,18 +4579,18 @@ function App() {
     completeWork(generationCompletionMessage(generation))
     releaseGenerationRequest(
       generationRequest.id,
-      generation.image,
+      generatedImage.image,
       generation.promptRecipe,
       generation.providerMode,
       generation.sourceFidelity,
       generation.traceEvents,
-      generatedMediaSize,
+      generatedImage.mediaSize,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
-      imageUrl: generation.image,
-      mediaSize: generatedMediaSize,
+      imageUrl: generatedImage.image,
+      mediaSize: generatedImage.mediaSize,
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
@@ -4536,13 +4670,13 @@ function App() {
     )
     startWork('remixing', pendingTrace, false)
     const generation = await requestCreativeGeneration(generationRequest)
-    const generatedMediaSize = await mediaSizeForGeneratedImage(generation, generationRequest)
+    const generatedImage = await prepareGeneratedImageForCanvas(generation, generationRequest)
     const remix: ImageVariant = {
       id: nextId,
       title: generation.title,
       kind: 'generated',
-      image: generation.image,
-      mediaSize: generatedMediaSize,
+      image: generatedImage.image,
+      mediaSize: generatedImage.mediaSize,
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -4592,18 +4726,18 @@ function App() {
     completeWork(generationCompletionMessage(generation))
     releaseGenerationRequest(
       generationRequest.id,
-      generation.image,
+      generatedImage.image,
       generation.promptRecipe,
       generation.providerMode,
       generation.sourceFidelity,
       generation.traceEvents,
-      generatedMediaSize,
+      generatedImage.mediaSize,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
-      imageUrl: generation.image,
-      mediaSize: generatedMediaSize,
+      imageUrl: generatedImage.image,
+      mediaSize: generatedImage.mediaSize,
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
@@ -4748,13 +4882,13 @@ function App() {
     trackGenerationRequest(generationRequest)
     startWork('applying', pendingTrace, false)
     const generation = await requestCreativeGeneration(generationRequest)
-    const generatedMediaSize = await mediaSizeForGeneratedImage(generation, generationRequest)
+    const generatedImage = await prepareGeneratedImageForCanvas(generation, generationRequest)
     const segmentVariant: ImageVariant = {
       id: nextId,
       title: generation.title,
       kind: 'generated',
-      image: generation.image,
-      mediaSize: generatedMediaSize,
+      image: generatedImage.image,
+      mediaSize: generatedImage.mediaSize,
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -4806,18 +4940,18 @@ function App() {
     completeWork(generationCompletionMessage(generation))
     releaseGenerationRequest(
       generationRequest.id,
-      generation.image,
+      generatedImage.image,
       generation.promptRecipe,
       generation.providerMode,
       generation.sourceFidelity,
       generation.traceEvents,
-      generatedMediaSize,
+      generatedImage.mediaSize,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
-      imageUrl: generation.image,
-      mediaSize: generatedMediaSize,
+      imageUrl: generatedImage.image,
+      mediaSize: generatedImage.mediaSize,
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })
@@ -4897,13 +5031,13 @@ function App() {
     )
     startWork('remixing', pendingTrace, false)
     const generation = await requestCreativeGeneration(generationRequest)
-    const generatedMediaSize = await mediaSizeForGeneratedImage(generation, generationRequest)
+    const generatedImage = await prepareGeneratedImageForCanvas(generation, generationRequest)
     const blendVariant: ImageVariant = {
       id: nextId,
       title: generation.title,
       kind: 'generated',
-      image: generation.image,
-      mediaSize: generatedMediaSize,
+      image: generatedImage.image,
+      mediaSize: generatedImage.mediaSize,
       score: generation.score,
       delta: generation.delta,
       filter: generation.filter,
@@ -4953,18 +5087,18 @@ function App() {
     completeWork(generationCompletionMessage(generation))
     releaseGenerationRequest(
       generationRequest.id,
-      generation.image,
+      generatedImage.image,
       generation.promptRecipe,
       generation.providerMode,
       generation.sourceFidelity,
       generation.traceEvents,
-      generatedMediaSize,
+      generatedImage.mediaSize,
     )
     explainFallbackGenerationIfNeeded(generationRequest, generation)
     void segmentVariantImage({
       variantId: nextId,
-      imageUrl: generation.image,
-      mediaSize: generatedMediaSize,
+      imageUrl: generatedImage.image,
+      mediaSize: generatedImage.mediaSize,
       generationRequest,
       sourceSegments: segmentsForVariant(generationRequest.sourceVariant),
     })

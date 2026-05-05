@@ -27,7 +27,12 @@ type TranslateScalarRecipeInput = {
   maxVisualRefs?: number
 }
 
-function scalarBand(value: number) {
+function scalarBand(value: number, id?: ScalarId) {
+  if (id) {
+    const ontology = scalarOntology[id]
+    if (value <= 8) return `endpoint ${ontology.low.label}`
+    if (value >= 92) return `endpoint ${ontology.high.label}`
+  }
   if (value <= 20) return 'very low'
   if (value <= 40) return 'low'
   if (value < 60) return 'moderate'
@@ -51,15 +56,32 @@ function scalarDirection(change: ScalarGenerationChange) {
 
 function scalarValueLanguage(id: ScalarId, value: number) {
   const ontology = scalarOntology[id]
+  if (value <= 8) {
+    return ontology.low.extremePromptLanguage ?? ontology.low.promptLanguage
+  }
   if (value <= 20) return ontology.low.promptLanguage
   if (value <= 40) {
-    return `${ontology.low.promptLanguage} Keep the effect present but not extreme.`
+    return `Lean toward ${ontology.low.label}: ${ontology.low.promptLanguage} Keep this as a modest-to-moderate shift, not an endpoint transformation.`
   }
-  if (value < 68) return ontology.mid.promptLanguage
+  if (value < 60) return ontology.mid.promptLanguage
   if (value < 80) {
-    return `${ontology.high.promptLanguage} Keep it controlled enough for a production ad.`
+    return `Lean toward ${ontology.high.label}: ${ontology.high.promptLanguage} Keep this as a modest-to-moderate shift, not an endpoint transformation.`
   }
-  return ontology.high.promptLanguage
+  if (value < 92) return ontology.high.promptLanguage
+  return ontology.high.extremePromptLanguage ?? ontology.high.promptLanguage
+}
+
+function scalarCalibrationLanguage(id: ScalarId, value: number) {
+  const calibration = scalarVisualCalibration[id]
+  if (value <= 8) {
+    return 'Use the low-pole visual calibration as a strong endpoint, not a subtle style note.'
+  }
+  if (value >= 92) {
+    return 'Use the high-pole visual calibration as a strong endpoint, not a subtle style note.'
+  }
+  if (value < 45) return calibration.promptExamples.low
+  if (value > 55) return calibration.promptExamples.high
+  return calibration.promptExamples.mid
 }
 
 export function scalarInstructionForValue(
@@ -72,17 +94,11 @@ export function scalarInstructionForValue(
   }
 
   const ontology = scalarOntology[scalar.id]
-  const calibration = scalarVisualCalibration[scalar.id]
   const value = Math.round(scalar.value)
-  const band = scalarBand(value)
+  const band = scalarBand(value, scalar.id)
   const movement = change ? ` ${scalar.label} ${scalarDirection(change)}.` : ''
   const guidance = ontology.generationGuidance.join(' ')
-  const calibrationNote =
-    value < 45
-      ? calibration.promptExamples.low
-      : value > 55
-        ? calibration.promptExamples.high
-        : calibration.promptExamples.mid
+  const calibrationNote = scalarCalibrationLanguage(scalar.id, value)
 
   return `${scalar.label}: ${band} ${ontology.referenceName}. ${movement} ${scalarValueLanguage(scalar.id, value)} ${calibrationNote} ${guidance}`.replace(
     /\s+/g,
