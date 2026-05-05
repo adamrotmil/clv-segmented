@@ -651,6 +651,14 @@ function scalarReason(scalar: AestheticScalar, value: number) {
 }
 
 function applySegmentScalarNudge(scalars: AestheticScalar[], suggestion: SegmentSuggestion) {
+  if (suggestion.scalarAdjustments && Object.keys(suggestion.scalarAdjustments).length) {
+    return scalars.map((scalar) => {
+      const delta = suggestion.scalarAdjustments?.[scalar.id]
+      if (!delta) return scalar
+      return { ...scalar, value: Math.max(0, Math.min(100, scalar.value + delta)) }
+    })
+  }
+
   const label = suggestion.label.toLowerCase()
   const nudges: Record<string, number> = {}
 
@@ -684,6 +692,67 @@ function applySegmentScalarNudge(scalars: AestheticScalar[], suggestion: Segment
     if (!delta) return scalar
     return { ...scalar, value: Math.max(0, Math.min(100, scalar.value + delta)) }
   })
+}
+
+function segmentSuggestionPrompt({
+  variant,
+  segment,
+  suggestion,
+  scalarChanges,
+}: {
+  variant: ImageVariant
+  segment: SegmentAnnotation
+  suggestion: SegmentSuggestion
+  scalarChanges: CreativeGenerationRequest['scalarChanges']
+}) {
+  const scalarLine = scalarChanges.length
+    ? scalarChanges
+        .map((change) => `${change.label} ${Math.round(change.before)} to ${Math.round(change.after)}`)
+        .join('; ')
+    : 'no scalar movement'
+  const visualSummary = variant.visualContext?.summary
+    ? ` Source read: ${variant.visualContext.summary}`
+    : ''
+  const rationale = suggestion.rationale ? ` Rationale: ${suggestion.rationale}` : ''
+
+  return [
+    `Apply segment creative direction "${suggestion.label}" to ${segment.label} on ${variant.title}.`,
+    suggestion.promptHint ?? `Use ${suggestion.label} as a focused art-direction change for this segment.`,
+    `Adjusted sliders: ${scalarLine}.`,
+    `Keep the edit localized in intent but generate a complete new remix; preserve protected product, copy, typography, and source composition unless the direction explicitly changes them.`,
+    visualSummary,
+    rationale,
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
+function segmentSuggestionNarrationPrompt({
+  variant,
+  segment,
+  suggestion,
+  scalarChanges,
+}: {
+  variant: ImageVariant
+  segment: SegmentAnnotation
+  suggestion: SegmentSuggestion
+  scalarChanges: CreativeGenerationRequest['scalarChanges']
+}) {
+  const scalarLine = scalarChanges.length
+    ? scalarChanges
+        .map((change) => `${change.label} ${Math.round(change.before)} to ${Math.round(change.after)}`)
+        .join(', ')
+    : 'the current aesthetic controls'
+
+  return [
+    `The user clicked Apply on the segment direction "${suggestion.label}" for ${segment.label} on ${variant.title}.`,
+    suggestion.promptHint ?? '',
+    suggestion.responseHint ?? '',
+    `Respond as the creative assistant in first person. Say what you will change, name the most important slider/aesthetic shifts naturally, and mention that you are generating a new remix. Do not ask a question, do not output JSON, and do not pretend the user typed this prompt.`,
+    `Slider movement available to mention: ${scalarLine}.`,
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 function segmentResultRole(result?: SegmentImageResult) {
@@ -4826,6 +4895,55 @@ function App() {
     )
   }
 
+  async function narrateSegmentSuggestionApply({
+    prompt,
+    nextScalars,
+    trace,
+  }: {
+    prompt: string
+    nextScalars: AestheticScalar[]
+    trace: ChangeTrace
+  }) {
+    const requestNumber = chatRequestCounter.current + 1
+    chatRequestCounter.current = requestNumber
+    window.clearTimeout(chatThinkTimer.current)
+    window.clearTimeout(chatResolveTimer.current)
+    finishStreamingMessage()
+
+    setChatDraft({
+      id: `draft-segment-${trace.id}`,
+      phase: 'Thinking',
+      lines: ['Reading selected segment', 'Planning creative direction', 'Mapping slider intent'],
+    })
+
+    try {
+      const [reply] = await Promise.all([
+        requestAssistantChat(
+          buildAssistantChatRequest({
+            prompt,
+            nextMessages: messages,
+            editedMessageId: '',
+            nextDraftScalars: nextScalars,
+            trace,
+          }),
+        ),
+        new Promise<void>((resolve) => {
+          window.setTimeout(resolve, 520)
+        }),
+      ])
+      if (chatRequestCounter.current !== requestNumber) return
+
+      streamAssistantReply(reply.content, reply.activity ?? 'Planned segment edit >')
+    } catch {
+      if (chatRequestCounter.current !== requestNumber) return
+      queueAssistantReply(
+        `I’ll apply this segment direction, adjust the relevant aesthetic controls, and generate a new remix from ${selectedVariant?.title ?? 'the selected image'}.`,
+        'Planning segment edit',
+        'Planned segment edit >',
+      )
+    }
+  }
+
   async function applySegmentSuggestion(segment: SegmentAnnotation, suggestion: SegmentSuggestion) {
     const beforeScalars = scalars
     const beforeScoreScalars = scoreScalars
@@ -4835,12 +4953,22 @@ function App() {
     const nextId = `segment-${segment.id}-${suggestion.id}-${Date.now()}`
     const outputTitle = nextRemixTitle(variants)
     const scalarDeltas = scalarTraceDeltasBetween(beforeScalars, nextScalars)
+    const scalarChanges = scalarChangesBetween(beforeScalars, nextScalars)
     const sourceSegments = activeVariantSegments.length ? activeVariantSegments : segmentsForVariant(selectedVariant)
+    const sourceVariant = selectedVariant ?? workingVariants[0] ?? initialVariants[0]
+    const suggestionPrompt = segmentSuggestionPrompt({
+      variant: sourceVariant,
+      segment,
+      suggestion,
+      scalarChanges,
+    })
     const pendingTrace: ChangeTrace = {
       id: `${nextId}-trace`,
       control: suggestion.label,
       what: `${suggestion.label} applied to ${segment.label}.`,
-      why: `The edit targets the selected segment while preserving the surrounding creative, then sends the local change to the generation request.`,
+      why:
+        suggestion.rationale ??
+        `The edit targets the selected segment while preserving the surrounding creative, then sends the local change to the generation request.`,
       before: `${segment.label} +${segment.delta}%`,
       after: `${segment.label} +${segment.delta + suggestion.impact}%`,
       scoreBefore: beforeScore,
@@ -4875,10 +5003,26 @@ function App() {
       baseFilter: imageFilterForScalars(nextScalars),
       trace: pendingTrace,
       promptHints: [
+        suggestionPrompt,
         suggestion.label,
         segment.label,
+        suggestion.promptHint ?? '',
         ...messages.slice(-4).map((message) => `${message.role}: ${message.content}`),
-      ],
+      ].filter(Boolean),
+      sourceVariantOverride: sourceVariant,
+      focusedSegmentIdsOverride: [segment.id],
+    })
+    setScalars(nextScalars)
+    setDraftScalars(nextScalars)
+    void narrateSegmentSuggestionApply({
+      prompt: segmentSuggestionNarrationPrompt({
+        variant: sourceVariant,
+        segment,
+        suggestion,
+        scalarChanges,
+      }),
+      nextScalars,
+      trace: pendingTrace,
     })
     setLastChange(pendingTrace)
     setAgentTasks((current) =>
@@ -7738,7 +7882,10 @@ function SegmentFlyout({
       <div className="suggestion-list">
         {segment.suggestions.slice(0, 3).map((suggestion) => (
           <div className="suggestion-row" key={suggestion.id}>
-            <span>{suggestion.label}</span>
+            <span>
+              <b>{suggestion.label}</b>
+              {suggestion.rationale ? <small>{suggestion.rationale}</small> : null}
+            </span>
             <button type="button" onClick={() => onApplySuggestion(suggestion)}>
               Apply
             </button>
@@ -8467,10 +8614,7 @@ function observabilityPayloadDataForRequest(run: GenerationPromptRun): {
   const focusSegmentIds = new Set(selectedSegments.map((segment) => segment.id))
   const availableSegments = sourceSegments.length ? sourceSegments : selectedSegments
   const focusSegments = availableSegments.filter((segment) => focusSegmentIds.has(segment.id))
-  const projectedFallbackPreview = projectSegmentsForRequest(
-    request,
-    run.imageUrl ?? request.fallbackImage,
-  )
+  const projectedFallbackPreview = projectSegmentsForRequest(request)
   const segmentRequest = buildSegmentImageRequest({
     variantId: request.id,
     imageUrl: run.imageUrl ?? request.fallbackImage,

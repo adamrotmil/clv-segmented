@@ -437,6 +437,33 @@ function generateResponse(request: AssistantChatRequest): AssistantChatResponse 
   }
 }
 
+function segmentApplyResponse(request: AssistantChatRequest): AssistantChatResponse | null {
+  const prompt = latestUserPrompt(request)
+  const lower = prompt.toLowerCase()
+  if (!lower.includes('clicked apply') && !lower.includes('segment direction')) return null
+
+  const direction =
+    prompt.match(/direction "([^"]+)"/i)?.[1] ??
+    prompt.match(/Apply[^"]*"([^"]+)"/i)?.[1] ??
+    'this direction'
+  const segment =
+    prompt.match(/for ([^\n.]+?) on /i)?.[1] ??
+    request.selectedSegment.label
+  const scalarSummary = scalarContext(request)
+
+  return {
+    content: [
+      `I’ll apply ${direction} to ${segment} and generate a new remix from ${request.selectedVariant.title}.`,
+      scalarSummary
+        ? `I’m moving the aesthetic controls around ${scalarSummary}, then translating that into a focused image prompt rather than treating the flyout label as the whole prompt.`
+        : 'I’m translating the segment direction into a focused image prompt while preserving the product, copy, typography, and source frame.',
+    ].join(' '),
+    activity: 'Planned segment edit >',
+    focus: 'Planning segment direction',
+    provider: 'mock',
+  }
+}
+
 function fallbackChatResponse(request: AssistantChatRequest): AssistantChatResponse {
   const prompt = latestUserPrompt(request).toLowerCase()
   const scalarSummary = scalarContext(request)
@@ -444,6 +471,9 @@ function fallbackChatResponse(request: AssistantChatRequest): AssistantChatRespo
   const selectedVariant = request.selectedVariant.title
   const fallbackResponse = fallbackStatusResponse(request)
   if (fallbackResponse) return fallbackResponse
+
+  const segmentApply = segmentApplyResponse(request)
+  if (segmentApply) return segmentApply
 
   if (prompt.includes('what should i do next') || prompt.includes('next')) {
     return {

@@ -86,6 +86,32 @@ POST /segment
 
 Coordinates are percentages relative to the rendered image. `mask` is optional; the current UI renders boxes but keeps the type ready for polygon or RLE masks.
 
+The frontend now sends explicit localization instructions in `context.analysisInstructions`. The endpoint should:
+
+- inspect the actual returned image pixels, not project old source coordinates
+- return tight boxes around visible content only
+- merge related people/faces/bodies into one `emotion` segment when they form one human moment
+- avoid duplicate semantic ids in the final response
+- include creative suggestions when possible
+
+Segment suggestions can include model-authored prompt and scalar guidance:
+
+```ts
+{
+  id: "human-hook",
+  label: "Make faces the hook",
+  impact: 6,
+  promptHint: "make the existing people or faces the emotional hook...",
+  responseHint: "I’ll make the human read carry more of the image...",
+  rationale: "Use when the segment contains people, faces, bodies, or emotional posture.",
+  scalarAdjustments: {
+    presence: 12,
+    staging: 7,
+    valence: 6
+  }
+}
+```
+
 ## Important
 
 SAM/SAM2 gives masks, not semantic labels. A production pipeline should run mask generation first, then label or merge masks with a vision model/classifier so UI concepts such as face, CTA, product, headline, and background are reliable.

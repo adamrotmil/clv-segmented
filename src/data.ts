@@ -20,24 +20,89 @@ export const assets: CreativeAsset[] = [
 
 const segmentSuggestions = {
   emotion: [
-    { id: 'face', label: 'Show more expression', impact: 9 },
-    { id: 'tone', label: 'Warmer tone', impact: 4 },
-    { id: 'lighting', label: 'Softer lighting', impact: 3 },
+    {
+      id: 'human-hook',
+      label: 'Make faces the hook',
+      impact: 8,
+      promptHint: 'make the existing people or faces the emotional hook while preserving product and typography',
+      scalarAdjustments: { presence: 12, staging: 7, gaze: 6, valence: 6 },
+    },
+    {
+      id: 'warmer-moment',
+      label: 'Warm the moment',
+      impact: 5,
+      promptHint: 'shift the human moment toward warmer emotional tone, softer expression, and a more inviting atmosphere',
+      scalarAdjustments: { valence: 9, key: 5, chromatics: 4, hardness: -5 },
+    },
+    {
+      id: 'candid-gesture',
+      label: 'Find a candid gesture',
+      impact: 4,
+      promptHint: 'make the selected human area feel more candid through natural gesture and relaxed timing',
+      scalarAdjustments: { staging: 10, arousal: -4, presence: 5 },
+    },
   ],
   resonance: [
-    { id: 'copy', label: 'Make copy more intimate', impact: 5 },
-    { id: 'contrast', label: 'Increase contrast', impact: 3 },
-    { id: 'saturation', label: 'Reduce saturation', impact: 2 },
+    {
+      id: 'brand-hierarchy',
+      label: 'Clarify brand hierarchy',
+      impact: 5,
+      promptHint: 'make the brand typography area more intentional, legible, and compositionally resolved without changing copy',
+      scalarAdjustments: { complexity: -5, balance: 7, 'stopping-power': 7 },
+    },
+    {
+      id: 'graphic-read',
+      label: 'Simplify graphic read',
+      impact: 4,
+      promptHint: 'simplify the brand/copy area into a clearer graphic composition with stronger negative space',
+      scalarAdjustments: { abstraction: 8, complexity: -9, balance: 6 },
+    },
+    {
+      id: 'type-contrast',
+      label: 'Improve type contrast',
+      impact: 3,
+      promptHint: 'improve contrast and separation around visible copy while preserving exact text and font logic',
+      scalarAdjustments: { hardness: 6, key: -3, complexity: -5 },
+    },
   ],
   product: [
-    { id: 'brighten', label: 'Increase brightness', impact: 2 },
-    { id: 'contrast', label: 'Increase contrast', impact: 2 },
-    { id: 'warmth', label: 'Warmth', impact: 1 },
-    { id: 'sat', label: 'Reduce saturation', impact: 1 },
+    {
+      id: 'product-hero',
+      label: 'Make product the hero',
+      impact: 5,
+      promptHint: 'make the advertised product package more dominant, crisp, and shoppable while preserving exact SKU',
+      scalarAdjustments: { groundedness: 6, 'stopping-power': 10, depth: 5, complexity: -4 },
+    },
+    {
+      id: 'label-legibility',
+      label: 'Sharpen label read',
+      impact: 4,
+      promptHint: 'increase product label legibility, glass clarity, and edge definition without inventing new packaging',
+      scalarAdjustments: { hardness: 8, key: 4, materiality: 5, abstraction: -5 },
+    },
+    {
+      id: 'premium-material',
+      label: 'Elevate material cues',
+      impact: 3,
+      promptHint: 'make product materials feel more premium through controlled reflections and tactile surface cues',
+      scalarAdjustments: { materiality: 10, hardness: 4, chromatics: 3 },
+    },
   ],
   cta: [
-    { id: 'clarity', label: 'Increase CTA clarity', impact: 2 },
-    { id: 'button', label: 'Sharpen button contrast', impact: 2 },
+    {
+      id: 'cta-clarity',
+      label: 'Increase CTA clarity',
+      impact: 3,
+      promptHint: 'make the CTA more legible and better separated while preserving exact wording and placement logic',
+      scalarAdjustments: { complexity: -6, 'stopping-power': 7, balance: 4 },
+    },
+    {
+      id: 'cta-breathing-room',
+      label: 'Give CTA breathing room',
+      impact: 2,
+      promptHint: 'increase clean negative space around the CTA and reduce nearby visual interference',
+      scalarAdjustments: { complexity: -8, balance: 5, abstraction: 3 },
+    },
   ],
 } satisfies Record<string, SegmentAnnotation['suggestions']>
 

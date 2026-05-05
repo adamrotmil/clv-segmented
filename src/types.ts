@@ -148,6 +148,10 @@ export type SegmentSuggestion = {
   id: string
   label: string
   impact: number
+  promptHint?: string
+  responseHint?: string
+  rationale?: string
+  scalarAdjustments?: Partial<Record<string, number>>
 }
 
 export type SegmentAnnotation = {
@@ -526,6 +530,14 @@ export type SegmentImageRequest = {
     sourceVariantId?: string
     generationIntent?: CreativeGenerationIntent
     selectedSegmentLabel?: string
+    assetName?: string
+    sourceSummary?: string
+    analysisInstructions?: string[]
+    desiredSegments?: Array<{
+      id: string
+      label: string
+      target: string
+    }>
   }
 }
 

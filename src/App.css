@@ -1767,7 +1767,7 @@ button {
 .segment-flyout {
   position: absolute;
   z-index: 45;
-  width: 164px;
+  width: 218px;
   padding: 12px 12px 10px;
   border: 1px solid #e0e1e6;
   border-radius: 8px;
@@ -1828,6 +1828,23 @@ button {
 
 .suggestion-row span {
   flex: 1;
+}
+
+.suggestion-row b,
+.suggestion-row small {
+  display: block;
+}
+
+.suggestion-row b {
+  color: #42444c;
+  font-weight: 500;
+}
+
+.suggestion-row small {
+  margin-top: 2px;
+  color: #81838c;
+  font-size: 8.5px;
+  line-height: 1.16;
 }
 
 .suggestion-row button,
