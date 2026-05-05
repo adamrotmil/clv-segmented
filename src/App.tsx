@@ -5408,6 +5408,7 @@ function App() {
   async function resolveDoubleDiamondRequest(
     request: CreativeGenerationRequest,
     plan: DoubleDiamondPlan,
+    { explainFallback = false }: { explainFallback?: boolean } = {},
   ): Promise<DoubleDiamondCandidate> {
     const generation = await requestCreativeGeneration(request)
     const generatedImage = await prepareGeneratedImageForCanvas(generation, request)
@@ -5441,7 +5442,9 @@ function App() {
       generation.traceEvents,
       generatedImage.mediaSize,
     )
-    explainFallbackGenerationIfNeeded(request, generation)
+    if (explainFallback) {
+      explainFallbackGenerationIfNeeded(request, generation)
+    }
     void segmentVariantImage({
       variantId: request.id,
       imageUrl: generatedImage.image,
@@ -5455,8 +5458,9 @@ function App() {
 
   async function runDoubleDiamond(variantId: string) {
     const sourceVariant = workingVariants.find((variant) => variant.id === variantId)
-    if (!sourceVariant || pendingPhase === 'remixing') return
+    if (!sourceVariant || (pendingPhase !== 'idle' && pendingPhase !== 'failed')) return
 
+    try {
     const workflowId = `double-diamond-${Date.now()}`
     const sourceRecipe = scalarRecipeForVariant(sourceVariant)
     const firstRemixNumber = maxRemixNumber(variants) + 1
@@ -5538,7 +5542,7 @@ function App() {
           ? {
               ...variant,
               ingredients: Array.from(
-                new Set([...(variant.ingredients ?? []), 'Selected concept']),
+                new Set(['Selected concept', ...(variant.ingredients ?? [])]),
               ).slice(0, 4),
             }
           : variant,
@@ -5628,7 +5632,9 @@ function App() {
       developIds,
       finalIds: [finalRequest.id],
     })
-    const finalCandidate = await resolveDoubleDiamondRequest(finalRequest, finalPlan)
+    const finalCandidate = await resolveDoubleDiamondRequest(finalRequest, finalPlan, {
+      explainFallback: true,
+    })
     const finalTrace: ChangeTrace = {
       id: `${workflowId}-complete`,
       control: 'Double Diamond final',
@@ -5681,7 +5687,36 @@ function App() {
       finalIds: [finalCandidate.variant.id],
     })
     completeWork(`Double Diamond complete in ${Math.round((Date.now() - startedAt) / 1000)}s`)
+    queueAssistantReply(
+      `${finalCandidate.variant.title} is the Double Diamond final. I explored ${divergentCandidates.length} rough directions, selected ${selectedConcepts.length}, developed ${developedCandidates.length}, and recreated the strongest one at high quality.`,
+      'Double Diamond complete',
+      'Finished Double Diamond >',
+    )
     flashToast('Double Diamond complete', 2600)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown workflow error.'
+      window.clearTimeout(workTimer.current)
+      setPendingPhase('failed')
+      setWorkError(`Double Diamond stopped before completion. ${message}`)
+      setAgentTasks((current) =>
+        current.map((task) =>
+          task.id === 'variant'
+            ? {
+                ...task,
+                status: 'failed',
+                output: 'Double Diamond stopped',
+                test: 'Failed',
+              }
+            : task,
+        ),
+      )
+      queueAssistantReply(
+        `Double Diamond stopped before finishing: ${message}. Any completed candidates are still visible on the canvas so you can inspect or remix them manually.`,
+        'Double Diamond stopped',
+        'Stopped Double Diamond >',
+      )
+      flashToast('Double Diamond stopped', 2600)
+    }
   }
 
   function useVariantAsChatContext(variantId: string) {
