@@ -58,6 +58,7 @@ import type {
   ImagePromptPacket,
   ImageInputReference,
   ImageVariant,
+  PromptComposerRequest,
   PromptRecipe,
   SceneDescription,
   SegmentAnnotation,
@@ -130,7 +131,7 @@ type HistoryEntry = ChangeTrace & {
 type GenerationPromptRun = {
   request: CreativeGenerationRequest
   status: 'running' | 'completed'
-  segmentationStatus: 'queued' | 'segmenting' | 'completed' | 'failed'
+  segmentationStatus: 'idle' | 'queued' | 'segmenting' | 'completed' | 'failed'
   imageUrl?: string
   promptRecipe?: PromptRecipe
   providerMode?: string
@@ -328,6 +329,15 @@ const fastImageGenerationModel =
   import.meta.env.VITE_FAST_IMAGE_GENERATION_MODEL?.trim() || defaultFastImageGenerationModel
 const fastImageGenerationUsesPrimaryModel = fastImageGenerationModel === imageGenerationModel
 const promptComposerModel = 'gpt-5.5'
+const doubleDiamondExplorationPromptBudget = {
+  mode: 'compact' as const,
+  reason:
+    'Double Diamond exploration pass: keep rough ideation cheap by sending source-only, low-detail composer context and a concise prompt brief.',
+  composerImageDetail: 'low' as const,
+  includePromptDraft: false,
+  maxComposerInputChars: 6500,
+  maxProviderPromptChars: 3600,
+}
 
 const scoreScalarPreset: Record<string, Pick<AestheticScalar, 'value' | 'marker'>> = {
   staging: { value: 50, marker: 'Constructed' },
@@ -4113,7 +4123,107 @@ function App() {
     ]
   }
 
-  function buildImageInputs(sourceIds: string[], sourceVariant: ImageVariant): ImageInputReference[] {
+  function isDoubleDiamondExplorationWorkflow(workflow?: CreativeGenerationRequest['workflow']) {
+    return workflow?.kind === 'double-diamond' && workflow.stage !== 'final'
+  }
+
+  function promptBudgetForWorkflow(workflow?: CreativeGenerationRequest['workflow']) {
+    return isDoubleDiamondExplorationWorkflow(workflow)
+      ? doubleDiamondExplorationPromptBudget
+      : undefined
+  }
+
+  function shouldUseTypefaceReferencesForWorkflow(workflow?: CreativeGenerationRequest['workflow']) {
+    return !isDoubleDiamondExplorationWorkflow(workflow)
+  }
+
+  function shouldRunSegmentationForRequest(request?: CreativeGenerationRequest) {
+    return !isDoubleDiamondExplorationWorkflow(request?.workflow)
+  }
+
+  function truncateForPromptBudget(value: string, maxChars: number) {
+    if (value.length <= maxChars) return value
+    return `${value.slice(0, Math.max(0, maxChars - 90)).trimEnd()}\n\n[Truncated for Double Diamond exploration prompt budget.]`
+  }
+
+  function compactImagePromptPacket({
+    basePacket,
+    sourceVariant,
+    outputTitle,
+    intent,
+    outputFrame,
+    focusedSegments,
+    scalarChanges,
+    scalarTranslation,
+    trace,
+    promptHints,
+    chatContext,
+    budget,
+  }: {
+    basePacket: ImagePromptPacket
+    sourceVariant: ImageVariant
+    outputTitle: string
+    intent: CreativeGenerationRequest['intent']
+    outputFrame: GenerationOutputFrame
+    focusedSegments: SegmentAnnotation[]
+    scalarChanges: CreativeGenerationRequest['scalarChanges']
+    scalarTranslation: ScalarPromptTranslation
+    trace: ChangeTrace
+    promptHints: string[]
+    chatContext: ChatMessage[]
+    budget: NonNullable<PromptComposerRequest['promptBudget']>
+  }): ImagePromptPacket {
+    const sourceRead =
+      sourceVariant.visualContext?.summary ??
+      `${sourceVariant.title} is the attached source image; inspect its pixels before editing.`
+    const changedScalars = scalarChanges.length
+      ? scalarChanges.map(scalarAdjustmentLine).join('; ')
+      : scalarTranslation.summary
+    const scalarInstructions = scalarTranslation.changedScalarInstructions.length
+      ? scalarTranslation.changedScalarInstructions.slice(0, 8).join(' ')
+      : scalarTranslation.compactObservability.join(' ')
+    const focus = focusedSegments.map(segmentPromptLine).join(' | ') || 'No selected segment.'
+    const recentChat = chatPromptLines(chatContext).slice(-3).join('\n')
+    const compactPrompt = [
+      'Image Prompt',
+      `${aspectRatioPromptForVariant(sourceVariant)} for ${brandCategoryForPrompt(activeCanvasAsset, sourceVariant)}. Use ${sourceVariant.title} as the attached visual source while generating ${outputTitle}.`,
+      `Source read: ${sourceRead}`,
+      `Preserve once, strictly: exact advertised product/package/SKU, exact visible copy, source typography hierarchy/placement logic, and the tall source-frame safe area. ${outputFrame.instruction}`,
+      `Exploration direction: ${trace.what} ${trace.why}`,
+      `Aesthetic factor moves: ${changedScalars}. ${scalarInstructions}`,
+      `Selected focus: ${focus}`,
+      promptHints.length ? `Concept hints: ${promptHints.slice(0, 5).join(' | ')}` : '',
+      recentChat ? `Recent chat: ${recentChat}` : '',
+      intent === 'image-blend'
+        ? 'Blend source ideas only where supported by attached pixels; do not invent unsupported product claims.'
+        : 'Change the visual treatment and concept direction only; keep protected product, copy, typography, and source identity legible.',
+      'No badges, borders, UI, captions, explanatory annotations, or accidental crop.',
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+
+    const promptDraft = truncateForPromptBudget(
+      compactPrompt,
+      Math.max(1200, budget.maxProviderPromptChars ?? 3600),
+    )
+
+    return {
+      ...basePacket,
+      promptDraft,
+      prompt: promptDraft,
+      requestScaffold:
+        'Compact Double Diamond exploration mode: full scaffold omitted before composer/image API to control token spend.',
+      context: basePacket.context.filter((item) =>
+        ['Asset', 'Model', 'Intent', 'Output', 'Source image', 'Frame contract', 'Selected SAM', 'Adjustments', 'Recent chat', 'Trace'].includes(item.label),
+      ),
+    }
+  }
+
+  function buildImageInputs(
+    sourceIds: string[],
+    sourceVariant: ImageVariant,
+    workflow?: CreativeGenerationRequest['workflow'],
+  ): ImageInputReference[] {
     const sourceVariants = [
       sourceVariant,
       ...sourceIds
@@ -4136,7 +4246,9 @@ function App() {
       scalarRecipe: scalarRecipeForVariant(variant),
     })) satisfies ImageInputReference[]
 
-    return [...creativeInputs, ...typefaceReferenceInputs()]
+    return shouldUseTypefaceReferencesForWorkflow(workflow)
+      ? [...creativeInputs, ...typefaceReferenceInputs()]
+      : creativeInputs
   }
 
   function buildImagePromptPacket({
@@ -4403,7 +4515,8 @@ function App() {
     const uniquePromptHints = Array.from(
       new Set([...promptHints, scalarBundlePromptHint(scalarChanges)].filter(Boolean)),
     )
-    const imageInputs = buildImageInputs(sourceIds, sourceVariant)
+    const imageInputs = buildImageInputs(sourceIds, sourceVariant, workflow)
+    const promptBudget = promptBudgetForWorkflow(workflow)
     const outputFrame = outputFrameForVariant(sourceVariant)
     const sourceSegments = segmentsForVariant(sourceVariant)
     const focusedSegmentIds = focusedSegmentIdsOverride?.length
@@ -4434,7 +4547,7 @@ function App() {
       chatContext,
       trace,
     })
-    const imagePrompt = buildImagePromptPacket({
+    const fullImagePrompt = buildImagePromptPacket({
       intent,
       outputTitle,
       sourceVariant,
@@ -4449,8 +4562,24 @@ function App() {
       chatContext,
       focusedSegmentsOverride: focusedSegments,
     })
+    const imagePrompt = promptBudget
+      ? compactImagePromptPacket({
+          basePacket: fullImagePrompt,
+          sourceVariant,
+          outputTitle,
+          intent,
+          outputFrame,
+          focusedSegments,
+          scalarChanges,
+          scalarTranslation,
+          trace,
+          promptHints: uniquePromptHints,
+          chatContext,
+          budget: promptBudget,
+        })
+      : fullImagePrompt
     const promptContextValue = (label: string) =>
-      imagePrompt.context.find((item) => item.label === label)?.value ?? ''
+      fullImagePrompt.context.find((item) => item.label === label)?.value ?? ''
     const sourceFidelityPolicy = sourceFidelityPolicyForRequest({
       intent,
       nextScalars,
@@ -4488,6 +4617,7 @@ function App() {
         copy: promptContextValue('Copywriting'),
         typography: promptContextValue('Typography brand lock'),
       },
+      promptBudget,
       sourceFidelity: sourceFidelityPolicy,
     }
     const selectedGenerationSegment = focusedSegments[0] ?? activeSegment
@@ -4554,7 +4684,7 @@ function App() {
         {
           request,
           status: 'running' as const,
-          segmentationStatus: 'queued' as const,
+          segmentationStatus: shouldRunSegmentationForRequest(request) ? 'queued' : 'idle',
         },
       ],
     )
@@ -4580,6 +4710,7 @@ function App() {
     traceEvents?: GenerationTraceEvent[],
     mediaSize?: ImageVariant['mediaSize'],
     mediaPreparation?: MediaPreparationMetadata,
+    segmentationStatus: GenerationPromptRun['segmentationStatus'] = 'segmenting',
   ) {
     updateGenerationRequestRun(requestId, {
       status: 'completed',
@@ -4591,7 +4722,7 @@ function App() {
       mediaSize,
       mediaPreparation,
       completedAt: new Date().toISOString(),
-      segmentationStatus: 'segmenting',
+      segmentationStatus,
     })
   }
 
@@ -5501,6 +5632,7 @@ function App() {
   ): Promise<DoubleDiamondCandidate> {
     const generation = await requestCreativeGeneration(request)
     const generatedImage = await prepareGeneratedImageForCanvas(generation, request)
+    const runSegmentation = shouldRunSegmentationForRequest(request)
     const variant: ImageVariant = {
       id: request.id,
       title: generation.title,
@@ -5518,7 +5650,7 @@ function App() {
       visualContext: visualContextForGeneratedRequest(request),
       segments: [],
       status: 'ready',
-      segmentationStatus: 'segmenting',
+      segmentationStatus: runSegmentation ? 'segmenting' : 'idle',
     }
 
     resolveGeneratedVariant(variant)
@@ -5531,17 +5663,20 @@ function App() {
       generation.traceEvents,
       generatedImage.mediaSize,
       generatedImage.mediaPreparation,
+      runSegmentation ? 'segmenting' : 'idle',
     )
     if (explainFallback) {
       explainFallbackGenerationIfNeeded(request, generation)
     }
-    void segmentVariantImage({
-      variantId: request.id,
-      imageUrl: generatedImage.image,
-      mediaSize: generatedImage.mediaSize,
-      generationRequest: request,
-      sourceSegments: segmentsForVariant(request.sourceVariant),
-    })
+    if (runSegmentation) {
+      void segmentVariantImage({
+        variantId: request.id,
+        imageUrl: generatedImage.image,
+        mediaSize: generatedImage.mediaSize,
+        generationRequest: request,
+        sourceSegments: segmentsForVariant(request.sourceVariant),
+      })
+    }
 
     return { variant, request, generation, plan }
   }
@@ -9699,7 +9834,11 @@ function generationTraceEventsForRun(run: GenerationPromptRun): GenerationTraceE
         ...workerEvents,
       ]
 
-  if (run.segmentationStatus !== 'queued') {
+  if (
+    run.segmentationStatus === 'segmenting' ||
+    run.segmentationStatus === 'completed' ||
+    run.segmentationStatus === 'failed'
+  ) {
     const hasSegmentationPayload = events.some(
       (event) =>
         event.type === 'payload' &&

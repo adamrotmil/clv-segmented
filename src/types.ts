@@ -448,6 +448,14 @@ export type PromptComposerRequest = {
   promptDraft: string
   requestScaffold: string
   systemHints: string[]
+  promptBudget?: {
+    mode: 'full' | 'compact'
+    reason: string
+    composerImageDetail?: 'low' | 'auto' | 'high'
+    includePromptDraft?: boolean
+    maxComposerInputChars?: number
+    maxProviderPromptChars?: number
+  }
   preservation: {
     product: string
     copy: string

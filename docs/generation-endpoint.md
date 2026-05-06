@@ -22,7 +22,9 @@ The Worker must honor `request.model`, `request.quality`, and `request.workflow`
 - Double Diamond `final`: `gpt-image-2`, `quality: "high"`
 - Normal remixes: `gpt-image-2`, high quality unless the request explicitly says otherwise
 
-Observability should show both the frontend request and actual provider request, including `requestedModel`, `providerModel`, `quality`, `workflow.kind`, `workflow.stage`, and `modelRole`.
+Observability should show both the frontend request and actual provider request, including `requestedModel`, `providerModel`, `quality`, `workflow.kind`, `workflow.stage`, `modelRole`, prompt character counts, and usage when the provider returns it.
+
+Cost guardrail: Double Diamond exploration (`diverge` and `develop`) uses a compact prompt budget. Those requests send source-only image context, omit typography reference images, ask the composer to use low-detail vision, exclude the full prompt scaffold from composer input, cap the compact composer input, and skip segmentation until the final convergence pass. Normal remixes and Double Diamond final convergence keep the richer source-fidelity path.
 
 ## Request Shape
 
@@ -76,6 +78,14 @@ The app sends a `CreativeGenerationRequest` payload. The important server-facing
     promptDraft: string
     requestScaffold: string
     systemHints: string[]
+    promptBudget?: {
+      mode: "full" | "compact"
+      reason: string
+      composerImageDetail?: "low" | "auto" | "high"
+      includePromptDraft?: boolean
+      maxComposerInputChars?: number
+      maxProviderPromptChars?: number
+    }
     preservation: {
       product: string
       copy: string
@@ -98,21 +108,21 @@ The app sends a `CreativeGenerationRequest` payload. The important server-facing
 }
 ```
 
-`imagePrompt.prompt` remains for backward compatibility. Treat `promptComposer.promptDraft` and `promptComposer.requestScaffold` as source material for the composer LLM.
+`imagePrompt.prompt` remains for backward compatibility. Treat `promptComposer.promptDraft` and `promptComposer.requestScaffold` as source material for the composer LLM only in full-budget requests. In compact Double Diamond exploration, the Worker must not send the full draft/scaffold to the composer.
 
 ## Server Pipeline
 
 Use an orchestrated `POST /generate` endpoint:
 
-1. Build a prompt-composer call from `promptComposer`.
+1. Build a prompt-composer call from `promptComposer`, honoring `promptBudget` before sending anything to OpenAI.
 2. Use a multimodal model to inspect the source image inputs and write a final creative prompt.
 3. Choose the provider model from the request/workflow: fast model for Double Diamond `diverge`/`develop`, primary model for final convergence and normal remixing.
-4. Call the image edit route with the selected provider model, requested quality, the composer-authored final prompt, and actual image bytes for the source/reference images.
+4. Call the image edit route with the selected provider model, requested quality, the composer-authored final prompt, and actual image bytes for the source/reference images. Compact exploration should send only the source image.
 5. Retry the edit route with stricter preservation language if the first edit fails or safety blocks.
 6. Only enter text-to-image fallback when the Worker explicitly reports `providerMode: "safety-retry-generation"`.
 7. Run a post-generation critic for product, copy, typography, identity, and source relation.
 8. Return the image, composer metadata, source-fidelity verdict, and evidence for observability.
-9. Run segmentation from `/segment` after the image returns, or let the frontend call `/segment` as it does today.
+9. Run segmentation from `/segment` after the image returns, or let the frontend call `/segment` as it does today. Skip segmentation for Double Diamond rough/develop candidates unless the user later selects one for detailed editing.
 
 Normal remix requests must not silently use text-to-image generation. If the source image is not attached to the image model call, the Worker should return a warning or failure state rather than a normal passed remix.
 
